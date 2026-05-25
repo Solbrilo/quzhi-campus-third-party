@@ -1,0 +1,34 @@
+# Sensitive user data
+1.chls
+last_hotwater_order.json
+esp32_hotwater/main/hotwater_secrets.h
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / local workspace
+.vscode/
+.idea/
+.codeartsdoer/
+
+# Android local/build artifacts
+android_hotwater/.gradle/
+android_hotwater/.idea/
+android_hotwater/.kotlin/
+android_hotwater/app/build/
+android_hotwater/gradle-8.9-bin.zip
+android_hotwater/.gradle-dist/
+
+# Harmony local/build artifacts
+harmony_hotwater/.hvigor/
+harmony_hotwater/.idea/
+harmony_hotwater/.appanalyzer/
+harmony_hotwater/entry/build/
+
+# ESP32 local/build artifacts
+esp32_hotwater/build/
+esp32_hotwater/sdkconfig
+esp32_hotwater/sdkconfig.old
