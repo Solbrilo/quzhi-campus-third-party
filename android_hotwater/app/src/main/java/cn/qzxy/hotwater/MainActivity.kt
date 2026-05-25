@@ -12,7 +12,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.lifecycleScope
 import cn.qzxy.hotwater.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
@@ -216,9 +215,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderOperationSnapshot(snapshot: DashboardSnapshot) {
         val preparedConfig = store.loadConfig()
         binding.balanceAmountText.text = if (snapshot.balanceLabel == "--") "¥ --" else "¥ ${snapshot.balanceLabel}"
-        binding.accountText.text = "账号 ${snapshot.userLabel}"
-        binding.locationText.text = snapshot.locationLabel
-        binding.deviceText.text = snapshot.deviceName
+        binding.accountText.text = "账号：${snapshot.userLabel}"
+        binding.locationText.text = "宿舍位置：${snapshot.locationLabel}"
+        binding.deviceText.text = "设备：${snapshot.deviceName}"
         binding.statusPill.text = snapshot.statusLabel
         binding.toggleHotWaterButton.text = if (snapshot.hasCachedOrder) "关" else "开"
         binding.toggleHotWaterButton.setBackgroundResource(
@@ -228,11 +227,18 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.glass_circle_button_open_background
             },
         )
-        binding.actionHalo.setBackgroundResource(
+        binding.actionOuterCircle.setBackgroundResource(
             if (snapshot.hasCachedOrder) {
                 R.drawable.glass_halo_close
             } else {
                 R.drawable.glass_halo_open
+            },
+        )
+        binding.actionInnerCircle.setBackgroundResource(
+            if (snapshot.hasCachedOrder) {
+                R.drawable.loading_ring_close
+            } else {
+                R.drawable.loading_ring_open
             },
         )
         binding.actionLoadingRing.setBackgroundResource(
@@ -266,10 +272,14 @@ class MainActivity : AppCompatActivity() {
 
         val activeTextColor = ContextCompat.getColor(this, R.color.text_primary)
         val inactiveTextColor = ContextCompat.getColor(this, R.color.text_secondary)
-        binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) activeTextColor else inactiveTextColor)
-        binding.configTab.setTextColor(if (page == AppPage.CONFIG) activeTextColor else inactiveTextColor)
-
-        animateTabIndicator(page, animated)
+        binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) android.graphics.Color.WHITE else inactiveTextColor)
+        binding.configTab.setTextColor(if (page == AppPage.CONFIG) android.graphics.Color.WHITE else inactiveTextColor)
+        binding.operationsTab.setBackgroundResource(
+            if (page == AppPage.OPERATIONS) R.drawable.tab_active_background else R.drawable.tab_inactive_background
+        )
+        binding.configTab.setBackgroundResource(
+            if (page == AppPage.CONFIG) R.drawable.tab_active_background else R.drawable.tab_inactive_background
+        )
 
         val incoming = if (page == AppPage.OPERATIONS) binding.operationsPage else binding.configPage
         val outgoing = if (page == AppPage.OPERATIONS) binding.configPage else binding.operationsPage
@@ -372,28 +382,6 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             "还没完成配置。导入 .chls 后会自动填充大部分关键字段。"
-        }
-    }
-
-    private fun animateTabIndicator(page: AppPage, animated: Boolean) {
-        binding.bottomDock.post {
-            val targetTab = if (page == AppPage.OPERATIONS) binding.operationsTab else binding.configTab
-            val targetX = binding.bottomDockTabs.x + targetTab.x
-
-            binding.tabIndicator.updateLayoutParams {
-                width = targetTab.width
-                height = targetTab.height
-            }
-            binding.tabIndicator.y = binding.bottomDockTabs.y
-
-            if (!animated || binding.tabIndicator.width == 0) {
-                binding.tabIndicator.x = targetX
-            } else {
-                binding.tabIndicator.animate()
-                    .x(targetX)
-                    .setDuration(260L)
-                    .start()
-            }
         }
     }
 
