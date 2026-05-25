@@ -32,3 +32,6 @@ harmony_hotwater/entry/build/
 esp32_hotwater/build/
 esp32_hotwater/sdkconfig
 esp32_hotwater/sdkconfig.old
+esp32_hotwater/
+scripts/
+test.py
