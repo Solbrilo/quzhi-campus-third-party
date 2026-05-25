@@ -1,0 +1,36 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "趣智校园热水"
+    },
+    {
+      "name": "module_desc",
+      "value": "HarmonyOS hot water controller"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "热水控制首页"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "趣智校园热水"
+    },
+    {
+      "name": "EntryFormAbility_desc",
+      "value": "热水控制桌面卡片"
+    },
+    {
+      "name": "EntryFormAbility_label",
+      "value": "热水桌面卡片"
+    },
+    {
+      "name": "widget_desc",
+      "value": "桌面快速打开、开热水和关热水。"
+    },
+    {
+      "name": "widget_display_name",
+      "value": "热水控制"
+    }
+  ]
+}
