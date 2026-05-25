@@ -8,19 +8,21 @@
     tools:context=".MainActivity">
 
     <View
-        android:layout_width="260dp"
-        android:layout_height="260dp"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
         android:layout_gravity="top|end"
-        android:layout_marginTop="-72dp"
-        android:layout_marginEnd="-48dp"
+        android:layout_marginTop="-80dp"
+        android:layout_marginEnd="-72dp"
+        android:alpha="0.24"
         android:background="@drawable/orb_sky" />
 
     <View
-        android:layout_width="220dp"
-        android:layout_height="220dp"
+        android:layout_width="240dp"
+        android:layout_height="240dp"
         android:layout_gravity="bottom|start"
-        android:layout_marginStart="-44dp"
-        android:layout_marginBottom="96dp"
+        android:layout_marginStart="-56dp"
+        android:layout_marginBottom="48dp"
+        android:alpha="0.18"
         android:background="@drawable/orb_peach" />
 
     <LinearLayout
@@ -69,31 +71,21 @@
                     android:background="@drawable/card_background"
                     android:elevation="10dp"
                     android:orientation="vertical"
-                    android:padding="18dp">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="可用余额"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                    android:padding="14dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
                         <TextView
-                            android:id="@+id/balanceAmountText"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="¥ --"
-                            android:textColor="@color/text_primary"
-                            android:textSize="40sp"
-                            android:textStyle="bold" />
+                            android:text="可用余额"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
 
                         <TextView
                             android:id="@+id/refreshBalanceButton"
@@ -104,116 +96,71 @@
                             android:elevation="6dp"
                             android:focusable="true"
                             android:gravity="center"
-                            android:minWidth="72dp"
-                            android:paddingStart="14dp"
-                            android:paddingTop="10dp"
-                            android:paddingEnd="14dp"
-                            android:paddingBottom="10dp"
+                            android:minWidth="60dp"
+                            android:paddingStart="12dp"
+                            android:paddingTop="6dp"
+                            android:paddingEnd="12dp"
+                            android:paddingBottom="6dp"
                             android:text="刷新"
                             android:textColor="@color/text_primary"
-                            android:textSize="13sp"
+                            android:textSize="12sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/balanceAmountText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="¥ --"
+                        android:textColor="@color/text_primary"
+                        android:textSize="32sp"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/statusPill"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
+                        android:layout_marginTop="8dp"
                         android:background="@drawable/status_chip_background"
-                        android:paddingStart="12dp"
-                        android:paddingTop="8dp"
-                        android:paddingEnd="12dp"
-                        android:paddingBottom="8dp"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="4dp"
                         android:textColor="@color/text_primary"
-                        android:textSize="12sp"
+                        android:textSize="11sp"
                         tools:text="当前没有缓存订单号，点击主按钮将尝试开热水。" />
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/locationText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:orientation="horizontal">
+                        android:layout_marginTop="8dp"
+                        android:text="宿舍位置：先完成配置再刷新"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        tools:text="宿舍位置：楠苑 5 栋 214" />
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:background="@drawable/mini_glass_card_background"
-                            android:orientation="vertical"
-                            android:padding="14dp">
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="宿舍位置"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-
-                            <TextView
-                                android:id="@+id/locationText"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp"
-                                android:textColor="@color/text_primary"
-                                android:textSize="15sp"
-                                android:textStyle="bold"
-                                tools:text="楠苑 5 栋 214" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="12dp"
-                            android:layout_weight="1"
-                            android:background="@drawable/mini_glass_card_background"
-                            android:orientation="vertical"
-                            android:padding="14dp">
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="当前账号"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="12sp" />
-
-                            <TextView
-                                android:id="@+id/accountText"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp"
-                                android:textColor="@color/text_primary"
-                                android:textSize="15sp"
-                                android:textStyle="bold"
-                                tools:text="账号 158****4530" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/deviceText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:background="@drawable/mini_glass_card_background"
-                        android:orientation="vertical"
-                        android:padding="14dp">
+                        android:layout_marginTop="4dp"
+                        android:text="设备：热水设备待刷新"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        tools:text="设备：淋浴区热水设备" />
 
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="设备"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:id="@+id/deviceText"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:textColor="@color/text_primary"
-                            android:textSize="15sp"
-                            android:textStyle="bold"
-                            tools:text="淋浴区热水设备" />
-                    </LinearLayout>
+                    <TextView
+                        android:id="@+id/accountText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="账号：未导入账号"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        tools:text="账号：158****4530" />
                 </LinearLayout>
 
                 <TextView
@@ -228,31 +175,40 @@
 
                 <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="280dp"
                     android:layout_marginTop="12dp"
                     android:foregroundGravity="center"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp">
 
                     <View
-                        android:id="@+id/actionHalo"
-                        android:layout_width="252dp"
-                        android:layout_height="252dp"
+                        android:id="@+id/actionOuterCircle"
+                        android:layout_width="268dp"
+                        android:layout_height="268dp"
                         android:layout_gravity="center"
+                        android:alpha="0.22"
                         android:background="@drawable/glass_halo_open" />
 
                     <View
+                        android:id="@+id/actionInnerCircle"
+                        android:layout_width="236dp"
+                        android:layout_height="236dp"
+                        android:layout_gravity="center"
+                        android:alpha="0.62"
+                        android:background="@drawable/loading_ring_open" />
+
+                    <View
                         android:id="@+id/actionLoadingRing"
-                        android:layout_width="252dp"
-                        android:layout_height="252dp"
+                        android:layout_width="240dp"
+                        android:layout_height="240dp"
                         android:layout_gravity="center"
                         android:background="@drawable/loading_ring_open"
                         android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/toggleHotWaterButton"
-                        android:layout_width="220dp"
-                        android:layout_height="220dp"
+                        android:layout_width="200dp"
+                        android:layout_height="200dp"
                         android:layout_gravity="center"
                         android:background="@drawable/glass_circle_button_open_background"
                         android:clickable="true"
@@ -261,7 +217,7 @@
                         android:gravity="center"
                         android:text="开"
                         android:textColor="@color/text_primary"
-                        android:textSize="64sp"
+                        android:textSize="56sp"
                         android:textStyle="bold" />
                 </FrameLayout>
 
@@ -513,61 +469,49 @@
             </LinearLayout>
         </ScrollView>
 
-        <FrameLayout
+        <LinearLayout
             android:id="@+id/bottomDock"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:background="@drawable/bottom_dock_background"
             android:elevation="16dp"
+            android:orientation="horizontal"
             android:padding="8dp">
 
-            <View
-                android:id="@+id/tabIndicator"
+            <TextView
+                android:id="@+id/operationsTab"
                 android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:background="@drawable/tab_active_background" />
-
-            <LinearLayout
-                android:id="@+id/bottomDockTabs"
-                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:layout_weight="1"
+                android:background="@drawable/tab_active_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingTop="13dp"
+                android:paddingBottom="13dp"
+                android:text="操作页"
+                android:textColor="@android:color/white"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/operationsTab"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@android:color/transparent"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:paddingTop="13dp"
-                    android:paddingBottom="13dp"
-                    android:text="操作页"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/configTab"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@android:color/transparent"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:paddingTop="13dp"
-                    android:paddingBottom="13dp"
-                    android:text="配置页"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </FrameLayout>
+            <TextView
+                android:id="@+id/configTab"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:background="@drawable/tab_inactive_background"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingTop="13dp"
+                android:paddingBottom="13dp"
+                android:text="配置页"
+                android:textColor="@color/text_secondary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
 </FrameLayout>
