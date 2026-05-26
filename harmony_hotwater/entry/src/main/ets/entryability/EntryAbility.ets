@@ -1,6 +1,6 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { window } from '@kit.ArkUI';
+import { display, window } from '@kit.ArkUI';
 import { LaunchActionBridge } from '../common/LaunchActionBridge';
 
 const DOMAIN = 0x0000;
@@ -17,7 +17,6 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
     windowStage.loadContent('pages/Index', (err) => {
@@ -27,15 +26,15 @@ export default class EntryAbility extends UIAbility {
       }
       hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
     });
+
+    this.setupImmersiveWindow(windowStage);
   }
 
   onWindowStageDestroy(): void {
-    // Main window is destroyed, release UI related resources
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }
 
   onForeground(): void {
-    // Ability has brought to foreground
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
   }
 
@@ -45,8 +44,33 @@ export default class EntryAbility extends UIAbility {
   }
 
   onBackground(): void {
-    // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+  }
+
+  private async setupImmersiveWindow(windowStage: window.WindowStage): Promise<void> {
+    try {
+      const win = windowStage.getMainWindowSync();
+      win.setWindowLayoutFullScreen(true);
+
+      await win.setWindowSystemBarProperties({
+        statusBarColor: '#00FFFFFF',
+        statusBarContentColor: '#11213B',
+        navigationBarColor: '#00FFFFFF',
+        navigationBarContentColor: '#11213B'
+      });
+
+      const avoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      AppStorage.setOrCreate('statusBarHeight', this.px2vp(avoidArea.topRect.height));
+
+      const bottomAvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
+      AppStorage.setOrCreate('bottomSafeHeight', this.px2vp(bottomAvoidArea.bottomRect.height));
+    } catch (err) {
+      hilog.warn(DOMAIN, 'testTag', 'setupImmersiveWindow fallback, using default layout');
+    }
+  }
+
+  private px2vp(px: number): number {
+    return px / (display.getDefaultDisplaySync().densityDPI / 160);
   }
 
   private applyLaunchAction(want: Want): void {
