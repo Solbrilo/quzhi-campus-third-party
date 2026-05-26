@@ -4,7 +4,7 @@ import android.animation.ObjectAnimator
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.view.animation.LinearInterpolator
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -234,13 +234,6 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.glass_halo_open
             },
         )
-        binding.actionInnerCircle.setBackgroundResource(
-            if (snapshot.hasCachedOrder) {
-                R.drawable.loading_ring_close
-            } else {
-                R.drawable.loading_ring_open
-            },
-        )
         binding.actionLoadingRing.setBackgroundResource(
             if (snapshot.hasCachedOrder) {
                 R.drawable.loading_ring_close
@@ -390,9 +383,9 @@ class MainActivity : AppCompatActivity() {
             binding.actionLoadingRing.visibility = View.VISIBLE
             if (loadingRingAnimator == null) {
                 loadingRingAnimator = ObjectAnimator.ofFloat(binding.actionLoadingRing, View.ROTATION, 0f, 360f).apply {
-                    duration = 1050L
+                    duration = 1200L
                     repeatCount = ObjectAnimator.INFINITE
-                    interpolator = LinearInterpolator()
+                    interpolator = AccelerateDecelerateInterpolator()
                 }
             }
             loadingRingAnimator?.start()
