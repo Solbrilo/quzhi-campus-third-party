@@ -1,9 +1,24 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\86158\\.ohos\\config\\default_harmony_hotwater_Ymf0W3kYo2l_Yyna8ajFqBwR2wFmHBk-33ZBcVvV04c=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BB9AEC63951E73C07F4424476F7AD74B4291FE58F68D9E8C0AC65EEFD910A041CE140C85876D837",
+          "profile": "C:\\Users\\86158\\.ohos\\config\\default_harmony_hotwater_Ymf0W3kYo2l_Yyna8ajFqBwR2wFmHBk-33ZBcVvV04c=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\86158\\.ohos\\config\\default_harmony_hotwater_Ymf0W3kYo2l_Yyna8ajFqBwR2wFmHBk-33ZBcVvV04c=.p12",
+          "storePassword": "0000001B2C0EEEEC408AF6F96F8A69540E1111DB1F1617577DDB1B20CC572AB625F45A282D61B565A2E403"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
+        "signingConfig": "default",
         "compatibleSdkVersion": "5.0.0(12)",
         "targetSdkVersion": "5.0.0(12)",
         "runtimeOS": "HarmonyOS"
@@ -11,7 +26,7 @@
     ],
     "buildModeSet": [
       {
-        "name": "debug",
+        "name": "debug"
       },
       {
         "name": "release"
