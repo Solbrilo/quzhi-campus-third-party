@@ -190,14 +190,6 @@
                         android:background="@drawable/glass_halo_open" />
 
                     <View
-                        android:id="@+id/actionInnerCircle"
-                        android:layout_width="236dp"
-                        android:layout_height="236dp"
-                        android:layout_gravity="center"
-                        android:alpha="0.62"
-                        android:background="@drawable/loading_ring_open" />
-
-                    <View
                         android:id="@+id/actionLoadingRing"
                         android:layout_width="240dp"
                         android:layout_height="240dp"
