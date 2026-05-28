@@ -1,0 +1,141 @@
+package cn.qzxy.hotwater
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val store = HotWaterConfigStore(application)
+    private val repository = HotWaterRepository(HotWaterApi(), store)
+
+    private val _snapshot = MutableStateFlow<DashboardSnapshot?>(null)
+    val snapshot: StateFlow<DashboardSnapshot?> = _snapshot.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _statusMessage = MutableStateFlow("")
+    val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
+
+    private val _config = MutableStateFlow(store.loadConfig())
+    val config: StateFlow<HotWaterConfig> = _config.asStateFlow()
+
+    fun initialize() {
+        val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
+        _config.value = preparedConfig
+        _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
+
+        if (preparedConfig.isComplete()) {
+            refreshBalance(announce = false)
+        } else {
+            _statusMessage.value = "请先到配置页填写参数。"
+        }
+    }
+
+    fun refreshBalance(announce: Boolean = true) {
+        runOperation(
+            busyMessage = if (announce) "正在刷新余额…" else "正在同步余额…",
+        ) { config ->
+            repository.check(config)
+        }
+    }
+
+    fun toggle() {
+        val shouldClose = _snapshot.value?.hasCachedOrder == true || !store.loadOrderNo().isNullOrBlank()
+        runOperation(
+            busyMessage = if (shouldClose) "正在关闭热水…" else "正在开启热水…",
+        ) { config ->
+            if (shouldClose) repository.close(config) else repository.open(config)
+        }
+    }
+
+    fun saveConfig(rawConfig: HotWaterConfig) {
+        val prepared = persistRuntimeInfoIfNeeded(rawConfig)
+        store.saveConfig(prepared)
+        _config.value = prepared
+        _snapshot.value = buildPlaceholderSnapshot(prepared)
+        store.saveWidgetState(
+            title = "配置已就绪",
+            message = "桌面小组件和主按钮现在都可以直接使用。",
+            isBusy = false,
+        )
+        HotWaterWidgetUi.updateAllWidgets(getApplication())
+        _statusMessage.value = "配置已保存，正在同步关键数据…"
+        if (prepared.isComplete()) {
+            refreshBalance(announce = false)
+        }
+    }
+
+    fun getConfig(): HotWaterConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
+
+    private fun runOperation(
+        busyMessage: String,
+        block: suspend (HotWaterConfig) -> OperationResult,
+    ) {
+        val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
+        if (!preparedConfig.isComplete()) {
+            _statusMessage.value = "配置还不完整，请先到配置页补全字段。"
+            return
+        }
+
+        _busy.value = true
+        _statusMessage.value = busyMessage
+
+        viewModelScope.launch {
+            try {
+                val result = block(preparedConfig)
+                _snapshot.value = result.snapshot ?: buildPlaceholderSnapshot(preparedConfig)
+                _statusMessage.value = HotWaterUiText.firstMeaningfulLine(result.summary)
+                syncWidgetStatus(result.title, result.summary)
+            } catch (error: Exception) {
+                _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
+                val message = HotWaterUiText.summarizeError(error)
+                _statusMessage.value = message
+                syncWidgetStatus("操作失败", message)
+            } finally {
+                _busy.value = false
+            }
+        }
+    }
+
+    private fun persistRuntimeInfoIfNeeded(config: HotWaterConfig): HotWaterConfig {
+        val prepared = RuntimeDeviceInfoResolver.enrichConfig(getApplication(), config)
+        if (prepared != config) {
+            store.saveConfig(prepared)
+        }
+        return prepared
+    }
+
+    private fun buildPlaceholderSnapshot(config: HotWaterConfig): DashboardSnapshot {
+        val cachedOrderNo = store.loadOrderNo()
+        return DashboardSnapshot(
+            balanceYuan = 0.0,
+            balanceLabel = "--",
+            userLabel = config.telephone.takeIf { it.isNotBlank() }
+                ?.let { HotWaterConfig.maskMiddle(it, 3, 4) }
+                ?: "未填写账号",
+            deviceName = "热水设备待刷新",
+            locationLabel = if (config.isComplete()) "点刷新余额后自动识别宿舍位置" else "先完成配置后再自动识别",
+            statusLabel = when {
+                !config.isComplete() -> "当前配置还不完整。"
+                !cachedOrderNo.isNullOrBlank() -> "已缓存订单号，主按钮现在会显示为关。"
+                else -> "当前没有缓存订单号，主按钮现在会显示为开。"
+            },
+            orderNo = cachedOrderNo,
+            hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
+        )
+    }
+
+    private fun syncWidgetStatus(title: String, summary: String) {
+        store.saveWidgetState(
+            title = title,
+            message = HotWaterUiText.firstMeaningfulLine(summary).ifBlank { "请求已执行。" },
+            isBusy = false,
+        )
+        HotWaterWidgetUi.updateAllWidgets(getApplication())
+    }
+}

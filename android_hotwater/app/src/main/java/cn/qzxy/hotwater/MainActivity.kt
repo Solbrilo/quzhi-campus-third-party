@@ -1,18 +1,20 @@
 package cn.qzxy.hotwater
 
 import android.animation.ObjectAnimator
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import cn.qzxy.hotwater.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
@@ -23,20 +25,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var store: HotWaterConfigStore
-    private lateinit var repository: HotWaterRepository
+    private val viewModel: MainViewModel by viewModels()
 
     private var currentPage: AppPage = AppPage.OPERATIONS
-    private var currentSnapshot: DashboardSnapshot? = null
-    private var busy = false
     private var loadingRingAnimator: ObjectAnimator? = null
-
-    private val openDocumentLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri != null) {
-                importCapture(uri)
-            }
-        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,108 +42,82 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        store = HotWaterConfigStore(this)
-        repository = HotWaterRepository(HotWaterApi(), store)
+        binding.configPage.viewTreeObserver.addOnGlobalFocusChangeListener { _, newFocus ->
+            if (newFocus != null) {
+                newFocus.postDelayed({
+                    binding.configPage.scrollTo(0, calculateScrollY(binding.configPage, newFocus))
+                }, 200)
+            }
+        }
 
         bindActions()
+        observeState()
 
-        val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         renderRuntimeDeviceInfo()
-        renderConfig(preparedConfig)
-        currentSnapshot = buildPlaceholderSnapshot(preparedConfig)
-        renderOperationSnapshot(currentSnapshot ?: buildPlaceholderSnapshot(preparedConfig))
         switchPage(AppPage.OPERATIONS, animated = false)
 
-        if (preparedConfig.isComplete()) {
-            executeRefreshBalance(announce = false)
-        } else {
-            renderLiveStatus("先到配置页导入 .chls 或填写参数。")
-        }
+        viewModel.initialize()
     }
 
     private fun bindActions() {
         binding.operationsTab.setOnClickListener { switchPage(AppPage.OPERATIONS) }
         binding.configTab.setOnClickListener { switchPage(AppPage.CONFIG) }
 
-        binding.importButton.setOnClickListener {
-            openDocumentLauncher.launch(arrayOf("*/*"))
-        }
-
         binding.saveButton.setOnClickListener {
-            val config = collectAndSaveConfig()
-            currentSnapshot = buildPlaceholderSnapshot(config)
-            renderOperationSnapshot(currentSnapshot ?: buildPlaceholderSnapshot(config))
+            val rawConfig = collectConfigInput()
+            viewModel.saveConfig(rawConfig)
             switchPage(AppPage.OPERATIONS)
-            renderLiveStatus("配置已保存，正在同步关键数据…")
-            if (config.isComplete()) {
-                executeRefreshBalance(announce = false)
-            }
             toast("配置已保存")
         }
 
         binding.refreshBalanceButton.setOnClickListener {
-            executeRefreshBalance(announce = true)
+            viewModel.refreshBalance()
         }
 
         binding.toggleHotWaterButton.setOnClickListener {
-            executeToggle()
+            viewModel.toggle()
         }
     }
 
-    private fun executeRefreshBalance(announce: Boolean) {
-        runOperation(
-            busyMessage = if (announce) "正在刷新余额…" else "正在同步余额…",
-        ) { config ->
-            repository.check(config)
-        }
-    }
-
-    private fun executeToggle() {
-        val shouldClose = currentSnapshot?.hasCachedOrder == true || !store.loadOrderNo().isNullOrBlank()
-        runOperation(
-            busyMessage = if (shouldClose) "正在关闭热水…" else "正在开启热水…",
-        ) { config ->
-            if (shouldClose) repository.close(config) else repository.open(config)
-        }
-    }
-
-    private fun runOperation(
-        busyMessage: String,
-        block: suspend (HotWaterConfig) -> OperationResult,
-    ) {
-        val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
-        if (!preparedConfig.isComplete()) {
-            switchPage(AppPage.CONFIG)
-            renderLiveStatus("配置还不完整，先导入 .chls 或补全字段。")
-            toast("请先完成配置")
-            return
-        }
-
-        setBusy(true)
-        renderLiveStatus(busyMessage)
-
+    private fun observeState() {
         lifecycleScope.launch {
-            try {
-                val result = block(preparedConfig)
-                currentSnapshot = result.snapshot ?: buildPlaceholderSnapshot(preparedConfig)
-                renderOperationSnapshot(currentSnapshot ?: buildPlaceholderSnapshot(preparedConfig))
-                renderLiveStatus(HotWaterUiText.firstMeaningfulLine(result.summary))
-                syncWidgetStatus(result.title, result.summary)
-            } catch (error: Exception) {
-                currentSnapshot = buildPlaceholderSnapshot(preparedConfig)
-                renderOperationSnapshot(currentSnapshot ?: buildPlaceholderSnapshot(preparedConfig))
-                val message = HotWaterUiText.summarizeError(error)
-                renderLiveStatus(message)
-                syncWidgetStatus("操作失败", message)
-            } finally {
-                setBusy(false)
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.snapshot.collect { snapshot ->
+                        val display = snapshot ?: return@collect
+                        renderOperationSnapshot(display)
+                    }
+                }
+                launch {
+                    viewModel.busy.collect { busy ->
+                        updateActionLoadingState(busy)
+                        binding.saveButton.isEnabled = !busy
+                        val config = viewModel.config.value
+                        val canOperate = config.isComplete()
+                        binding.toggleHotWaterButton.isEnabled = canOperate && !busy
+                        binding.refreshBalanceButton.isEnabled = canOperate && !busy
+                    }
+                }
+                launch {
+                    viewModel.statusMessage.collect { message ->
+                        if (message.isNotBlank()) {
+                            renderLiveStatus(message)
+                        }
+                    }
+                }
+                launch {
+                    viewModel.config.collect { config ->
+                        renderConfig(config)
+                        renderRuntimeDeviceInfo()
+                    }
+                }
             }
         }
     }
 
-    private fun collectAndSaveConfig(): HotWaterConfig {
-        val existing = store.loadConfig()
-        val rawConfig = HotWaterConfig(
+    private fun collectConfigInput(): HotWaterConfig {
+        val existing = viewModel.getConfig()
+        return HotWaterConfig(
             projectId = binding.projectIdInput.text.toString().trim().toIntOrNull(),
             userId = binding.userIdInput.text.toString().trim().toIntOrNull(),
             accountId = binding.accountIdInput.text.toString().trim().toIntOrNull(),
@@ -162,18 +128,6 @@ class MainActivity : AppCompatActivity() {
             phoneSystem = existing.phoneSystem,
             version = existing.version,
         )
-
-        val prepared = persistRuntimeInfoIfNeeded(rawConfig)
-        store.saveConfig(prepared)
-        renderRuntimeDeviceInfo()
-        renderConfig(prepared)
-        store.saveWidgetState(
-            title = "配置已就绪",
-            message = "桌面小组件和主按钮现在都可以直接使用。",
-            isBusy = false,
-        )
-        HotWaterWidgetUi.updateAllWidgets(this)
-        return prepared
     }
 
     private fun renderConfig(config: HotWaterConfig) {
@@ -189,31 +143,10 @@ class MainActivity : AppCompatActivity() {
     private fun renderRuntimeDeviceInfo() {
         val runtimeInfo = RuntimeDeviceInfoResolver.resolve(this)
         binding.systemInfoValue.text = runtimeInfo.systemLabel
-        binding.macAddressValue.text = runtimeInfo.macAddressLabel
-    }
-
-    private fun buildPlaceholderSnapshot(config: HotWaterConfig): DashboardSnapshot {
-        val cachedOrderNo = store.loadOrderNo()
-        return DashboardSnapshot(
-            balanceYuan = 0.0,
-            balanceLabel = "--",
-            userLabel = config.telephone.takeIf { it.isNotBlank() }
-                ?.let { HotWaterConfig.maskMiddle(it, 3, 4) }
-                ?: "未导入账号",
-            deviceName = "热水设备待刷新",
-            locationLabel = if (config.isComplete()) "点刷新余额后自动识别宿舍位置" else "先完成配置后再自动识别",
-            statusLabel = when {
-                !config.isComplete() -> "当前配置还不完整。"
-                !cachedOrderNo.isNullOrBlank() -> "已缓存订单号，主按钮现在会显示为关。"
-                else -> "当前没有缓存订单号，主按钮现在会显示为开。"
-            },
-            orderNo = cachedOrderNo,
-            hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
-        )
     }
 
     private fun renderOperationSnapshot(snapshot: DashboardSnapshot) {
-        val preparedConfig = store.loadConfig()
+        val config = viewModel.config.value
         binding.balanceAmountText.text = if (snapshot.balanceLabel == "--") "¥ --" else "¥ ${snapshot.balanceLabel}"
         binding.accountText.text = "账号：${snapshot.userLabel}"
         binding.locationText.text = "宿舍位置：${snapshot.locationLabel}"
@@ -248,9 +181,10 @@ class MainActivity : AppCompatActivity() {
             "当前没有缓存订单号，点击大按钮将尝试开热水。"
         }
 
-        val canOperate = preparedConfig.isComplete()
-        binding.toggleHotWaterButton.isEnabled = canOperate && !busy
-        binding.refreshBalanceButton.isEnabled = canOperate && !busy
+        val canOperate = config.isComplete()
+        val isBusy = viewModel.busy.value
+        binding.toggleHotWaterButton.isEnabled = canOperate && !isBusy
+        binding.refreshBalanceButton.isEnabled = canOperate && !isBusy
         binding.toggleHotWaterButton.alpha = if (canOperate) 1f else 0.55f
         binding.refreshBalanceButton.alpha = if (canOperate) 1f else 0.55f
     }
@@ -263,7 +197,6 @@ class MainActivity : AppCompatActivity() {
         val previousPage = currentPage
         currentPage = page
 
-        val activeTextColor = ContextCompat.getColor(this, R.color.text_primary)
         val inactiveTextColor = ContextCompat.getColor(this, R.color.text_secondary)
         binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) android.graphics.Color.WHITE else inactiveTextColor)
         binding.configTab.setTextColor(if (page == AppPage.CONFIG) android.graphics.Color.WHITE else inactiveTextColor)
@@ -312,60 +245,6 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
-    private fun setBusy(value: Boolean) {
-        busy = value
-        updateActionLoadingState(value)
-        binding.importButton.isEnabled = !value
-        binding.saveButton.isEnabled = !value
-        renderOperationSnapshot(currentSnapshot ?: buildPlaceholderSnapshot(store.loadConfig()))
-    }
-
-    private fun importCapture(uri: Uri) {
-        lifecycleScope.launch {
-            try {
-                val imported = contentResolver.openInputStream(uri)?.use(CaptureParser::parse)
-                    ?: error("无法读取所选文件")
-                val prepared = persistRuntimeInfoIfNeeded(imported)
-                store.saveConfig(prepared)
-                renderConfig(prepared)
-                renderRuntimeDeviceInfo()
-                currentSnapshot = buildPlaceholderSnapshot(prepared)
-                renderOperationSnapshot(currentSnapshot ?: buildPlaceholderSnapshot(prepared))
-                store.saveWidgetState(
-                    title = "配置已导入",
-                    message = "主按钮和桌面小组件都可以直接使用。",
-                    isBusy = false,
-                )
-                HotWaterWidgetUi.updateAllWidgets(this@MainActivity)
-                switchPage(AppPage.OPERATIONS)
-                renderLiveStatus("配置已导入，正在同步关键数据…")
-                if (prepared.isComplete()) {
-                    executeRefreshBalance(announce = false)
-                }
-            } catch (error: Exception) {
-                renderLiveStatus("导入失败，请重新选择 .chls 文件。")
-                toast(error.message ?: "导入失败")
-            }
-        }
-    }
-
-    private fun persistRuntimeInfoIfNeeded(config: HotWaterConfig): HotWaterConfig {
-        val prepared = RuntimeDeviceInfoResolver.enrichConfig(this, config)
-        if (prepared != config) {
-            store.saveConfig(prepared)
-        }
-        return prepared
-    }
-
-    private fun syncWidgetStatus(title: String, summary: String) {
-        store.saveWidgetState(
-            title = title,
-            message = HotWaterUiText.firstMeaningfulLine(summary).ifBlank { "请求已执行。" },
-            isBusy = false,
-        )
-        HotWaterWidgetUi.updateAllWidgets(this)
-    }
-
     private fun buildConfigSummary(config: HotWaterConfig): String {
         return if (config.isComplete()) {
             buildString {
@@ -374,7 +253,7 @@ class MainActivity : AppCompatActivity() {
                 append("设备 snCode: ${config.snCode}")
             }
         } else {
-            "还没完成配置。导入 .chls 后会自动填充大部分关键字段。"
+            "还没完成配置。请填写上方所有字段后点击保存。"
         }
     }
 
@@ -398,5 +277,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun calculateScrollY(scrollView: ScrollView, target: View): Int {
+        var offset = 0
+        var child = target
+        while (child.parent !== scrollView && child.parent is View) {
+            offset += (child.parent as View).top
+            child = child.parent as View
+        }
+        return (offset + target.top - scrollView.height / 3).coerceAtLeast(0)
     }
 }

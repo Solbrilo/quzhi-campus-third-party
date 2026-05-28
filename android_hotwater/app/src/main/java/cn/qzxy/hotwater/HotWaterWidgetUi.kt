@@ -50,7 +50,7 @@ object HotWaterWidgetUi {
         val message = when {
             widgetState.message.isNotBlank() -> widgetState.message
             config.isComplete() -> "点下面按钮就能直接开关热水。"
-            else -> "先打开应用导入 1.chls 或手动填写参数。"
+            else -> "先打开应用填写配置参数。"
         }
 
         val statusChip = when {
@@ -108,11 +108,11 @@ object HotWaterWidgetUi {
             setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent(context))
             setOnClickPendingIntent(
                 R.id.widget_open_button,
-                actionPendingIntent(context, appWidgetId, ACTION_OPEN, appWidgetId * 10 + 1),
+                actionPendingIntent(context, appWidgetId, ACTION_OPEN, widgetRequestCode(appWidgetId, ACTION_OPEN)),
             )
             setOnClickPendingIntent(
                 R.id.widget_close_button,
-                actionPendingIntent(context, appWidgetId, ACTION_CLOSE, appWidgetId * 10 + 2),
+                actionPendingIntent(context, appWidgetId, ACTION_CLOSE, widgetRequestCode(appWidgetId, ACTION_CLOSE)),
             )
         }
     }
@@ -164,4 +164,8 @@ object HotWaterWidgetUi {
     }
 
     private const val OPEN_APP_REQUEST_CODE = 9001
+
+    private fun widgetRequestCode(appWidgetId: Int, action: String): Int {
+        return (appWidgetId.toString() + action).hashCode() and 0x7FFFFFFF
+    }
 }

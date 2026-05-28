@@ -196,7 +196,7 @@ class HotWaterRepository(
         )
     }
 
-    private fun refreshSnapshot(config: HotWaterConfig): DashboardSnapshot {
+    private suspend fun refreshSnapshot(config: HotWaterConfig): DashboardSnapshot {
         val userInfo = api.userInfo(config)
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
@@ -204,7 +204,7 @@ class HotWaterRepository(
         return buildSnapshot(config, userInfo, deviceInfo, balance, status)
     }
 
-    private fun refreshSnapshotAfterClose(
+    private suspend fun refreshSnapshotAfterClose(
         config: HotWaterConfig,
         forcedStatusLabel: String,
     ): DashboardSnapshot {

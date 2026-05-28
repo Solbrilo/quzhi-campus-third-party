@@ -1,9 +1,23 @@
 package cn.qzxy.hotwater
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 class HotWaterConfigStore(context: Context) {
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = run {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            context,
+            PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
 
     data class WidgetState(
         val title: String,
@@ -84,11 +98,11 @@ class HotWaterConfigStore(context: Context) {
             .apply()
     }
 
-    private fun android.content.SharedPreferences.getIntOrNull(key: String): Int? {
+    private fun SharedPreferences.getIntOrNull(key: String): Int? {
         return if (contains(key)) getInt(key, 0) else null
     }
 
-    private fun android.content.SharedPreferences.Editor.putIntIfNotNull(key: String, value: Int?) =
+    private fun SharedPreferences.Editor.putIntIfNotNull(key: String, value: Int?) =
         apply {
             if (value == null) remove(key) else putInt(key, value)
         }
