@@ -1,11 +1,15 @@
 package cn.qzxy.hotwater
 
+import android.Manifest
 import android.animation.ObjectAnimator
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ScrollView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -28,6 +32,9 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     private var currentPage: AppPage = AppPage.OPERATIONS
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
     private var loadingRingAnimator: ObjectAnimator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         switchPage(AppPage.OPERATIONS, animated = false)
 
         viewModel.initialize()
+        requestNotificationPermission()
     }
 
     private fun bindActions() {
@@ -272,6 +280,14 @@ class MainActivity : AppCompatActivity() {
             loadingRingAnimator?.cancel()
             binding.actionLoadingRing.rotation = 0f
             binding.actionLoadingRing.visibility = View.GONE
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 

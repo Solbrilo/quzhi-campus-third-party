@@ -23,6 +23,12 @@
 # === App Widget Provider ===
 -keep class cn.qzxy.hotwater.HotWaterWidgetProvider { *; }
 
+# === Quick Settings Tile ===
+-keep class cn.qzxy.hotwater.HotWaterTileService { *; }
+
+# === Notification Service ===
+-keep class cn.qzxy.hotwater.HotWaterNotificationService { *; }
+
 # === Data classes (JSON field names must survive) ===
 -keep class cn.qzxy.hotwater.HotWaterConfig { *; }
 -keep class cn.qzxy.hotwater.HotWaterConfig$Companion { *; }

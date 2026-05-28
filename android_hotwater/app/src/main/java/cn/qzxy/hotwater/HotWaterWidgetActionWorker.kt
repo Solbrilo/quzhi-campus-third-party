@@ -53,6 +53,11 @@ class HotWaterWidgetActionWorker(
                     tone = "success",
                 )
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
+                if (!store.loadOrderNo().isNullOrBlank()) {
+                    HotWaterNotificationService.show(applicationContext)
+                } else {
+                    HotWaterNotificationService.dismiss(applicationContext)
+                }
             }
             Result.success()
         } catch (error: Exception) {
