@@ -28,6 +28,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         _config.value = preparedConfig
         _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
+        syncNotificationState()
 
         if (preparedConfig.isComplete()) {
             refreshBalance(announce = false)
@@ -91,6 +92,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _snapshot.value = result.snapshot ?: buildPlaceholderSnapshot(preparedConfig)
                 _statusMessage.value = HotWaterUiText.firstMeaningfulLine(result.summary)
                 syncWidgetStatus(result.title, result.summary)
+                syncNotificationState()
             } catch (error: Exception) {
                 _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
                 val message = HotWaterUiText.summarizeError(error)
@@ -137,5 +139,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isBusy = false,
         )
         HotWaterWidgetUi.updateAllWidgets(getApplication())
+    }
+
+    private fun syncNotificationState() {
+        val hasCachedOrder = !store.loadOrderNo().isNullOrBlank()
+        if (hasCachedOrder) {
+            HotWaterNotificationService.show(getApplication())
+        } else {
+            HotWaterNotificationService.dismiss(getApplication())
+        }
     }
 }
