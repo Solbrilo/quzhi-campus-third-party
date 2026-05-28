@@ -29,7 +29,7 @@ class HotWaterWidgetActionWorker(
         if (!config.isComplete()) {
             store.saveWidgetState(
                 title = "配置未完成",
-                message = "先打开应用导入 1.chls 或填写参数。",
+                message = "先打开应用填写配置参数。",
                 isBusy = false,
                 tone = "warning",
             )

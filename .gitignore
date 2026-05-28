@@ -21,6 +21,8 @@ android_hotwater/.kotlin/
 android_hotwater/app/build/
 android_hotwater/gradle-8.9-bin.zip
 android_hotwater/.gradle-dist/
+android_hotwater/local.properties
+android_hotwater/*.jks
 
 # Harmony local/build artifacts
 harmony_hotwater/.hvigor/

@@ -1,12 +1,19 @@
 package cn.qzxy.hotwater
 
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class HotWaterApi {
     private val client = OkHttpClient.Builder()
@@ -15,7 +22,7 @@ class HotWaterApi {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    fun userInfo(config: HotWaterConfig): JSONObject {
+    suspend fun userInfo(config: HotWaterConfig): JSONObject {
         return get(
             "/user/info",
             mapOf(
@@ -26,7 +33,7 @@ class HotWaterApi {
         )
     }
 
-    fun deviceInfo(config: HotWaterConfig): JSONObject {
+    suspend fun deviceInfo(config: HotWaterConfig): JSONObject {
         return get(
             "/device/info/mac",
             baseQuery(config) + mapOf(
@@ -37,7 +44,7 @@ class HotWaterApi {
         )
     }
 
-    fun balance(config: HotWaterConfig): JSONObject {
+    suspend fun balance(config: HotWaterConfig): JSONObject {
         return get(
             "/account/wallet/money",
             mapOf(
@@ -52,36 +59,34 @@ class HotWaterApi {
         )
     }
 
-    fun status(config: HotWaterConfig): JSONObject {
+    suspend fun status(config: HotWaterConfig): JSONObject {
         return postForm("/order/tcpDevice/query/rateOrder/using", buildForm(config))
     }
 
-    fun openHotWater(config: HotWaterConfig): JSONObject {
+    suspend fun openHotWater(config: HotWaterConfig): JSONObject {
         return postForm(
             "/order/ali/tcpDevice/downRate/rateOrder",
-            buildForm(config).apply {
-                put("orderAuthCode", "")
-            },
+            buildForm(config) + ("orderAuthCode" to ""),
         )
     }
 
-    fun openResult(config: HotWaterConfig, orderNo: String?): JSONObject {
+    suspend fun openResult(config: HotWaterConfig, orderNo: String?): JSONObject {
         return postForm("/order/tcpDevice/query/downRateResult", buildForm(config, orderNo))
     }
 
-    fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject {
+    suspend fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/tcpDevice/closeOrder", buildForm(config, orderNo))
     }
 
-    fun closeResult(config: HotWaterConfig, orderNo: String): JSONObject {
+    suspend fun closeResult(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/tcpDevice/closeOrder/result/query", buildForm(config, orderNo))
     }
 
-    fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
+    suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/consumeOrder/result/query", buildForm(config, orderNo))
     }
 
-    private fun get(endpoint: String, query: Map<String, Any>): JSONObject {
+    private suspend fun get(endpoint: String, query: Map<String, Any>): JSONObject {
         val urlBuilder = (BASE_URL + endpoint).toHttpUrl().newBuilder()
         query.forEach { (key, value) -> urlBuilder.addQueryParameter(key, value.toString()) }
 
@@ -94,7 +99,7 @@ class HotWaterApi {
         return execute(request)
     }
 
-    private fun postForm(endpoint: String, formValues: Map<String, String>): JSONObject {
+    private suspend fun postForm(endpoint: String, formValues: Map<String, String>): JSONObject {
         val formBodyBuilder = FormBody.Builder()
         formValues.forEach { (key, value) -> formBodyBuilder.add(key, value) }
 
@@ -107,31 +112,66 @@ class HotWaterApi {
         return execute(request)
     }
 
-    private fun execute(request: Request): JSONObject {
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code}: $body")
-            }
-            return if (body.isBlank()) JSONObject() else JSONObject(body)
+    private suspend fun execute(request: Request): JSONObject {
+        return suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (!continuation.isCancelled) {
+                        continuation.resumeWithException(e)
+                    }
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (!continuation.isCancelled) {
+                            try {
+                                if (!response.isSuccessful) {
+                                    val body = response.body?.string().orEmpty()
+                                    continuation.resumeWithException(
+                                        IOException("HTTP ${response.code}: $body")
+                                    )
+                                    return
+                                }
+                                val body = response.body?.string().orEmpty()
+                                val json = if (body.isBlank()) {
+                                    JSONObject()
+                                } else {
+                                    try {
+                                        JSONObject(body)
+                                    } catch (e: JSONException) {
+                                        continuation.resumeWithException(
+                                            IOException("服务器返回了非 JSON 数据: ${body.take(200)}", e)
+                                        )
+                                        return
+                                    }
+                                }
+                                continuation.resume(json)
+                            } catch (e: Exception) {
+                                continuation.resumeWithException(e)
+                            }
+                        }
+                    }
+                }
+            })
         }
     }
 
-    private fun buildForm(config: HotWaterConfig, orderNo: String? = null): MutableMap<String, String> {
-        val form = mutableMapOf(
-            "accountId" to requireInt(config.accountId, "accountId").toString(),
-            "loginCode" to config.loginCode,
-            "phoneSystem" to config.phoneSystem.ifBlank { "Android" },
-            "projectId" to requireInt(config.projectId, "projectId").toString(),
-            "snCode" to config.snCode,
-            "telephone" to config.telephone,
-            "userId" to requireInt(config.userId, "userId").toString(),
-            "version" to config.version.ifBlank { "0.0.1" },
-        )
-        if (!orderNo.isNullOrBlank()) {
-            form["orderNo"] = orderNo
+    private fun buildForm(config: HotWaterConfig, orderNo: String? = null): Map<String, String> {
+        return buildMap {
+            put("accountId", requireInt(config.accountId, "accountId").toString())
+            put("loginCode", config.loginCode)
+            put("phoneSystem", config.phoneSystem.ifBlank { "Android" })
+            put("projectId", requireInt(config.projectId, "projectId").toString())
+            put("snCode", config.snCode)
+            put("telephone", config.telephone)
+            put("userId", requireInt(config.userId, "userId").toString())
+            put("version", config.version.ifBlank { "0.0.1" })
+            if (!orderNo.isNullOrBlank()) {
+                put("orderNo", orderNo)
+            }
         }
-        return form
     }
 
     private fun baseQuery(config: HotWaterConfig): Map<String, Any> {

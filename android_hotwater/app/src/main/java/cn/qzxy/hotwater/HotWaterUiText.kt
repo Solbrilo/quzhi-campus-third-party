@@ -8,7 +8,7 @@ object HotWaterUiText {
                 "没有找到可关闭的订单，先开一次热水再试。"
 
             raw.contains("Please complete all required config fields first", ignoreCase = true) ->
-                "配置还不完整，先到配置页导入 .chls 或补全参数。"
+                "配置还不完整，请先到配置页补全参数。"
 
             raw.contains("HTTP", ignoreCase = true) ->
                 raw.lineSequence().firstOrNull { it.isNotBlank() } ?: "请求失败，请稍后重试。"
