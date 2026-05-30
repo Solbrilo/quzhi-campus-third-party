@@ -43,14 +43,17 @@ class HotWaterWidgetActionWorker(
                 WidgetHotWaterAction.OPEN -> repository.open(config)
                 WidgetHotWaterAction.CLOSE -> repository.close(config)
             }.also { result ->
+                val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
-                    title = when (action) {
+                    title = if (deviceBusyByOther) {
+                        "设备正在使用中"
+                    } else when (action) {
                         WidgetHotWaterAction.OPEN -> "开热水完成"
                         WidgetHotWaterAction.CLOSE -> "关热水完成"
                     },
                     message = HotWaterUiText.summarizeWidgetResult(action, result),
                     isBusy = false,
-                    tone = "success",
+                    tone = if (deviceBusyByOther) "warning" else "success",
                 )
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
                 if (!store.loadOrderNo().isNullOrBlank()) {

@@ -53,6 +53,7 @@ export class DashboardSnapshot {
   statusLabel: string = '当前配置还不完整。'
   orderNo: string = ''
   hasCachedOrder: boolean = false
+  isDeviceBusyByOther: boolean = false
 }
 
 export class OperationResult {

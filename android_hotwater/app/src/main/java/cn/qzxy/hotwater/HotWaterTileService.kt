@@ -71,9 +71,15 @@ class HotWaterTileService : TileService() {
                     HotWaterNotificationService.dismiss(applicationContext)
                 }
                 qsTile?.apply {
-                    state = if (shouldClose) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
-                    label = if (shouldClose) "开热水" else "关热水"
-                    subtitle = if (shouldClose) "已关闭" else "已开启"
+                    if (result.snapshot?.isDeviceBusyByOther == true) {
+                        state = Tile.STATE_INACTIVE
+                        label = "开热水"
+                        subtitle = "设备占用"
+                    } else {
+                        state = if (shouldClose) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
+                        label = if (shouldClose) "开热水" else "关热水"
+                        subtitle = if (shouldClose) "已关闭" else "已开启"
+                    }
                     updateTile()
                 }
                 withContext(Dispatchers.Main) {

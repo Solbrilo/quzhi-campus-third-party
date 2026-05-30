@@ -77,7 +77,15 @@ export default class EntryFormAbility extends FormExtensionAbility {
         }
         throw new Error('unknown_action')
       })
-      .then(() => {
+      .then((result) => {
+        if (result.snapshot && result.snapshot.isDeviceBusyByOther) {
+          this.updateWidgetState(
+            formId,
+            '设备正在使用中',
+            'error'
+          )
+          return
+        }
         this.updateWidgetState(
           formId,
           action === 'open' ? '已开启热水' : '已关闭热水',

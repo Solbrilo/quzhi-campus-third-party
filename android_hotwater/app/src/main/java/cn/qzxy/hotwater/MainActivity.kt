@@ -182,11 +182,15 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.loading_ring_open
             },
         )
-        binding.toggleModeText.text = if (snapshot.hasCachedOrder) "当前模式 · 关闭热水" else "当前模式 · 开启热水"
-        binding.actionHintText.text = if (snapshot.hasCachedOrder) {
-            "检测到缓存订单号，点击大按钮将尝试关热水。"
-        } else {
-            "当前没有缓存订单号，点击大按钮将尝试开热水。"
+        binding.toggleModeText.text = when {
+            snapshot.isDeviceBusyByOther -> "当前模式 · 等待设备空闲"
+            snapshot.hasCachedOrder -> "当前模式 · 关闭热水"
+            else -> "当前模式 · 开启热水"
+        }
+        binding.actionHintText.text = when {
+            snapshot.isDeviceBusyByOther -> "已有他人正在使用这台设备，请稍后刷新或重试。"
+            snapshot.hasCachedOrder -> "检测到缓存订单号，点击大按钮将尝试关热水。"
+            else -> "当前没有缓存订单号，点击大按钮将尝试开热水。"
         }
 
         val canOperate = config.isComplete()

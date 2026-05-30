@@ -25,7 +25,9 @@ object HotWaterUiText {
         val snapshot = result.snapshot
         return when (action) {
             WidgetHotWaterAction.OPEN -> {
-                if (snapshot?.hasCachedOrder == true) {
+                if (snapshot?.isDeviceBusyByOther == true) {
+                    "已有他人正在使用这台设备，请稍后再试。"
+                } else if (snapshot?.hasCachedOrder == true) {
                     "热水已开启，可以直接去试水。"
                 } else {
                     "开热水请求已发送，等待设备确认。"
@@ -33,7 +35,9 @@ object HotWaterUiText {
             }
 
             WidgetHotWaterAction.CLOSE -> {
-                if (snapshot?.hasCachedOrder == false) {
+                if (snapshot?.isDeviceBusyByOther == true) {
+                    "已有他人正在使用这台设备，请稍后再试。"
+                } else if (snapshot?.hasCachedOrder == false) {
                     "热水已关闭。"
                 } else {
                     "关热水请求已发送，等待设备确认。"

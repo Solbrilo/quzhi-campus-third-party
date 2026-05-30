@@ -15,6 +15,7 @@ data class DashboardSnapshot(
     val statusLabel: String,
     val orderNo: String?,
     val hasCachedOrder: Boolean,
+    val isDeviceBusyByOther: Boolean = false,
 )
 
 data class OperationResult(
@@ -47,15 +48,28 @@ class HotWaterRepository(
         require(config.isComplete()) { "Please complete all required config fields first." }
 
         val detailBuilder = StringBuilder()
+        val currentStatus = api.status(config)
+        detailBuilder.appendLine("[Current Status]")
+        detailBuilder.appendLine(currentStatus.toString(2))
+        if (isDeviceBusyByOther(currentStatus)) {
+            return@withContext buildDeviceBusyResult(config, currentStatus, detailBuilder)
+        }
+
+        detailBuilder.appendLine()
         detailBuilder.appendLine("Sending open request...")
         val openResponse = api.openHotWater(config)
         detailBuilder.appendLine()
         detailBuilder.appendLine("[Open Response]")
         detailBuilder.appendLine(openResponse.toString(2))
 
+        if (isDeviceBusyByOther(openResponse)) {
+            return@withContext buildDeviceBusyResult(config, openResponse, detailBuilder)
+        }
+
         var orderNo = findNestedValue(openResponse, "orderNo")?.toString()
         var success = false
         var finalOpenResult: JSONObject? = null
+        var busyByOtherPayload: JSONObject? = null
 
         for (index in 0 until pollAttempts) {
             delay(pollDelayMs)
@@ -64,6 +78,11 @@ class HotWaterRepository(
             detailBuilder.appendLine()
             detailBuilder.appendLine("[Open Result #${index + 1}]")
             detailBuilder.appendLine(openResult.toString(2))
+
+            if (isDeviceBusyByOther(openResult)) {
+                busyByOtherPayload = openResult
+                break
+            }
 
             if (orderNo.isNullOrBlank()) {
                 orderNo = findNestedValue(openResult, "orderNo")?.toString()
@@ -79,6 +98,10 @@ class HotWaterRepository(
                 success = true
                 break
             }
+        }
+
+        if (busyByOtherPayload != null) {
+            return@withContext buildDeviceBusyResult(config, busyByOtherPayload, detailBuilder)
         }
 
         var consumeResult: JSONObject? = null
@@ -123,18 +146,24 @@ class HotWaterRepository(
         val detailBuilder = StringBuilder()
         val status = api.status(config)
         var orderNo = findNestedValue(status, "orderNo")?.toString()
+        detailBuilder.appendLine("[Current Status]")
+        detailBuilder.appendLine(status.toString(2))
+
+        if (isDeviceBusyByOther(status)) {
+            return@withContext buildDeviceBusyResult(config, status, detailBuilder)
+        }
+
         if (orderNo.isNullOrBlank()) {
             orderNo = store.loadOrderNo()
         }
 
         if (orderNo.isNullOrBlank()) {
-            detailBuilder.appendLine("[Current Status]")
-            detailBuilder.append(status.toString(2))
             throw IllegalStateException(
                 "No active orderNo found. Open hot water once in the app or import a newer capture file first.\n\n$detailBuilder",
             )
         }
 
+        detailBuilder.appendLine()
         detailBuilder.appendLine("Sending close request, orderNo=$orderNo")
         val closeResponse = api.closeHotWater(config, orderNo)
         detailBuilder.appendLine()
@@ -204,6 +233,39 @@ class HotWaterRepository(
         return buildSnapshot(config, userInfo, deviceInfo, balance, status)
     }
 
+    private suspend fun refreshSnapshotWithStatus(
+        config: HotWaterConfig,
+        statusPayload: JSONObject,
+    ): DashboardSnapshot {
+        val userInfo = api.userInfo(config)
+        val deviceInfo = api.deviceInfo(config)
+        val balance = api.balance(config)
+        return buildSnapshot(config, userInfo, deviceInfo, balance, statusPayload)
+    }
+
+    private suspend fun buildDeviceBusyResult(
+        config: HotWaterConfig,
+        statusPayload: JSONObject,
+        detailBuilder: StringBuilder,
+    ): OperationResult {
+        store.clearOrderNo()
+        val snapshot = runCatching { refreshSnapshotWithStatus(config, statusPayload) }.getOrElse {
+            buildFallbackSnapshot(
+                config = config,
+                balancePayload = null,
+                statusLabel = DEVICE_BUSY_BY_OTHER_MESSAGE,
+                orderNo = null,
+                isDeviceBusyByOther = true,
+            )
+        }
+        return OperationResult(
+            title = "设备正在使用中",
+            summary = "$DEVICE_BUSY_BY_OTHER_MESSAGE\n余额 ${snapshot.balanceLabel} 元",
+            details = detailBuilder.toString().trim(),
+            snapshot = snapshot,
+        )
+    }
+
     private suspend fun refreshSnapshotAfterClose(
         config: HotWaterConfig,
         forcedStatusLabel: String,
@@ -223,9 +285,12 @@ class HotWaterRepository(
     ): DashboardSnapshot {
         val userData = userInfo.optJSONObject("data") ?: JSONObject()
         val deviceData = deviceInfo.optJSONObject("data") ?: JSONObject()
+        val busyByOther = isDeviceBusyByOther(statusPayload)
 
         val extractedOrderNo = findNestedValue(statusPayload, "orderNo")?.toString()?.takeIf { it.isNotBlank() }
-        if (!extractedOrderNo.isNullOrBlank()) {
+        if (busyByOther) {
+            store.clearOrderNo()
+        } else if (!extractedOrderNo.isNullOrBlank()) {
             if (store.shouldIgnoreRecoveredOrder()) {
                 // Ignore a briefly stale orderNo right after a close request clears local state.
             } else {
@@ -233,7 +298,7 @@ class HotWaterRepository(
             }
         }
 
-        val cachedOrderNo = store.loadOrderNo()
+        val cachedOrderNo = if (busyByOther) null else store.loadOrderNo()
         val balanceYuan = extractMoneyYuan(balancePayload)
         val locationLabel = listOf(
             deviceData.optString("areaName"),
@@ -245,8 +310,10 @@ class HotWaterRepository(
             .ifBlank { deviceData.optString("deviceLocation", "位置待刷新") }
 
         val statusLabel = when {
+            busyByOther -> DEVICE_BUSY_BY_OTHER_MESSAGE
             !cachedOrderNo.isNullOrBlank() -> "已缓存订单号，点击主按钮将尝试关热水。"
             statusPayload.optBoolean("success") -> "当前没有缓存订单号，点击主按钮将尝试开热水。"
+            statusPayload.optString("errorMessage").isNotBlank() -> statusPayload.optString("errorMessage")
             else -> "状态待确认，建议先刷新余额。"
         }
 
@@ -263,6 +330,7 @@ class HotWaterRepository(
             statusLabel = statusLabel,
             orderNo = cachedOrderNo,
             hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
+            isDeviceBusyByOther = busyByOther,
         )
     }
 
@@ -298,6 +366,7 @@ class HotWaterRepository(
             statusLabel = forcedStatusLabel,
             orderNo = null,
             hasCachedOrder = false,
+            isDeviceBusyByOther = false,
         )
     }
 
@@ -306,6 +375,7 @@ class HotWaterRepository(
         balancePayload: JSONObject?,
         statusLabel: String,
         orderNo: String?,
+        isDeviceBusyByOther: Boolean = false,
     ): DashboardSnapshot {
         val normalizedOrderNo = orderNo?.takeIf { it.isNotBlank() }
         return DashboardSnapshot(
@@ -317,6 +387,7 @@ class HotWaterRepository(
             statusLabel = statusLabel,
             orderNo = normalizedOrderNo,
             hasCachedOrder = !normalizedOrderNo.isNullOrBlank(),
+            isDeviceBusyByOther = isDeviceBusyByOther,
         )
     }
 
@@ -361,5 +432,18 @@ class HotWaterRepository(
 
         val rawValue = findNestedValue(value, primaryKey)?.toString()?.toDoubleOrNull() ?: return 0.0
         return rawValue / 1000.0
+    }
+
+    private fun isDeviceBusyByOther(payload: JSONObject): Boolean {
+        val errorMessage = payload.optString("errorMessage")
+        val data = payload.optJSONObject("data")
+        val isOwner = data?.takeIf { it.has("isOwner") && !it.isNull("isOwner") }?.optBoolean("isOwner")
+        return payload.optInt("errorCode", -1) == DEVICE_BUSY_ERROR_CODE &&
+            (isOwner == false || errorMessage.contains("设备正在使用"))
+    }
+
+    companion object {
+        private const val DEVICE_BUSY_ERROR_CODE = 307
+        private const val DEVICE_BUSY_BY_OTHER_MESSAGE = "已有他人正在使用这台设备，请稍后再试。"
     }
 }
