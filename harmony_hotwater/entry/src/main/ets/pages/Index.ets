@@ -369,22 +369,6 @@ struct Index {
           offsetY: 1
         })
 
-      // 顶部高光反射
-      Row()
-        .width('88%')
-        .height(0.5)
-        .backgroundColor($r('app.color.glass_highlight_top'))
-        .borderRadius(28)
-        .position({ x: '6%', y: 6 })
-
-      // 底部微光
-      Row()
-        .width('60%')
-        .height(0.5)
-        .backgroundColor($r('app.color.glass_highlight_bottom'))
-        .borderRadius(14)
-        .position({ x: '20%', y: 43 })
-
       // 滑块 - 带光晕渐变
       Row()
         .width('46%')
@@ -411,21 +395,6 @@ struct Index {
         })
         .offset({
           x: this.activePage === HomePage.OPERATIONS ? '-23%' : '23%'
-        })
-        .animation({
-          duration: 350,
-          curve: Curve.EaseInOut
-        })
-
-      // 滑块顶部高光
-      Row()
-        .width('30%')
-        .height(0.5)
-        .backgroundColor($r('app.color.glass_highlight_top'))
-        .borderRadius(10)
-        .position({
-          x: this.activePage === HomePage.OPERATIONS ? '12%' : '58%',
-          y: 10
         })
         .animation({
           duration: 350,

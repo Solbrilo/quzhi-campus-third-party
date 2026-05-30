@@ -1,6 +1,5 @@
 {
   "app": {
-    "signingConfigs": [],
     "products": [
       {
         "name": "default",
@@ -16,7 +15,8 @@
       {
         "name": "release"
       }
-    ]
+    ],
+    "signingConfigs": []
   },
   "modules": [
     {
