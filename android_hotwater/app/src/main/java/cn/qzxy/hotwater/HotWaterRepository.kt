@@ -435,11 +435,17 @@ class HotWaterRepository(
     }
 
     private fun isDeviceBusyByOther(payload: JSONObject): Boolean {
+        if (payload.optInt("errorCode", -1) != DEVICE_BUSY_ERROR_CODE) {
+            return false
+        }
         val errorMessage = payload.optString("errorMessage")
         val data = payload.optJSONObject("data")
         val isOwner = data?.takeIf { it.has("isOwner") && !it.isNull("isOwner") }?.optBoolean("isOwner")
-        return payload.optInt("errorCode", -1) == DEVICE_BUSY_ERROR_CODE &&
-            (isOwner == false || errorMessage.contains("设备正在使用"))
+        return when (isOwner) {
+            true -> false
+            false -> true
+            null -> errorMessage.contains("设备正在使用")
+        }
     }
 
     companion object {
