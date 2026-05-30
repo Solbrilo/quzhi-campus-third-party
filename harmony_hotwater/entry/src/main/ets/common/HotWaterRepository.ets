@@ -380,7 +380,13 @@ export class HotWaterRepository {
     }
     const isOwner = this.extractBooleanValue(text, 'isOwner')
     const errorMessage = this.extractFirstOrEmpty(text, 'errorMessage')
-    return isOwner === false || errorMessage.indexOf('设备正在使用') >= 0
+    if (isOwner === true) {
+      return false
+    }
+    if (isOwner === false) {
+      return true
+    }
+    return errorMessage.indexOf('设备正在使用') >= 0
   }
 
   private extractBooleanValue(text: string, key: string): boolean | null {
