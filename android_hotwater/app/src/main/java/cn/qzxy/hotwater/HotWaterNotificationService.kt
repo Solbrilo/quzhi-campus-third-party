@@ -56,10 +56,14 @@ class HotWaterNotificationService : Service() {
         scope.launch {
             try {
                 val repository = HotWaterRepository(HotWaterApi(), store)
-                withContext(Dispatchers.IO) { repository.close(config) }
+                val result = withContext(Dispatchers.IO) { repository.close(config) }
                 HotWaterWidgetUi.updateAllWidgets(this@HotWaterNotificationService)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@HotWaterNotificationService, "热水已关闭", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@HotWaterNotificationService,
+                        HotWaterUiText.firstMeaningfulLine(result.summary),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             } catch (_: Exception) {
             }

@@ -129,6 +129,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             },
             orderNo = cachedOrderNo,
             hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
+            isDeviceBusyByOther = false,
         )
     }
 
