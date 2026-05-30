@@ -20,6 +20,8 @@ interface FieldInputParams {
   onChange: (value: string) => void
 }
 
+Environment.envProp('colorMode', ColorMode.LIGHT)
+
 @Entry
 @Component
 struct Index {
@@ -53,6 +55,7 @@ struct Index {
   @State ringAngle: number = 0
   @State refreshIconAngle: number = 0
   @StorageProp('statusBarHeight') statusBarHeight: number = 0
+  @StorageProp('colorMode') colorMode: ColorMode = ColorMode.LIGHT
 
   aboutToAppear(): void {
     this.hostContext = this.getUIContext().getHostContext() as common.Context
@@ -64,6 +67,7 @@ struct Index {
 
   onPageShow(): void {
     this.consumePendingLaunchAction()
+    this.setupImmersiveWindow()
     if (this.busy) {
       this.runRingStep()
     }
@@ -73,11 +77,12 @@ struct Index {
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext
       const win = await window.getLastWindow(ctx)
+      const isDarkMode = this.colorMode === ColorMode.DARK
       await win.setWindowSystemBarProperties({
         statusBarColor: '#00FFFFFF',
-        statusBarContentColor: '#11213B',
-        navigationBarColor: '#EAF2FF',
-        navigationBarContentColor: '#11213B'
+        statusBarContentColor: isDarkMode ? '#F2F7FF' : '#11213B',
+        navigationBarColor: isDarkMode ? '#08111F' : '#EAF2FF',
+        navigationBarContentColor: isDarkMode ? '#F2F7FF' : '#11213B'
       })
     } catch (err) {
       // 降级处理
@@ -339,27 +344,27 @@ struct Index {
         .linearGradient({
           angle: 180,
           colors: [
-            ['rgba(255,255,255,0.55)', 0.0],
-            ['rgba(255,255,255,0.35)', 0.5],
-            ['rgba(255,255,255,0.50)', 1.0]
+            [$r('app.color.glass_panel_start'), 0.0],
+            [$r('app.color.glass_panel_middle'), 0.5],
+            [$r('app.color.glass_panel_end'), 1.0]
           ]
         })
         .backgroundBlurStyle(BlurStyle.BACKGROUND_REGULAR)
         .backdropBlur(28)
         .border({
           width: 0.5,
-          color: '#40FFFFFF',
+          color: $r('app.color.glass_border'),
           style: BorderStyle.Solid
         })
         .shadow({
           radius: 16,
-          color: '#1A000000',
+          color: $r('app.color.glass_shadow_primary'),
           offsetX: 0,
           offsetY: 4
         })
         .shadow({
           radius: 8,
-          color: '#0D000000',
+          color: $r('app.color.glass_shadow_secondary'),
           offsetX: 0,
           offsetY: 1
         })
@@ -368,7 +373,7 @@ struct Index {
       Row()
         .width('88%')
         .height(0.5)
-        .backgroundColor('#60FFFFFF')
+        .backgroundColor($r('app.color.glass_highlight_top'))
         .borderRadius(28)
         .position({ x: '6%', y: 6 })
 
@@ -376,7 +381,7 @@ struct Index {
       Row()
         .width('60%')
         .height(0.5)
-        .backgroundColor('#20FFFFFF')
+        .backgroundColor($r('app.color.glass_highlight_bottom'))
         .borderRadius(14)
         .position({ x: '20%', y: 43 })
 
@@ -388,19 +393,19 @@ struct Index {
         .linearGradient({
           angle: 135,
           colors: [
-            ['rgba(111,151,255,0.95)', 0.0],
-            ['rgba(143,180,255,0.85)', 1.0]
+            [$r('app.color.accent_gradient_start'), 0.0],
+            [$r('app.color.accent_gradient_end'), 1.0]
           ]
         })
         .shadow({
           radius: 14,
-          color: '#506F97FF',
+          color: $r('app.color.accent_shadow_primary'),
           offsetX: 0,
           offsetY: 4
         })
         .shadow({
           radius: 4,
-          color: '#206F97FF',
+          color: $r('app.color.accent_shadow_secondary'),
           offsetX: 0,
           offsetY: 1
         })
@@ -416,7 +421,7 @@ struct Index {
       Row()
         .width('30%')
         .height(0.5)
-        .backgroundColor('#60FFFFFF')
+        .backgroundColor($r('app.color.glass_highlight_top'))
         .borderRadius(10)
         .position({
           x: this.activePage === HomePage.OPERATIONS ? '12%' : '58%',
@@ -431,7 +436,7 @@ struct Index {
         Text('操作页')
           .fontSize(14)
           .fontWeight(this.activePage === HomePage.OPERATIONS ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.activePage === HomePage.OPERATIONS ? Color.White : '#8090A8')
+          .fontColor(this.activePage === HomePage.OPERATIONS ? Color.White : $r('app.color.switch_inactive_text'))
           .width('50%')
           .height(48)
           .textAlign(TextAlign.Center)
@@ -442,7 +447,7 @@ struct Index {
         Text('配置页')
           .fontSize(14)
           .fontWeight(this.activePage === HomePage.CONFIG ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.activePage === HomePage.CONFIG ? Color.White : '#8090A8')
+          .fontColor(this.activePage === HomePage.CONFIG ? Color.White : $r('app.color.switch_inactive_text'))
           .width('50%')
           .height(48)
           .textAlign(TextAlign.Center)
@@ -461,13 +466,15 @@ struct Index {
   private FieldInput(params: FieldInputParams): void {
     TextInput({ text: params.text, placeholder: params.placeholder })
       .fontSize(16)
-      .backgroundColor('#18FFFFFF')
+      .fontColor($r('app.color.text_primary'))
+      .placeholderColor($r('app.color.text_secondary'))
+      .backgroundColor($r('app.color.input_background'))
       .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
       .borderRadius(14)
       .padding({ left: 16, right: 16, top: 12, bottom: 12 })
       .border({
         width: 1,
-        color: '#18FFFFFF',
+        color: $r('app.color.input_border'),
         style: BorderStyle.Solid
       })
       .onChange(params.onChange)
@@ -479,7 +486,7 @@ struct Index {
       Column({ space: 8 }) {
         Text('可用余额')
           .fontSize(13)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
           .textAlign(TextAlign.Start)
 
@@ -487,15 +494,15 @@ struct Index {
           Text(`¥ ${this.balanceLabel}`)
             .fontSize(40)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#11213B')
+            .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
 
           Stack() {
             Button('刷新')
               .type(ButtonType.Capsule)
               .fontSize(13)
-              .backgroundColor('#D9E9FF')
-              .fontColor(this.refreshingBalance ? '#D9E9FF00' : '#23457D')
+              .backgroundColor($r('app.color.button_soft_background'))
+              .fontColor(this.refreshingBalance ? '#00FFFFFF' : $r('app.color.button_soft_text'))
               .enabled(!this.refreshingBalance && !this.busy)
               .onClick(() => {
                 this.refreshBalance(true)
@@ -505,7 +512,7 @@ struct Index {
               LoadingProgress()
                 .width(24)
                 .height(24)
-                .color('#6F97FF')
+                .color($r('app.color.accent'))
             }
           }
         }
@@ -514,13 +521,13 @@ struct Index {
         Row() {
           Text(this.statusLabel)
             .fontSize(12)
-            .fontColor('#314765')
-            .backgroundColor('#EEF5FF')
+            .fontColor($r('app.color.text_chip'))
+            .backgroundColor($r('app.color.status_chip_background'))
             .padding({ left: 12, right: 12, top: 7, bottom: 7 })
             .borderRadius(14)
             .border({
               width: 1,
-              color: '#18FFFFFF',
+              color: $r('app.color.input_border'),
               style: BorderStyle.Solid
             })
         }
@@ -529,31 +536,31 @@ struct Index {
         Text(`宿舍位置：${this.locationLabel}`)
           .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#11213B')
+          .fontColor($r('app.color.text_primary'))
           .width('100%')
 
         Text(`设备：${this.deviceName}`)
           .fontSize(13)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
 
         Text(`账号：${this.userLabel}`)
           .fontSize(13)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
           .width('100%')
       }
       .padding(18)
       .borderRadius(24)
-      .backgroundColor('#50FFFFFF')
+      .backgroundColor($r('app.color.card_background'))
       .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
       .border({
         width: 1,
-        color: '#28FFFFFF',
+        color: $r('app.color.card_border'),
         style: BorderStyle.Solid
       })
       .shadow({
         radius: 16,
-        color: '#18000000',
+        color: $r('app.color.card_shadow'),
         offsetX: 0,
         offsetY: 2
       })
@@ -563,14 +570,14 @@ struct Index {
         Circle()
           .width(180)
           .height(180)
-          .fill(this.hasCachedOrder ? '#FF9D84' : '#6F97FF')
+          .fill(this.hasCachedOrder ? $r('app.color.close_accent') : $r('app.color.accent'))
           .opacity(0.08)
           .blendMode(BlendMode.PLUS)
 
         Circle()
           .width(280)
           .height(280)
-          .fill(this.hasCachedOrder ? '#FF9D84' : '#6F97FF')
+          .fill(this.hasCachedOrder ? $r('app.color.close_accent') : $r('app.color.accent'))
           .opacity(0.05)
           .blendMode(BlendMode.PLUS)
 
@@ -578,13 +585,13 @@ struct Index {
           Circle()
             .width(272)
             .height(272)
-            .fill('#22FFFFFF')
+            .fill($r('app.color.power_outer_background'))
             .backdropBlur(4)
 
           Circle()
             .width(242)
             .height(242)
-            .fill('#80FFFFFF')
+            .fill($r('app.color.power_inner_background'))
             .opacity(0.55)
 
           if (this.busy) {
@@ -592,7 +599,7 @@ struct Index {
               .width(226)
               .height(226)
               .fill('rgba(0,0,0,0)')
-              .stroke(this.hasCachedOrder ? '#FF9D84' : '#6F97FF')
+              .stroke(this.hasCachedOrder ? $r('app.color.close_accent') : $r('app.color.accent'))
               .strokeWidth(3)
               .strokeDashArray([2, 12])
               .strokeLineCap(LineCapStyle.Round)
@@ -605,18 +612,18 @@ struct Index {
             .borderRadius(102)
             .fontSize(56)
             .fontWeight(FontWeight.Bold)
-            .backgroundColor(this.hasCachedOrder ? '#FFF1EB' : '#EDF6FF')
-            .fontColor('#23457D')
+            .backgroundColor(this.hasCachedOrder ? $r('app.color.power_button_close_background') : $r('app.color.power_button_open_background'))
+            .fontColor($r('app.color.power_button_text'))
             .enabled(!this.busy && !this.refreshingBalance)
             .shadow({
               radius: 24,
-              color: this.hasCachedOrder ? '#60FF9D84' : '#606F97FF',
+              color: this.hasCachedOrder ? $r('app.color.power_close_shadow') : $r('app.color.power_open_shadow'),
               offsetX: 0,
               offsetY: 6
             })
             .border({
               width: 2,
-              color: this.hasCachedOrder ? '#30FF9D84' : '#30FFFFFF',
+              color: this.hasCachedOrder ? $r('app.color.power_button_close_border') : $r('app.color.power_button_open_border'),
               style: BorderStyle.Solid
             })
             .onClick(() => {
@@ -640,18 +647,18 @@ struct Index {
         Text('导入与自动识别')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#11213B')
+          .fontColor($r('app.color.text_primary'))
 
         Text('继续保留 .chls 导入能力。系统信息和本机 Wi-Fi MAC 由程序自动识别。')
           .fontSize(13)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
 
         Row({ space: 12 }) {
           Button('导入 .chls')
             .layoutWeight(1)
             .type(ButtonType.Capsule)
-            .backgroundColor('#D9E9FF')
-            .fontColor('#23457D')
+            .backgroundColor($r('app.color.button_soft_background'))
+            .fontColor($r('app.color.button_soft_text'))
             .enabled(!this.busy)
             .onClick(() => {
               this.importCaptureFile()
@@ -660,7 +667,7 @@ struct Index {
           Button('保存配置')
             .layoutWeight(1)
             .type(ButtonType.Capsule)
-            .backgroundColor('#6F97FF')
+            .backgroundColor($r('app.color.accent'))
             .fontColor(Color.White)
             .enabled(!this.busy)
             .onClick(() => {
@@ -670,16 +677,16 @@ struct Index {
       }
       .padding(18)
       .borderRadius(24)
-      .backgroundColor('#50FFFFFF')
+      .backgroundColor($r('app.color.card_background'))
       .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
       .border({
         width: 1,
-        color: '#28FFFFFF',
+        color: $r('app.color.card_border'),
         style: BorderStyle.Solid
       })
       .shadow({
         radius: 16,
-        color: '#18000000',
+        color: $r('app.color.card_shadow'),
         offsetX: 0,
         offsetY: 2
       })
@@ -688,32 +695,32 @@ struct Index {
       Column({ space: 8 }) {
         Text('系统信息')
           .fontSize(12)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
         Text(this.systemInfoLabel)
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#11213B')
+          .fontColor($r('app.color.text_primary'))
         Text('本机 Wi-Fi MAC')
           .fontSize(12)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
           .margin({ top: 8 })
         Text(this.macAddressLabel)
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#11213B')
+          .fontColor($r('app.color.text_primary'))
       }
       .padding(18)
       .borderRadius(24)
-      .backgroundColor('#50FFFFFF')
+      .backgroundColor($r('app.color.card_background'))
       .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
       .border({
         width: 1,
-        color: '#28FFFFFF',
+        color: $r('app.color.card_border'),
         style: BorderStyle.Solid
       })
       .shadow({
         radius: 16,
-        color: '#18000000',
+        color: $r('app.color.card_shadow'),
         offsetX: 0,
         offsetY: 2
       })
@@ -723,7 +730,7 @@ struct Index {
         Text('关键字段')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#11213B')
+          .fontColor($r('app.color.text_primary'))
 
         this.FieldInput({
           text: this.projectIdText,
@@ -770,20 +777,20 @@ struct Index {
 
         Text(this.configSummary)
           .fontSize(13)
-          .fontColor('#63708A')
+          .fontColor($r('app.color.text_secondary'))
       }
       .padding(18)
       .borderRadius(24)
-      .backgroundColor('#50FFFFFF')
+      .backgroundColor($r('app.color.card_background'))
       .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
       .border({
         width: 1,
-        color: '#28FFFFFF',
+        color: $r('app.color.card_border'),
         style: BorderStyle.Solid
       })
       .shadow({
         radius: 16,
-        color: '#18000000',
+        color: $r('app.color.card_shadow'),
         offsetX: 0,
         offsetY: 2
       })
@@ -798,7 +805,7 @@ struct Index {
       Circle()
         .width(340)
         .height(340)
-        .fill('#60B7D6FF')
+        .fill($r('app.color.decor_blue_large'))
         .opacity(0.22)
         .align(Alignment.TopEnd)
         .offset({ x: 90, y: -100 })
@@ -806,7 +813,7 @@ struct Index {
       Circle()
         .width(200)
         .height(200)
-        .fill('#50A5CCFF')
+        .fill($r('app.color.decor_blue_small'))
         .opacity(0.16)
         .align(Alignment.TopStart)
         .offset({ x: -60, y: 80 })
@@ -814,7 +821,7 @@ struct Index {
       Circle()
         .width(280)
         .height(280)
-        .fill('#60FFD8C4')
+        .fill($r('app.color.decor_peach_large'))
         .opacity(0.15)
         .align(Alignment.BottomEnd)
         .offset({ x: 40, y: 80 })
@@ -822,7 +829,7 @@ struct Index {
       Circle()
         .width(160)
         .height(160)
-        .fill('#50FFC8A8')
+        .fill($r('app.color.decor_peach_small'))
         .opacity(0.12)
         .align(Alignment.BottomStart)
         .offset({ x: -30, y: -20 })
@@ -832,10 +839,10 @@ struct Index {
           Text('趣智校园热水')
             .fontSize(30)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#11213B')
+            .fontColor($r('app.color.text_primary'))
           Text('HarmonyOS 迁移版 · 导入抓包后可直接刷新余额和开关热水')
             .fontSize(14)
-            .fontColor('#63708A')
+            .fontColor($r('app.color.text_secondary'))
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')
@@ -886,6 +893,6 @@ struct Index {
       .padding(20)
     }
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-    .backgroundColor('#EAF2FF')
+    .backgroundColor($r('app.color.app_background'))
   }
 }
