@@ -8,6 +8,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+data class FeedbackEvent(
+    val type: FeedbackType,
+    val message: String,
+) {
+    enum class FeedbackType {
+        SUCCESS,
+        ERROR,
+        WARNING,
+    }
+}
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store = HotWaterConfigStore(application)
     private val repository = HotWaterRepository(HotWaterApi(), store)
@@ -23,6 +34,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _config = MutableStateFlow(store.loadConfig())
     val config: StateFlow<HotWaterConfig> = _config.asStateFlow()
+
+    private val _history = MutableStateFlow(store.loadHistory())
+    val history: StateFlow<List<OperationHistory>> = _history.asStateFlow()
+
+    private val _feedbackEvent = MutableStateFlow<FeedbackEvent?>(null)
+    val feedbackEvent: StateFlow<FeedbackEvent?> = _feedbackEvent.asStateFlow()
 
     fun initialize() {
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
@@ -40,6 +57,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshBalance(announce: Boolean = true) {
         runOperation(
             busyMessage = if (announce) "正在刷新余额…" else "正在同步余额…",
+            operationType = OperationHistory.OperationType.REFRESH,
         ) { config ->
             repository.check(config)
         }
@@ -47,11 +65,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggle() {
         val shouldClose = _snapshot.value?.hasCachedOrder == true || !store.loadOrderNo().isNullOrBlank()
+        val operationType = if (shouldClose) OperationHistory.OperationType.CLOSE else OperationHistory.OperationType.OPEN
         runOperation(
             busyMessage = if (shouldClose) "正在关闭热水…" else "正在开启热水…",
+            operationType = operationType,
         ) { config ->
             if (shouldClose) repository.close(config) else repository.open(config)
         }
+    }
+
+    fun clearFeedbackEvent() {
+        _feedbackEvent.value = null
     }
 
     fun saveConfig(rawConfig: HotWaterConfig) {
@@ -75,11 +99,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun runOperation(
         busyMessage: String,
+        operationType: OperationHistory.OperationType,
         block: suspend (HotWaterConfig) -> OperationResult,
     ) {
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         if (!preparedConfig.isComplete()) {
             _statusMessage.value = "配置还不完整，请先到配置页补全字段。"
+            _feedbackEvent.value = FeedbackEvent(
+                type = FeedbackEvent.FeedbackType.WARNING,
+                message = "配置不完整，请先填写配置"
+            )
             return
         }
 
@@ -93,11 +122,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _statusMessage.value = HotWaterUiText.firstMeaningfulLine(result.summary)
                 syncWidgetStatus(result.title, result.summary)
                 syncNotificationState()
+
+                // 保存成功历史
+                val history = OperationHistory(
+                    type = operationType,
+                    success = true,
+                    message = HotWaterUiText.firstMeaningfulLine(result.summary),
+                )
+                store.saveHistory(history)
+                _history.value = store.loadHistory()
             } catch (error: Exception) {
                 _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
                 val message = HotWaterUiText.summarizeError(error)
                 _statusMessage.value = message
                 syncWidgetStatus("操作失败", message)
+
+                // 保存失败历史
+                val history = OperationHistory(
+                    type = operationType,
+                    success = false,
+                    message = message,
+                )
+                store.saveHistory(history)
+                _history.value = store.loadHistory()
+
+                // 触发失败反馈
+                _feedbackEvent.value = FeedbackEvent(
+                    type = FeedbackEvent.FeedbackType.ERROR,
+                    message = message,
+                )
             } finally {
                 _busy.value = false
             }

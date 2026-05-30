@@ -2,14 +2,12 @@ package cn.qzxy.hotwater
 
 import android.Manifest
 import android.animation.ObjectAnimator
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ScrollView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -20,6 +18,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
 import cn.qzxy.hotwater.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
@@ -31,6 +30,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainViewModel by viewModels()
+    private lateinit var historyAdapter: HistoryAdapter
 
     private var currentPage: AppPage = AppPage.OPERATIONS
 
@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        setupHistoryRecyclerView()
         bindActions()
         observeState()
 
@@ -80,6 +81,14 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
     }
 
+    private fun setupHistoryRecyclerView() {
+        historyAdapter = HistoryAdapter()
+        binding.historyRecyclerView.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = historyAdapter
+        }
+    }
+
     private fun bindActions() {
         binding.operationsTab.setOnClickListener { switchPage(AppPage.OPERATIONS) }
         binding.configTab.setOnClickListener { switchPage(AppPage.CONFIG) }
@@ -88,7 +97,7 @@ class MainActivity : AppCompatActivity() {
             val rawConfig = collectConfigInput()
             viewModel.saveConfig(rawConfig)
             switchPage(AppPage.OPERATIONS)
-            toast("配置已保存")
+            FeedbackHelper.showSuccess(this, binding.root, "配置已保存")
         }
 
         binding.exportButton.setOnClickListener {
@@ -140,8 +149,33 @@ class MainActivity : AppCompatActivity() {
                         renderRuntimeDeviceInfo()
                     }
                 }
+                launch {
+                    viewModel.history.collect { history ->
+                        historyAdapter.submitList(history)
+                        binding.historyEmptyText.visibility = if (history.isEmpty()) View.VISIBLE else View.GONE
+                        binding.historyRecyclerView.visibility = if (history.isEmpty()) View.GONE else View.VISIBLE
+                    }
+                }
+                launch {
+                    viewModel.feedbackEvent.collect { event ->
+                        event?.let { showFeedback(it) }
+                    }
+                }
             }
         }
+    }
+
+    private fun showFeedback(event: FeedbackEvent) {
+        when (event.type) {
+            FeedbackEvent.FeedbackType.ERROR -> {
+                FeedbackHelper.showError(this, binding.root, event.message)
+            }
+            FeedbackEvent.FeedbackType.WARNING -> {
+                FeedbackHelper.showWarning(this, binding.root, event.message)
+            }
+            else -> {} // SUCCESS 不再触发弹窗
+        }
+        viewModel.clearFeedbackEvent()
     }
 
     private fun collectConfigInput(): HotWaterConfig {
@@ -317,10 +351,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-    }
-
     private fun calculateScrollY(scrollView: ScrollView, target: View): Int {
         var offset = 0
         var child = target
@@ -335,7 +365,7 @@ class MainActivity : AppCompatActivity() {
         val config = collectConfigInput()
         val validationError = HotWaterConfigManager.validateConfig(config)
         if (validationError != null) {
-            toast("导出失败：$validationError")
+            FeedbackHelper.showError(this, binding.root, "导出失败：$validationError")
             return
         }
 
@@ -348,10 +378,10 @@ class MainActivity : AppCompatActivity() {
         val result = HotWaterConfigManager.writeConfigToUri(this, uri, config)
         result.fold(
             onSuccess = {
-                toast("配置已导出")
+                FeedbackHelper.showSuccess(this, binding.root, "配置已导出")
             },
             onFailure = { error ->
-                toast("导出失败：${error.message}")
+                FeedbackHelper.showError(this, binding.root, "导出失败：${error.message}")
             }
         )
     }
@@ -366,16 +396,16 @@ class MainActivity : AppCompatActivity() {
             onSuccess = { config ->
                 val validationError = HotWaterConfigManager.validateConfig(config)
                 if (validationError != null) {
-                    toast("导入失败：$validationError")
+                    FeedbackHelper.showError(this, binding.root, "导入失败：$validationError")
                     return
                 }
 
                 viewModel.saveConfig(config)
                 renderConfig(config)
-                toast("配置已导入")
+                FeedbackHelper.showSuccess(this, binding.root, "配置已导入")
             },
             onFailure = { error ->
-                toast("导入失败：${error.message}")
+                FeedbackHelper.showError(this, binding.root, "导入失败：${error.message}")
             }
         )
     }
