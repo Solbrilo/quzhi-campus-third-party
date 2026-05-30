@@ -1,5 +1,6 @@
 # Sensitive user data
 1.chls
+2.chls
 last_hotwater_order.json
 esp32_hotwater/main/hotwater_secrets.h
 

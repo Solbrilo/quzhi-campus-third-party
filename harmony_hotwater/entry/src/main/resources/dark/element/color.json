@@ -61,14 +61,6 @@
       "value": "#33000000"
     },
     {
-      "name": "glass_highlight_top",
-      "value": "#38FFFFFF"
-    },
-    {
-      "name": "glass_highlight_bottom",
-      "value": "#14FFFFFF"
-    },
-    {
       "name": "accent_gradient_start",
       "value": "#F27CA5FF"
     },
@@ -163,6 +155,34 @@
     {
       "name": "decor_peach_small",
       "value": "#336D3B34"
+    },
+    {
+      "name": "widget_background",
+      "value": "#08111F"
+    },
+    {
+      "name": "widget_border",
+      "value": "#4063778E"
+    },
+    {
+      "name": "widget_button_open_background",
+      "value": "#17314F"
+    },
+    {
+      "name": "widget_button_close_background",
+      "value": "#3B2620"
+    },
+    {
+      "name": "widget_status_error",
+      "value": "#FFB39C"
+    },
+    {
+      "name": "widget_status_close",
+      "value": "#FFC0AF"
+    },
+    {
+      "name": "widget_status_open",
+      "value": "#9AE4C5"
     }
   ]
 }

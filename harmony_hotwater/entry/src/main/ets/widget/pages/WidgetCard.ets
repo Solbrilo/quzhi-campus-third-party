@@ -17,7 +17,7 @@ struct WidgetCard {
       Circle()
         .width(160)
         .height(160)
-        .fill('#80B8D9FF')
+        .fill($r('app.color.decor_blue_large'))
         .opacity(0.22)
         .align(Alignment.TopEnd)
         .offset({ x: 42, y: -32 })
@@ -25,7 +25,7 @@ struct WidgetCard {
       Circle()
         .width(132)
         .height(132)
-        .fill('#7CFFD4C2')
+        .fill($r('app.color.decor_peach_large'))
         .opacity(0.18)
         .align(Alignment.BottomStart)
         .offset({ x: -30, y: 36 })
@@ -34,14 +34,14 @@ struct WidgetCard {
         Text('趣智校园热水')
           .fontSize(16)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#11213B')
+          .fontColor($r('app.color.text_primary'))
 
         Row({ space: 6 }) {
           if (this.isBusy()) {
             LoadingProgress()
               .width(16)
               .height(16)
-              .color(this.statusTone === 'close' ? '#FF9D84' : '#6F97FF')
+              .color(this.statusTone === 'close' ? $r('app.color.close_accent') : $r('app.color.accent'))
           }
 
           Text(this.statusText)
@@ -51,8 +51,8 @@ struct WidgetCard {
         .width('100%')
 
         Column({ space: 8 }) {
-          this.WidgetLink('开热水', '#DFF1FF', 'open')
-          this.WidgetLink('关热水', '#FFE7E0', 'close')
+          this.WidgetLink('开热水', $r('app.color.widget_button_open_background'), 'open')
+          this.WidgetLink('关热水', $r('app.color.widget_button_close_background'), 'close')
         }
         .width('100%')
       }
@@ -61,13 +61,17 @@ struct WidgetCard {
     .width('100%')
     .height('100%')
     .padding(16)
-    .backgroundColor('#88FFFFFF')
-    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+    .backgroundColor($r('app.color.widget_background'))
+    .border({
+      width: 1,
+      color: $r('app.color.widget_border'),
+      style: BorderStyle.Solid
+    })
     .borderRadius(24)
   }
 
   @Builder
-  private WidgetLink(title: string, background: string, action: string): void {
+  private WidgetLink(title: string, background: ResourceColor, action: string): void {
     FormLink({
       action: this.ACTION_TYPE,
       params: {
@@ -80,23 +84,23 @@ struct WidgetCard {
         .textAlign(TextAlign.Center)
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
-        .fontColor('#23457D')
+        .fontColor($r('app.color.button_soft_text'))
         .backgroundColor(background)
         .borderRadius(18)
     }
   }
 
-  private feedbackColor(): string {
+  private feedbackColor(): ResourceColor {
     if (this.statusTone === 'error') {
-      return '#B84B36'
+      return $r('app.color.widget_status_error')
     }
     if (this.statusTone === 'close' || this.statusTone === 'close_success') {
-      return '#A9553A'
+      return $r('app.color.widget_status_close')
     }
     if (this.statusTone === 'open' || this.statusTone === 'open_success') {
-      return '#2A6C57'
+      return $r('app.color.widget_status_open')
     }
-    return '#63708A'
+    return $r('app.color.text_secondary')
   }
 
   private isBusy(): boolean {

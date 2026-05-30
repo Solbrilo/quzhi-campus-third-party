@@ -163,6 +163,34 @@
     {
       "name": "decor_peach_small",
       "value": "#50FFC8A8"
+    },
+    {
+      "name": "widget_background",
+      "value": "#B8FFFFFF"
+    },
+    {
+      "name": "widget_border",
+      "value": "#4CFFFFFF"
+    },
+    {
+      "name": "widget_button_open_background",
+      "value": "#DFF1FF"
+    },
+    {
+      "name": "widget_button_close_background",
+      "value": "#FFE7E0"
+    },
+    {
+      "name": "widget_status_error",
+      "value": "#B84B36"
+    },
+    {
+      "name": "widget_status_close",
+      "value": "#A9553A"
+    },
+    {
+      "name": "widget_status_open",
+      "value": "#2A6C57"
     }
   ]
 }
