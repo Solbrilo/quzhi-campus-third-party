@@ -2,7 +2,167 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#FFFFFF"
+      "value": "#EAF2FF"
+    },
+    {
+      "name": "app_background",
+      "value": "#EAF2FF"
+    },
+    {
+      "name": "text_primary",
+      "value": "#11213B"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#63708A"
+    },
+    {
+      "name": "text_chip",
+      "value": "#314765"
+    },
+    {
+      "name": "switch_inactive_text",
+      "value": "#8090A8"
+    },
+    {
+      "name": "card_background",
+      "value": "#50FFFFFF"
+    },
+    {
+      "name": "card_border",
+      "value": "#28FFFFFF"
+    },
+    {
+      "name": "card_shadow",
+      "value": "#18000000"
+    },
+    {
+      "name": "glass_panel_start",
+      "value": "#8CFFFFFF"
+    },
+    {
+      "name": "glass_panel_middle",
+      "value": "#59FFFFFF"
+    },
+    {
+      "name": "glass_panel_end",
+      "value": "#80FFFFFF"
+    },
+    {
+      "name": "glass_border",
+      "value": "#40FFFFFF"
+    },
+    {
+      "name": "glass_shadow_primary",
+      "value": "#1A000000"
+    },
+    {
+      "name": "glass_shadow_secondary",
+      "value": "#0D000000"
+    },
+    {
+      "name": "glass_highlight_top",
+      "value": "#60FFFFFF"
+    },
+    {
+      "name": "glass_highlight_bottom",
+      "value": "#20FFFFFF"
+    },
+    {
+      "name": "accent_gradient_start",
+      "value": "#F26F97FF"
+    },
+    {
+      "name": "accent_gradient_end",
+      "value": "#D98FB4FF"
+    },
+    {
+      "name": "accent_shadow_primary",
+      "value": "#506F97FF"
+    },
+    {
+      "name": "accent_shadow_secondary",
+      "value": "#206F97FF"
+    },
+    {
+      "name": "accent",
+      "value": "#6F97FF"
+    },
+    {
+      "name": "close_accent",
+      "value": "#FF9D84"
+    },
+    {
+      "name": "input_background",
+      "value": "#18FFFFFF"
+    },
+    {
+      "name": "input_border",
+      "value": "#18FFFFFF"
+    },
+    {
+      "name": "button_soft_background",
+      "value": "#D9E9FF"
+    },
+    {
+      "name": "button_soft_text",
+      "value": "#23457D"
+    },
+    {
+      "name": "status_chip_background",
+      "value": "#EEF5FF"
+    },
+    {
+      "name": "power_outer_background",
+      "value": "#22FFFFFF"
+    },
+    {
+      "name": "power_inner_background",
+      "value": "#80FFFFFF"
+    },
+    {
+      "name": "power_button_open_background",
+      "value": "#EDF6FF"
+    },
+    {
+      "name": "power_button_close_background",
+      "value": "#FFF1EB"
+    },
+    {
+      "name": "power_button_text",
+      "value": "#23457D"
+    },
+    {
+      "name": "power_button_open_border",
+      "value": "#30FFFFFF"
+    },
+    {
+      "name": "power_button_close_border",
+      "value": "#30FF9D84"
+    },
+    {
+      "name": "power_open_shadow",
+      "value": "#606F97FF"
+    },
+    {
+      "name": "power_close_shadow",
+      "value": "#60FF9D84"
+    },
+    {
+      "name": "decor_blue_large",
+      "value": "#60B7D6FF"
+    },
+    {
+      "name": "decor_blue_small",
+      "value": "#50A5CCFF"
+    },
+    {
+      "name": "decor_peach_large",
+      "value": "#60FFD8C4"
+    },
+    {
+      "name": "decor_peach_small",
+      "value": "#50FFC8A8"
     }
   ]
 }
