@@ -2,6 +2,7 @@ package cn.qzxy.hotwater
 
 import android.Manifest
 import android.animation.ObjectAnimator
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -36,6 +37,18 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
     private var loadingRingAnimator: ObjectAnimator? = null
+
+    private val exportConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let { exportConfigToUri(it) }
+    }
+
+    private val importConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { importConfigFromUri(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +89,14 @@ class MainActivity : AppCompatActivity() {
             viewModel.saveConfig(rawConfig)
             switchPage(AppPage.OPERATIONS)
             toast("配置已保存")
+        }
+
+        binding.exportButton.setOnClickListener {
+            exportConfig()
+        }
+
+        binding.importButton.setOnClickListener {
+            importConfig()
         }
 
         binding.refreshBalanceButton.setOnClickListener {
@@ -308,5 +329,54 @@ class MainActivity : AppCompatActivity() {
             child = child.parent as View
         }
         return (offset + target.top - scrollView.height / 3).coerceAtLeast(0)
+    }
+
+    private fun exportConfig() {
+        val config = collectConfigInput()
+        val validationError = HotWaterConfigManager.validateConfig(config)
+        if (validationError != null) {
+            toast("导出失败：$validationError")
+            return
+        }
+
+        val fileName = HotWaterConfigManager.generateExportFileName(config)
+        exportConfigLauncher.launch(fileName)
+    }
+
+    private fun exportConfigToUri(uri: android.net.Uri) {
+        val config = collectConfigInput()
+        val result = HotWaterConfigManager.writeConfigToUri(this, uri, config)
+        result.fold(
+            onSuccess = {
+                toast("配置已导出")
+            },
+            onFailure = { error ->
+                toast("导出失败：${error.message}")
+            }
+        )
+    }
+
+    private fun importConfig() {
+        importConfigLauncher.launch(arrayOf("application/json"))
+    }
+
+    private fun importConfigFromUri(uri: android.net.Uri) {
+        val result = HotWaterConfigManager.readConfigFromUri(this, uri)
+        result.fold(
+            onSuccess = { config ->
+                val validationError = HotWaterConfigManager.validateConfig(config)
+                if (validationError != null) {
+                    toast("导入失败：$validationError")
+                    return
+                }
+
+                viewModel.saveConfig(config)
+                renderConfig(config)
+                toast("配置已导入")
+            },
+            onFailure = { error ->
+                toast("导入失败：${error.message}")
+            }
+        )
     }
 }
