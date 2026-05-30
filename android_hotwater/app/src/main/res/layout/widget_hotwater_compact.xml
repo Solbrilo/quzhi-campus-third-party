@@ -15,7 +15,7 @@
         android:background="@drawable/widget_glass_action_open"
         android:gravity="center"
         android:padding="13dp"
-        android:textColor="#23457D"
+        android:textColor="@color/accent"
         android:textSize="14sp"
         android:textStyle="bold" />
 
@@ -27,7 +27,7 @@
         android:background="@drawable/widget_glass_action_close"
         android:gravity="center"
         android:padding="13dp"
-        android:textColor="#7A3E32"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:textStyle="bold" />
 

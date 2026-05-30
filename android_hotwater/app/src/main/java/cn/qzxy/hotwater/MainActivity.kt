@@ -210,8 +210,9 @@ class MainActivity : AppCompatActivity() {
         currentPage = page
 
         val inactiveTextColor = ContextCompat.getColor(this, R.color.text_secondary)
-        binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) android.graphics.Color.WHITE else inactiveTextColor)
-        binding.configTab.setTextColor(if (page == AppPage.CONFIG) android.graphics.Color.WHITE else inactiveTextColor)
+        val activeTextColor = ContextCompat.getColor(this, R.color.text_primary)
+        binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) activeTextColor else inactiveTextColor)
+        binding.configTab.setTextColor(if (page == AppPage.CONFIG) activeTextColor else inactiveTextColor)
         binding.operationsTab.setBackgroundResource(
             if (page == AppPage.OPERATIONS) R.drawable.tab_active_background else R.drawable.tab_inactive_background
         )
