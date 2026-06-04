@@ -2,12 +2,16 @@ import common from '@ohos.app.ability.common'
 import picker from '@ohos.file.picker'
 import fs from '@ohos.file.fs'
 import window from '@ohos.window'
+import { Want } from '@kit.AbilityKit'
 import { CaptureParser } from '../common/CaptureParser'
 import { DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
 import { HotWaterRepository } from '../common/HotWaterRepository'
 import { HotWaterStore } from '../common/HotWaterStore'
 import { LaunchActionBridge } from '../common/LaunchActionBridge'
 import { RuntimeDeviceInfoResolver } from '../common/RuntimeDeviceInfoResolver'
+
+const LOW_BALANCE_WARNING_YUAN: number = 5
+const ALIPAY_RECHARGE_URI: string = 'alipays://platformapi/startapp?appId=20000001'
 
 enum HomePage {
   OPERATIONS = 0,
@@ -34,6 +38,7 @@ struct Index {
   @State refreshingBalance: boolean = false
   @State liveStatus: string = '先导入 .chls 或补全配置。'
 
+  @State balanceYuan: number = 0
   @State balanceLabel: string = '--'
   @State userLabel: string = '未导入账号'
   @State deviceName: string = '热水设备待刷新'
@@ -115,6 +120,7 @@ struct Index {
   }
 
   private applySnapshot(snapshot: DashboardSnapshot): void {
+    this.balanceYuan = snapshot.balanceYuan
     this.balanceLabel = snapshot.balanceLabel
     this.userLabel = snapshot.userLabel
     this.deviceName = snapshot.deviceName
@@ -217,7 +223,7 @@ struct Index {
     }
   }
 
-  private async toggleHotWater(): Promise<void> {
+  private async toggleHotWater(skipLowBalanceWarning: boolean = false): Promise<void> {
     if (!this.repository) {
       return
     }
@@ -225,6 +231,10 @@ struct Index {
     if (!config.isComplete()) {
       this.switchPage(HomePage.CONFIG)
       this.liveStatus = '配置还不完整，先导入 .chls 或补全字段。'
+      return
+    }
+    if (!skipLowBalanceWarning && this.shouldShowLowBalanceOpenWarning()) {
+      this.showLowBalanceDialog()
       return
     }
     this.busy = true
@@ -238,6 +248,44 @@ struct Index {
       this.liveStatus = `操作失败：${String(error)}`
     } finally {
       this.busy = false
+    }
+  }
+
+  private shouldShowLowBalanceOpenWarning(): boolean {
+    return !this.hasCachedOrder &&
+      this.balanceLabel !== '--' &&
+      this.balanceYuan < LOW_BALANCE_WARNING_YUAN
+  }
+
+  private showLowBalanceDialog(): void {
+    AlertDialog.show({
+      title: '余额不足5元',
+      message: '余额不足5元，建议通过支付宝进行充值。',
+      primaryButton: {
+        value: '继续开启热水',
+        action: () => {
+          this.toggleHotWater(true)
+        }
+      },
+      secondaryButton: {
+        value: '已知晓并前往充值',
+        action: () => {
+          this.openAlipayForRecharge()
+        }
+      }
+    })
+  }
+
+  private async openAlipayForRecharge(): Promise<void> {
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext
+      const want: Want = {
+        action: 'ohos.want.action.viewData',
+        uri: ALIPAY_RECHARGE_URI
+      }
+      await ctx.startAbility(want)
+    } catch (error) {
+      this.liveStatus = '未能打开支付宝，请手动通过支付宝进行充值。'
     }
   }
 
