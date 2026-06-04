@@ -54,6 +54,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun shouldShowLowBalanceOpenWarning(): Boolean {
+        if (_snapshot.value?.hasCachedOrder == true || !store.loadOrderNo().isNullOrBlank()) {
+            return false
+        }
+        val snapshot = _snapshot.value ?: return false
+        return snapshot.balanceLabel != "--" && snapshot.balanceYuan < LOW_BALANCE_WARNING_YUAN
+    }
+
     fun saveConfig(rawConfig: HotWaterConfig) {
         val prepared = persistRuntimeInfoIfNeeded(rawConfig)
         store.saveConfig(prepared)
@@ -149,5 +157,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             HotWaterNotificationService.dismiss(getApplication())
         }
+    }
+
+    companion object {
+        private const val LOW_BALANCE_WARNING_YUAN = 5.0
     }
 }

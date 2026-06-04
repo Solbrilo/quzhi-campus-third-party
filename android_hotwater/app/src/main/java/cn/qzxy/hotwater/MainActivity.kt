@@ -2,7 +2,10 @@ package cn.qzxy.hotwater
 
 import android.Manifest
 import android.animation.ObjectAnimator
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -12,6 +15,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -83,7 +87,39 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.toggleHotWaterButton.setOnClickListener {
-            viewModel.toggle()
+            if (viewModel.shouldShowLowBalanceOpenWarning()) {
+                showLowBalanceDialog()
+            } else {
+                viewModel.toggle()
+            }
+        }
+    }
+
+    private fun showLowBalanceDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("余额不足5元")
+            .setMessage("余额不足5元，建议通过支付宝进行充值。")
+            .setNegativeButton("继续开启热水") { _, _ ->
+                viewModel.toggle()
+            }
+            .setPositiveButton("已知晓并前往充值") { _, _ ->
+                openAlipayForRecharge()
+            }
+            .show()
+    }
+
+    private fun openAlipayForRecharge() {
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("alipays://platformapi/startapp?appId=20000001"),
+        ).apply {
+            setPackage(ALIPAY_PACKAGE_NAME)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            toast("未能打开支付宝，请手动通过支付宝进行充值。")
         }
     }
 
@@ -307,5 +343,9 @@ class MainActivity : AppCompatActivity() {
             child = child.parent as View
         }
         return (offset + target.top - scrollView.height / 3).coerceAtLeast(0)
+    }
+
+    companion object {
+        private const val ALIPAY_PACKAGE_NAME = "com.eg.android.AlipayGphone"
     }
 }
