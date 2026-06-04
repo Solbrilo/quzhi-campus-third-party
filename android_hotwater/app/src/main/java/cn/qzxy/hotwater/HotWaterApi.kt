@@ -3,6 +3,7 @@ package cn.qzxy.hotwater
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionPool
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -16,11 +17,21 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class HotWaterApi {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .build()
+    companion object {
+        private const val BASE_URL = "https://v3-api.china-qzxy.cn"
+
+        // 共享的 OkHttpClient 单例，复用连接池
+        private val sharedClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
+                .build()
+        }
+    }
+
+    private val client = sharedClient
 
     suspend fun userInfo(config: HotWaterConfig): JSONObject {
         return get(
@@ -195,8 +206,4 @@ class HotWaterApi {
             "Mozilla/5.0 (Linux; Android 14; AppleWebKit/537.36 Mobile Safari/537.36)",
         )
         .build()
-
-    companion object {
-        private const val BASE_URL = "https://v3-api.china-qzxy.cn"
-    }
 }
