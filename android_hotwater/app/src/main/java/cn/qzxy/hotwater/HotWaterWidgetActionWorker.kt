@@ -1,6 +1,8 @@
 package cn.qzxy.hotwater
 
+import android.content.ComponentName
 import android.content.Context
+import android.service.quicksettings.TileService
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -61,6 +63,7 @@ class HotWaterWidgetActionWorker(
                 } else {
                     HotWaterNotificationService.dismiss(applicationContext)
                 }
+                refreshTile(applicationContext)
             }
             Result.success()
         } catch (error: Exception) {
@@ -81,5 +84,12 @@ class HotWaterWidgetActionWorker(
     companion object {
         const val KEY_ACTION = "widget_action"
         const val KEY_ERROR = "widget_error"
+
+        private fun refreshTile(context: Context) {
+            TileService.requestListeningState(
+                context,
+                ComponentName(context, HotWaterTileService::class.java),
+            )
+        }
     }
 }

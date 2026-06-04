@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import org.json.JSONArray
+import org.json.JSONObject
 
 class HotWaterConfigStore(context: Context) {
     private val prefs: SharedPreferences = run {
@@ -107,6 +109,58 @@ class HotWaterConfigStore(context: Context) {
             if (value == null) remove(key) else putInt(key, value)
         }
 
+    fun saveHistory(history: OperationHistory) {
+        val historyList = loadHistory().toMutableList()
+        historyList.add(0, history) // 添加到开头
+
+        // 只保留最近 20 条
+        if (historyList.size > MAX_HISTORY_SIZE) {
+            historyList.removeAt(historyList.size - 1)
+        }
+
+        val jsonArray = JSONArray()
+        historyList.forEach { item ->
+            val jsonObject = JSONObject().apply {
+                put("id", item.id)
+                put("type", item.type.name)
+                put("success", item.success)
+                put("message", item.message)
+                put("timestamp", item.timestamp)
+            }
+            jsonArray.put(jsonObject)
+        }
+
+        prefs.edit()
+            .putString(KEY_HISTORY, jsonArray.toString())
+            .apply()
+    }
+
+    fun loadHistory(): List<OperationHistory> {
+        val historyJson = prefs.getString(KEY_HISTORY, null) ?: return emptyList()
+
+        return try {
+            val jsonArray = JSONArray(historyJson)
+            (0 until jsonArray.length()).mapNotNull { index ->
+                val jsonObject = jsonArray.getJSONObject(index)
+                OperationHistory(
+                    id = jsonObject.getLong("id"),
+                    type = OperationHistory.OperationType.valueOf(jsonObject.getString("type")),
+                    success = jsonObject.getBoolean("success"),
+                    message = jsonObject.getString("message"),
+                    timestamp = jsonObject.getLong("timestamp"),
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun clearHistory() {
+        prefs.edit()
+            .remove(KEY_HISTORY)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "hotwater_store"
         private const val KEY_PROJECT_ID = "project_id"
@@ -125,6 +179,8 @@ class HotWaterConfigStore(context: Context) {
         private const val KEY_WIDGET_TONE = "widget_tone"
         private const val KEY_WIDGET_BUSY = "widget_busy"
         private const val KEY_WIDGET_UPDATED_AT = "widget_updated_at"
+        private const val KEY_HISTORY = "operation_history"
         private const val ORDER_RECOVERY_GRACE_MS = 12_000L
+        private const val MAX_HISTORY_SIZE = 20
     }
 }

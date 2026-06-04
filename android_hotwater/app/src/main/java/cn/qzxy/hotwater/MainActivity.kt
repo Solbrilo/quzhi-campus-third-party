@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ScrollView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -23,6 +22,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
 import cn.qzxy.hotwater.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
@@ -34,12 +34,25 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainViewModel by viewModels()
+    private lateinit var historyAdapter: HistoryAdapter
 
     private var currentPage: AppPage = AppPage.OPERATIONS
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
     private var loadingRingAnimator: ObjectAnimator? = null
+
+    private val exportConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let { exportConfigToUri(it) }
+    }
+
+    private val importConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { importConfigFromUri(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +74,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        setupHistoryRecyclerView()
         bindActions()
         observeState()
 
@@ -71,6 +85,14 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
     }
 
+    private fun setupHistoryRecyclerView() {
+        historyAdapter = HistoryAdapter()
+        binding.historyRecyclerView.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = historyAdapter
+        }
+    }
+
     private fun bindActions() {
         binding.operationsTab.setOnClickListener { switchPage(AppPage.OPERATIONS) }
         binding.configTab.setOnClickListener { switchPage(AppPage.CONFIG) }
@@ -79,7 +101,15 @@ class MainActivity : AppCompatActivity() {
             val rawConfig = collectConfigInput()
             viewModel.saveConfig(rawConfig)
             switchPage(AppPage.OPERATIONS)
-            toast("配置已保存")
+            FeedbackHelper.showSuccess(this, binding.root, "配置已保存")
+        }
+
+        binding.exportButton.setOnClickListener {
+            exportConfig()
+        }
+
+        binding.importButton.setOnClickListener {
+            importConfig()
         }
 
         binding.refreshBalanceButton.setOnClickListener {
@@ -119,7 +149,7 @@ class MainActivity : AppCompatActivity() {
         try {
             startActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            toast("未能打开支付宝，请手动通过支付宝进行充值。")
+            FeedbackHelper.showWarning(this, binding.root, "未能打开支付宝，请手动通过支付宝进行充值。")
         }
     }
 
@@ -155,8 +185,33 @@ class MainActivity : AppCompatActivity() {
                         renderRuntimeDeviceInfo()
                     }
                 }
+                launch {
+                    viewModel.history.collect { history ->
+                        historyAdapter.submitList(history)
+                        binding.historyEmptyText.visibility = if (history.isEmpty()) View.VISIBLE else View.GONE
+                        binding.historyRecyclerView.visibility = if (history.isEmpty()) View.GONE else View.VISIBLE
+                    }
+                }
+                launch {
+                    viewModel.feedbackEvent.collect { event ->
+                        event?.let { showFeedback(it) }
+                    }
+                }
             }
         }
+    }
+
+    private fun showFeedback(event: FeedbackEvent) {
+        when (event.type) {
+            FeedbackEvent.FeedbackType.ERROR -> {
+                FeedbackHelper.showError(this, binding.root, event.message)
+            }
+            FeedbackEvent.FeedbackType.WARNING -> {
+                FeedbackHelper.showWarning(this, binding.root, event.message)
+            }
+            else -> {} // SUCCESS 不再触发弹窗
+        }
+        viewModel.clearFeedbackEvent()
     }
 
     private fun collectConfigInput(): HotWaterConfig {
@@ -246,8 +301,9 @@ class MainActivity : AppCompatActivity() {
         currentPage = page
 
         val inactiveTextColor = ContextCompat.getColor(this, R.color.text_secondary)
-        binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) android.graphics.Color.WHITE else inactiveTextColor)
-        binding.configTab.setTextColor(if (page == AppPage.CONFIG) android.graphics.Color.WHITE else inactiveTextColor)
+        val activeTextColor = ContextCompat.getColor(this, R.color.text_primary)
+        binding.operationsTab.setTextColor(if (page == AppPage.OPERATIONS) activeTextColor else inactiveTextColor)
+        binding.configTab.setTextColor(if (page == AppPage.CONFIG) activeTextColor else inactiveTextColor)
         binding.operationsTab.setBackgroundResource(
             if (page == AppPage.OPERATIONS) R.drawable.tab_active_background else R.drawable.tab_inactive_background
         )
@@ -331,10 +387,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-    }
-
     private fun calculateScrollY(scrollView: ScrollView, target: View): Int {
         var offset = 0
         var child = target
@@ -343,6 +395,55 @@ class MainActivity : AppCompatActivity() {
             child = child.parent as View
         }
         return (offset + target.top - scrollView.height / 3).coerceAtLeast(0)
+    }
+
+    private fun exportConfig() {
+        val config = collectConfigInput()
+        val validationError = HotWaterConfigManager.validateConfig(config)
+        if (validationError != null) {
+            FeedbackHelper.showError(this, binding.root, "导出失败：$validationError")
+            return
+        }
+
+        val fileName = HotWaterConfigManager.generateExportFileName(config)
+        exportConfigLauncher.launch(fileName)
+    }
+
+    private fun exportConfigToUri(uri: android.net.Uri) {
+        val config = collectConfigInput()
+        val result = HotWaterConfigManager.writeConfigToUri(this, uri, config)
+        result.fold(
+            onSuccess = {
+                FeedbackHelper.showSuccess(this, binding.root, "配置已导出")
+            },
+            onFailure = { error ->
+                FeedbackHelper.showError(this, binding.root, "导出失败：${error.message}")
+            }
+        )
+    }
+
+    private fun importConfig() {
+        importConfigLauncher.launch(arrayOf("application/json"))
+    }
+
+    private fun importConfigFromUri(uri: android.net.Uri) {
+        val result = HotWaterConfigManager.readConfigFromUri(this, uri)
+        result.fold(
+            onSuccess = { config ->
+                val validationError = HotWaterConfigManager.validateConfig(config)
+                if (validationError != null) {
+                    FeedbackHelper.showError(this, binding.root, "导入失败：$validationError")
+                    return
+                }
+
+                viewModel.saveConfig(config)
+                renderConfig(config)
+                FeedbackHelper.showSuccess(this, binding.root, "配置已导入")
+            },
+            onFailure = { error ->
+                FeedbackHelper.showError(this, binding.root, "导入失败：${error.message}")
+            }
+        )
     }
 
     companion object {
