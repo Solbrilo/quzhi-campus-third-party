@@ -30,6 +30,7 @@ harmony_hotwater/.hvigor/
 harmony_hotwater/.idea/
 harmony_hotwater/.appanalyzer/
 harmony_hotwater/entry/build/
+harmony_hotwater/entry/.preview
 
 # ESP32 local/build artifacts
 esp32_hotwater/build/
