@@ -1,6 +1,6 @@
 import preferences from '@ohos.data.preferences'
 import type common from '@ohos.app.ability.common'
-import { HotWaterConfig } from './HotWaterModels'
+import { ConsumptionRecord, HotWaterConfig, UsageSession } from './HotWaterModels'
 
 export class HotWaterStore {
   private static readonly STORE_NAME: string = 'hotwater_store'
@@ -61,6 +61,77 @@ export class HotWaterStore {
     await store.put('orderNo', '')
     await store.put('orderClearedAt', Date.now())
     await store.flush()
+  }
+
+  async loadUsageSession(): Promise<UsageSession | null> {
+    const store = await this.getStore()
+    const startedAtMillis = Number(await store.get('usageStartedAtMillis', 0))
+    if (startedAtMillis <= 0) {
+      return null
+    }
+    const session = new UsageSession()
+    session.startedAtMillis = startedAtMillis
+    session.startBalanceYuan = Number(await store.get('usageStartBalanceYuan', 0))
+    return session
+  }
+
+  async startUsageSessionIfAbsent(startBalanceYuan: number): Promise<UsageSession> {
+    const existing = await this.loadUsageSession()
+    if (existing) {
+      return existing
+    }
+    const session = new UsageSession()
+    session.startedAtMillis = Date.now()
+    session.startBalanceYuan = startBalanceYuan
+    const store = await this.getStore()
+    await store.put('usageStartedAtMillis', session.startedAtMillis)
+    await store.put('usageStartBalanceYuan', session.startBalanceYuan)
+    await store.flush()
+    return session
+  }
+
+  async clearUsageSession(): Promise<void> {
+    const store = await this.getStore()
+    await store.delete('usageStartedAtMillis')
+    await store.delete('usageStartBalanceYuan')
+    await store.flush()
+  }
+
+  async saveConsumptionRecord(record: ConsumptionRecord): Promise<void> {
+    const records = await this.loadConsumptionRecords()
+    records.unshift(record)
+    if (records.length > 20) {
+      records.splice(20)
+    }
+    const store = await this.getStore()
+    await store.put('consumptionRecords', JSON.stringify(records))
+    await store.flush()
+  }
+
+  async loadConsumptionRecords(): Promise<ConsumptionRecord[]> {
+    const store = await this.getStore()
+    const rawValue = String(await store.get('consumptionRecords', ''))
+    if (rawValue.length === 0) {
+      return []
+    }
+    try {
+      const parsed = JSON.parse(rawValue) as Array<Record<string, Object>>
+      const records: ConsumptionRecord[] = []
+      parsed.forEach((item) => {
+        const record = new ConsumptionRecord()
+        record.id = Number(item['id'])
+        record.startedAtMillis = Number(item['startedAtMillis'])
+        record.endedAtMillis = Number(item['endedAtMillis'])
+        record.consumptionYuan = Number(item['consumptionYuan'])
+        record.usageDurationMillis = Number(item['usageDurationMillis'])
+        if (record.id > 0) {
+          records.push(record)
+        }
+      })
+      return records
+    } catch (error) {
+      return []
+    }
   }
 
   async shouldIgnoreRecoveredOrder(): Promise<boolean> {

@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -187,6 +188,8 @@ private fun BalanceCard(
             fontWeight = FontWeight.Bold
         )
 
+        UsageTimer(startedAtMillis = snapshot?.usageStartedAtMillis)
+
         Spacer(modifier = Modifier.height(6.dp))
         Box(
             modifier = Modifier
@@ -222,6 +225,42 @@ private fun BalanceCard(
             color = tokens.textSecondary,
             fontSize = 11.sp
         )
+    }
+}
+
+@Composable
+private fun UsageTimer(startedAtMillis: Long?) {
+    if (startedAtMillis == null) {
+        return
+    }
+
+    val elapsedMillis by produceState(
+        initialValue = (System.currentTimeMillis() - startedAtMillis).coerceAtLeast(0L),
+        key1 = startedAtMillis,
+    ) {
+        while (true) {
+            value = (System.currentTimeMillis() - startedAtMillis).coerceAtLeast(0L)
+            delay(1_000L)
+        }
+    }
+
+    Text(
+        text = "开启时长 ${formatUsageDuration(elapsedMillis)}",
+        color = GlassAccent.primary,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+    )
+}
+
+private fun formatUsageDuration(durationMillis: Long): String {
+    val totalSeconds = (durationMillis / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
     }
 }
 
@@ -477,6 +516,21 @@ private fun HistoryItem(item: OperationHistory) {
                 fontSize = 12.sp,
                 maxLines = 1
             )
+            item.getConsumptionLabel()?.let { consumptionLabel ->
+                Text(
+                    text = consumptionLabel,
+                    color = GlassAccent.error,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            item.getUsageDurationLabel()?.let { durationLabel ->
+                Text(
+                    text = "开启时长 $durationLabel",
+                    color = tokens.textTertiary,
+                    fontSize = 12.sp,
+                )
+            }
         }
 
         Text(

@@ -61,4 +61,43 @@ export class OperationResult {
   summary: string = ''
   details: string = ''
   snapshot: DashboardSnapshot = new DashboardSnapshot()
+  consumptionYuan: number = -1
+  usageDurationMillis: number = -1
+}
+
+export class UsageSession {
+  startedAtMillis: number = 0
+  startBalanceYuan: number = 0
+}
+
+export class ConsumptionRecord {
+  id: number = 0
+  startedAtMillis: number = 0
+  endedAtMillis: number = 0
+  consumptionYuan: number = 0
+  usageDurationMillis: number = 0
+
+  getStartedAtLabel(): string {
+    const date = new Date(this.startedAtMillis)
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const hours = date.getHours().toString().padStart(2, '0')
+    const minutes = date.getMinutes().toString().padStart(2, '0')
+    return `${month}-${day} ${hours}:${minutes}`
+  }
+
+  getDurationLabel(): string {
+    return ConsumptionRecord.formatDuration(this.usageDurationMillis)
+  }
+
+  static formatDuration(durationMillis: number): string {
+    const totalSeconds = Math.max(0, Math.floor(durationMillis / 1000))
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+    }
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
 }

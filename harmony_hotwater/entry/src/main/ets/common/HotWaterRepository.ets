@@ -71,16 +71,18 @@ export class HotWaterRepository {
     }
 
     const snapshot = await this.refreshSnapshot(config)
+    const snapshotWithUsageSession = await this.ensureUsageSession(snapshot)
     const result = new OperationResult()
     result.title = success ? '开热水完成' : '开热水请求已发送'
-    result.summary = success ? `热水已开启。\n余额 ${snapshot.balanceLabel} 元` : this.buildSummary(snapshot)
+    result.summary = success ? `热水已开启。\n余额 ${snapshotWithUsageSession.balanceLabel} 元` : this.buildSummary(snapshotWithUsageSession)
     result.details = openResponseText
-    result.snapshot = snapshot
+    result.snapshot = snapshotWithUsageSession
     return result
   }
 
   async close(config: HotWaterConfig): Promise<OperationResult> {
     this.ensureConfig(config)
+    const usageSession = await this.store.loadUsageSession()
     const statusText = await this.postForm('/order/tcpDevice/query/rateOrder/using', this.buildFormString(config))
     if (this.isDeviceBusyByOther(statusText)) {
       return await this.buildDeviceBusyResult(config, statusText)
@@ -111,11 +113,28 @@ export class HotWaterRepository {
       }
     }
 
-    const snapshot = closeAccepted || success
-      ? await this.refreshSnapshotAfterClose(config, success ? '热水已关闭。' : '关热水请求已发送，稍后可刷新确认。')
+    const usageEnded = closeAccepted || success
+    let refreshedSnapshot: DashboardSnapshot | null = null
+    if (usageEnded) {
+      try {
+        refreshedSnapshot = await this.refreshSnapshotAfterClose(config, success ? '热水已关闭。' : '关热水请求已发送，稍后可刷新确认。')
+      } catch (error) {
+        refreshedSnapshot = null
+      }
+    }
+    const snapshot = usageEnded
+      ? (refreshedSnapshot ?? this.fallbackSnapshot(config, success ? '热水已关闭。' : '关热水请求已发送，稍后可刷新确认。', '', false))
       : await this.refreshSnapshot(config)
 
     const result = new OperationResult()
+    if (usageEnded && usageSession) {
+      result.usageDurationMillis = Math.max(0, Date.now() - usageSession.startedAtMillis)
+      if (refreshedSnapshot) {
+        result.consumptionYuan = Math.max(0, usageSession.startBalanceYuan - refreshedSnapshot.balanceYuan)
+      }
+      await this.store.clearUsageSession()
+    }
+
     result.title = success ? '关热水完成' : '关热水请求已发送'
     result.summary = success ? `热水已关闭。\n余额 ${snapshot.balanceLabel} 元` : this.buildSummary(snapshot)
     result.details = closeResponseText
@@ -128,7 +147,7 @@ export class HotWaterRepository {
     const deviceInfoText = await this.get('/device/info/mac', this.buildDeviceInfoQuery(config))
     const balanceText = await this.get('/account/wallet/money', this.buildBalanceQuery(config))
     const statusText = await this.postForm('/order/tcpDevice/query/rateOrder/using', this.buildFormString(config))
-    return await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText)
+    return await this.ensureUsageSession(await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText))
   }
 
   private async refreshSnapshotAfterClose(config: HotWaterConfig, forcedStatus: string): Promise<DashboardSnapshot> {
@@ -146,11 +165,12 @@ export class HotWaterRepository {
     const userInfoText = await this.get('/user/info', this.buildUserInfoQuery(config))
     const deviceInfoText = await this.get('/device/info/mac', this.buildDeviceInfoQuery(config))
     const balanceText = await this.get('/account/wallet/money', this.buildBalanceQuery(config))
-    return await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText)
+    return await this.ensureUsageSession(await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText))
   }
 
   private async buildDeviceBusyResult(config: HotWaterConfig, statusText: string): Promise<OperationResult> {
     await this.store.clearOrderNo()
+    await this.store.clearUsageSession()
     let snapshot: DashboardSnapshot
     try {
       snapshot = await this.refreshSnapshotWithStatus(config, statusText)
@@ -177,6 +197,7 @@ export class HotWaterRepository {
     const extractedOrderNo = this.extractFirstOrEmpty(statusText, 'orderNo')
     if (busyByOther) {
       await this.store.clearOrderNo()
+      await this.store.clearUsageSession()
     } else if (extractedOrderNo.length > 0) {
       const ignoreRecovered = await this.store.shouldIgnoreRecoveredOrder()
       if (!ignoreRecovered) {
@@ -243,6 +264,14 @@ export class HotWaterRepository {
     snapshot.orderNo = orderNo
     snapshot.hasCachedOrder = orderNo.length > 0
     snapshot.isDeviceBusyByOther = isDeviceBusyByOther
+    return snapshot
+  }
+
+  private async ensureUsageSession(snapshot: DashboardSnapshot): Promise<DashboardSnapshot> {
+    if (!snapshot.hasCachedOrder || snapshot.isDeviceBusyByOther) {
+      return snapshot
+    }
+    await this.store.startUsageSessionIfAbsent(snapshot.balanceYuan)
     return snapshot
   }
 
