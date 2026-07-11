@@ -72,6 +72,10 @@
           }
         ],
       }
-    ]
+    ],
+    "metadata": [{
+      "name": "ohos.arkui.UIMaterial.state",
+      "value": "enable"
+    }]
   }
 }
