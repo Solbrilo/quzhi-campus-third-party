@@ -29,6 +29,11 @@ class HotWaterConfigStore(context: Context) {
         val updatedAtMillis: Long,
     )
 
+    data class UsageSession(
+        val startedAtMillis: Long,
+        val startBalanceYuan: Double,
+    )
+
     fun loadConfig(): HotWaterConfig {
         return HotWaterConfig(
             projectId = prefs.getIntOrNull(KEY_PROJECT_ID),
@@ -72,6 +77,37 @@ class HotWaterConfigStore(context: Context) {
         prefs.edit()
             .remove(KEY_ORDER_NO)
             .putLong(KEY_ORDER_CLEARED_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun loadUsageSession(): UsageSession? {
+        val startedAtMillis = prefs.getLong(KEY_USAGE_STARTED_AT, 0L)
+        if (startedAtMillis <= 0L) return null
+        return UsageSession(
+            startedAtMillis = startedAtMillis,
+            startBalanceYuan = Double.fromBits(prefs.getLong(KEY_USAGE_START_BALANCE_BITS, 0L)),
+        )
+    }
+
+    fun startUsageSessionIfAbsent(startBalanceYuan: Double): UsageSession {
+        val existing = loadUsageSession()
+        if (existing != null) return existing
+
+        val session = UsageSession(
+            startedAtMillis = System.currentTimeMillis(),
+            startBalanceYuan = startBalanceYuan,
+        )
+        prefs.edit()
+            .putLong(KEY_USAGE_STARTED_AT, session.startedAtMillis)
+            .putLong(KEY_USAGE_START_BALANCE_BITS, session.startBalanceYuan.toBits())
+            .apply()
+        return session
+    }
+
+    fun clearUsageSession() {
+        prefs.edit()
+            .remove(KEY_USAGE_STARTED_AT)
+            .remove(KEY_USAGE_START_BALANCE_BITS)
             .apply()
     }
 
@@ -126,6 +162,8 @@ class HotWaterConfigStore(context: Context) {
                 put("success", item.success)
                 put("message", item.message)
                 put("timestamp", item.timestamp)
+                put("consumptionYuan", item.consumptionYuan)
+                put("usageDurationMillis", item.usageDurationMillis)
             }
             jsonArray.put(jsonObject)
         }
@@ -148,6 +186,10 @@ class HotWaterConfigStore(context: Context) {
                     success = jsonObject.getBoolean("success"),
                     message = jsonObject.getString("message"),
                     timestamp = jsonObject.getLong("timestamp"),
+                    consumptionYuan = jsonObject.takeIf { it.has("consumptionYuan") && !it.isNull("consumptionYuan") }
+                        ?.optDouble("consumptionYuan"),
+                    usageDurationMillis = jsonObject.takeIf { it.has("usageDurationMillis") && !it.isNull("usageDurationMillis") }
+                        ?.optLong("usageDurationMillis"),
                 )
             }
         } catch (e: Exception) {
@@ -174,6 +216,8 @@ class HotWaterConfigStore(context: Context) {
         private const val KEY_VERSION = "version"
         private const val KEY_ORDER_NO = "order_no"
         private const val KEY_ORDER_CLEARED_AT = "order_cleared_at"
+        private const val KEY_USAGE_STARTED_AT = "usage_started_at"
+        private const val KEY_USAGE_START_BALANCE_BITS = "usage_start_balance_bits"
         private const val KEY_WIDGET_TITLE = "widget_title"
         private const val KEY_WIDGET_MESSAGE = "widget_message"
         private const val KEY_WIDGET_TONE = "widget_tone"

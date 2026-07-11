@@ -16,6 +16,7 @@ data class DashboardSnapshot(
     val orderNo: String?,
     val hasCachedOrder: Boolean,
     val isDeviceBusyByOther: Boolean = false,
+    val usageStartedAtMillis: Long? = null,
 )
 
 data class OperationResult(
@@ -23,6 +24,8 @@ data class OperationResult(
     val summary: String,
     val details: String,
     val snapshot: DashboardSnapshot? = null,
+    val consumptionYuan: Double? = null,
+    val usageDurationMillis: Long? = null,
 )
 
 class HotWaterRepository(
@@ -121,18 +124,19 @@ class HotWaterRepository(
                 orderNo = store.loadOrderNo() ?: orderNo,
             )
         }
+        val snapshotWithUsageSession = ensureUsageSession(snapshot)
 
         val summary = when {
-            success -> "热水已开启。\n余额 ${snapshot.balanceLabel} 元"
-            finalOpenResult != null -> "开热水请求已发送。\n余额 ${snapshot.balanceLabel} 元"
-            else -> buildSummary(snapshot)
+            success -> "热水已开启。\n余额 ${snapshotWithUsageSession.balanceLabel} 元"
+            finalOpenResult != null -> "开热水请求已发送。\n余额 ${snapshotWithUsageSession.balanceLabel} 元"
+            else -> buildSummary(snapshotWithUsageSession)
         }
 
         OperationResult(
             title = if (success) "开热水完成" else "开热水请求已发送",
             summary = summary,
             details = detailBuilder.toString().trim(),
-            snapshot = snapshot,
+            snapshot = snapshotWithUsageSession,
         )
     }
 
@@ -143,6 +147,7 @@ class HotWaterRepository(
     ): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
 
+        val usageSession = store.loadUsageSession()
         val detailBuilder = StringBuilder()
         val status = api.status(config)
         var orderNo = findNestedValue(status, "orderNo")?.toString()
@@ -197,8 +202,14 @@ class HotWaterRepository(
             "关热水请求已发送，等待设备确认。"
         }
 
-        val snapshot = if (closeAccepted || success) {
-            runCatching { refreshSnapshotAfterClose(config, closeStatusLabel) }.getOrElse {
+        val usageEnded = closeAccepted || success
+        val refreshedSnapshot = if (usageEnded) {
+            runCatching { refreshSnapshotAfterClose(config, closeStatusLabel) }.getOrNull()
+        } else {
+            null
+        }
+        val snapshot = if (usageEnded) {
+            refreshedSnapshot ?: run {
                 buildFallbackSnapshot(
                     config = config,
                     balancePayload = null,
@@ -217,11 +228,27 @@ class HotWaterRepository(
             }
         }
 
+        val usageDurationMillis = if (usageEnded) {
+            usageSession?.let { System.currentTimeMillis() - it.startedAtMillis }
+        } else {
+            null
+        }
+        val consumptionYuan = if (usageEnded && refreshedSnapshot != null) {
+            usageSession?.let { (it.startBalanceYuan - refreshedSnapshot.balanceYuan).coerceAtLeast(0.0) }
+        } else {
+            null
+        }
+        if (usageEnded) {
+            store.clearUsageSession()
+        }
+
         OperationResult(
             title = if (success) "关热水完成" else "关热水请求已发送",
             summary = if (success) "热水已关闭。\n余额 ${snapshot.balanceLabel} 元" else buildSummary(snapshot),
             details = detailBuilder.toString().trim(),
             snapshot = snapshot,
+            consumptionYuan = consumptionYuan,
+            usageDurationMillis = usageDurationMillis,
         )
     }
 
@@ -230,7 +257,7 @@ class HotWaterRepository(
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
         val status = api.status(config)
-        return buildSnapshot(config, userInfo, deviceInfo, balance, status)
+        return ensureUsageSession(buildSnapshot(config, userInfo, deviceInfo, balance, status))
     }
 
     private suspend fun refreshSnapshotWithStatus(
@@ -240,7 +267,7 @@ class HotWaterRepository(
         val userInfo = api.userInfo(config)
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
-        return buildSnapshot(config, userInfo, deviceInfo, balance, statusPayload)
+        return ensureUsageSession(buildSnapshot(config, userInfo, deviceInfo, balance, statusPayload))
     }
 
     private suspend fun buildDeviceBusyResult(
@@ -249,6 +276,7 @@ class HotWaterRepository(
         detailBuilder: StringBuilder,
     ): OperationResult {
         store.clearOrderNo()
+        store.clearUsageSession()
         val snapshot = runCatching { refreshSnapshotWithStatus(config, statusPayload) }.getOrElse {
             buildFallbackSnapshot(
                 config = config,
@@ -331,6 +359,7 @@ class HotWaterRepository(
             orderNo = cachedOrderNo,
             hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
             isDeviceBusyByOther = busyByOther,
+            usageStartedAtMillis = if (cachedOrderNo.isNullOrBlank()) null else store.loadUsageSession()?.startedAtMillis,
         )
     }
 
@@ -367,6 +396,7 @@ class HotWaterRepository(
             orderNo = null,
             hasCachedOrder = false,
             isDeviceBusyByOther = false,
+            usageStartedAtMillis = null,
         )
     }
 
@@ -388,7 +418,16 @@ class HotWaterRepository(
             orderNo = normalizedOrderNo,
             hasCachedOrder = !normalizedOrderNo.isNullOrBlank(),
             isDeviceBusyByOther = isDeviceBusyByOther,
+            usageStartedAtMillis = if (normalizedOrderNo.isNullOrBlank()) null else store.loadUsageSession()?.startedAtMillis,
         )
+    }
+
+    private fun ensureUsageSession(snapshot: DashboardSnapshot): DashboardSnapshot {
+        if (!snapshot.hasCachedOrder || snapshot.isDeviceBusyByOther) {
+            return snapshot.copy(usageStartedAtMillis = null)
+        }
+        val session = store.startUsageSessionIfAbsent(snapshot.balanceYuan)
+        return snapshot.copy(usageStartedAtMillis = session.startedAtMillis)
     }
 
     private fun buildSummary(snapshot: DashboardSnapshot): String {

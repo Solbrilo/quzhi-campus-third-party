@@ -4,7 +4,7 @@ import fs from '@ohos.file.fs'
 import window from '@ohos.window'
 import { Want } from '@kit.AbilityKit'
 import { CaptureParser } from '../common/CaptureParser'
-import { DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
+import { ConsumptionRecord, DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
 import { HotWaterRepository } from '../common/HotWaterRepository'
 import { HotWaterStore } from '../common/HotWaterStore'
 import { LaunchActionBridge } from '../common/LaunchActionBridge'
@@ -15,7 +15,8 @@ const ALIPAY_RECHARGE_URI: string = 'alipays://platformapi/startapp?appId=200000
 
 enum HomePage {
   OPERATIONS = 0,
-  CONFIG = 1
+  RECORDS = 1,
+  CONFIG = 2
 }
 
 interface FieldInputParams {
@@ -45,6 +46,10 @@ struct Index {
   @State locationLabel: string = '先完成配置再刷新'
   @State statusLabel: string = '当前配置还不完整。'
   @State hasCachedOrder: boolean = false
+  @State usageStartedAtMillis: number = 0
+  @State usageElapsedMillis: number = 0
+  @State consumptionRecords: ConsumptionRecord[] = []
+  private usageTimerGeneration: number = 0
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -107,6 +112,7 @@ struct Index {
     this.applyConfigToForm(config)
     this.applyConfigSummary(config)
     this.applySnapshot(this.placeholderSnapshot(config))
+    await this.loadConsumptionRecords()
 
     if (config.isComplete()) {
       await this.refreshBalance(false)
@@ -127,6 +133,7 @@ struct Index {
     this.locationLabel = snapshot.locationLabel
     this.hasCachedOrder = snapshot.hasCachedOrder
     this.statusLabel = snapshot.statusLabel
+    this.syncUsageTimer()
   }
 
   private applyConfigToForm(config: HotWaterConfig): void {
@@ -156,6 +163,52 @@ struct Index {
     snapshot.orderNo = ''
     snapshot.hasCachedOrder = false
     return snapshot
+  }
+
+  private async loadConsumptionRecords(): Promise<void> {
+    if (!this.store) {
+      return
+    }
+    this.consumptionRecords = await this.store.loadConsumptionRecords()
+  }
+
+  private syncUsageTimer(): void {
+    const generation = ++this.usageTimerGeneration
+    if (!this.hasCachedOrder || !this.store) {
+      this.usageStartedAtMillis = 0
+      this.usageElapsedMillis = 0
+      return
+    }
+    this.store.loadUsageSession().then((session) => {
+      if (generation !== this.usageTimerGeneration || !session || !this.hasCachedOrder) {
+        if (generation !== this.usageTimerGeneration) {
+          return
+        }
+        this.usageStartedAtMillis = 0
+        this.usageElapsedMillis = 0
+        return
+      }
+      this.usageStartedAtMillis = session.startedAtMillis
+      this.usageElapsedMillis = Math.max(0, Date.now() - session.startedAtMillis)
+      this.runUsageTimer(generation)
+    })
+  }
+
+  private runUsageTimer(generation: number): void {
+    if (generation !== this.usageTimerGeneration || !this.hasCachedOrder || this.usageStartedAtMillis <= 0) {
+      return
+    }
+    setTimeout(() => {
+      if (generation !== this.usageTimerGeneration || !this.hasCachedOrder || this.usageStartedAtMillis <= 0) {
+        return
+      }
+      this.usageElapsedMillis = Math.max(0, Date.now() - this.usageStartedAtMillis)
+      this.runUsageTimer(generation)
+    }, 1000)
+  }
+
+  private formatUsageDuration(durationMillis: number): string {
+    return ConsumptionRecord.formatDuration(durationMillis)
   }
 
   private async collectConfig(): Promise<HotWaterConfig> {
@@ -243,6 +296,16 @@ struct Index {
     try {
       const result = this.hasCachedOrder ? await this.repository.close(config) : await this.repository.open(config)
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
+      if (result.usageDurationMillis >= 0 && this.store) {
+        const record = new ConsumptionRecord()
+        record.id = Date.now()
+        record.endedAtMillis = Date.now()
+        record.usageDurationMillis = result.usageDurationMillis
+        record.startedAtMillis = record.endedAtMillis - result.usageDurationMillis
+        record.consumptionYuan = result.consumptionYuan
+        await this.store.saveConsumptionRecord(record)
+        await this.loadConsumptionRecords()
+      }
       this.liveStatus = result.summary.split('\n')[0]
     } catch (error) {
       this.liveStatus = `操作失败：${String(error)}`
@@ -268,7 +331,7 @@ struct Index {
         }
       },
       secondaryButton: {
-        value: '已知晓并前往充值',
+        value: '前往充值',
         action: () => {
           this.openAlipayForRecharge()
         }
@@ -419,7 +482,7 @@ struct Index {
 
       // 滑块 - 带光晕渐变
       Row()
-        .width('46%')
+        .width('30%')
         .height(36)
         .borderRadius(22)
         .linearGradient({
@@ -442,7 +505,9 @@ struct Index {
           offsetY: 1
         })
         .offset({
-          x: this.activePage === HomePage.OPERATIONS ? '-23%' : '23%'
+          x: this.activePage === HomePage.OPERATIONS
+            ? '-33%'
+            : (this.activePage === HomePage.RECORDS ? '0%' : '33%')
         })
         .animation({
           duration: 350,
@@ -454,18 +519,30 @@ struct Index {
           .fontSize(14)
           .fontWeight(this.activePage === HomePage.OPERATIONS ? FontWeight.Medium : FontWeight.Normal)
           .fontColor(this.activePage === HomePage.OPERATIONS ? Color.White : $r('app.color.switch_inactive_text'))
-          .width('50%')
+          .width('33.33%')
           .height(48)
           .textAlign(TextAlign.Center)
           .onClick(() => {
             this.switchPage(HomePage.OPERATIONS)
           })
 
+        Text('记录页')
+          .fontSize(14)
+          .fontWeight(this.activePage === HomePage.RECORDS ? FontWeight.Medium : FontWeight.Normal)
+          .fontColor(this.activePage === HomePage.RECORDS ? Color.White : $r('app.color.switch_inactive_text'))
+          .width('33.33%')
+          .height(48)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.loadConsumptionRecords()
+            this.switchPage(HomePage.RECORDS)
+          })
+
         Text('配置页')
           .fontSize(14)
           .fontWeight(this.activePage === HomePage.CONFIG ? FontWeight.Medium : FontWeight.Normal)
           .fontColor(this.activePage === HomePage.CONFIG ? Color.White : $r('app.color.switch_inactive_text'))
-          .width('50%')
+          .width('33.33%')
           .height(48)
           .textAlign(TextAlign.Center)
           .onClick(() => {
@@ -534,6 +611,14 @@ struct Index {
           }
         }
         .width('100%')
+
+        if (this.hasCachedOrder && this.usageStartedAtMillis > 0) {
+          Text(`开启时长 ${this.formatUsageDuration(this.usageElapsedMillis)}`)
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.accent'))
+            .width('100%')
+        }
 
         Row() {
           Text(this.statusLabel)
@@ -652,6 +737,85 @@ struct Index {
       }
       .width('100%')
       .height(290)
+    }
+    .width('100%')
+    .padding({ bottom: 70 })
+  }
+
+  @Builder
+  private RecordsPage(): void {
+    Column({ space: 14 }) {
+      Column({ space: 4 }) {
+        Text('消费记录')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+        Text('记录已结束的热水使用，金额按余额变化计算。')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .width('100%')
+
+      if (this.consumptionRecords.length === 0) {
+        Column() {
+          Text('暂无消费记录')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_primary'))
+          Text('关闭一次热水后，消费金额和开启时长会显示在这里。')
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+            .margin({ top: 8 })
+        }
+        .width('100%')
+        .padding(20)
+        .borderRadius(24)
+        .backgroundColor($r('app.color.card_background'))
+        .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+        .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+      } else {
+        ForEach(this.consumptionRecords, (record: ConsumptionRecord) => {
+          Column({ space: 10 }) {
+            Row() {
+              Column({ space: 4 }) {
+                Text('热水消费')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_primary'))
+                Text(`开始于 ${record.getStartedAtLabel()}`)
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .layoutWeight(1)
+
+              Text(record.consumptionYuan >= 0 ? `¥ ${record.consumptionYuan.toFixed(2)}` : '待同步')
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.close_accent'))
+            }
+            .width('100%')
+
+            Row() {
+              Text('开启时长')
+                .fontSize(13)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+              Text(record.getDurationLabel())
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_primary'))
+            }
+            .width('100%')
+          }
+          .width('100%')
+          .padding(18)
+          .borderRadius(24)
+          .backgroundColor($r('app.color.card_background'))
+          .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+          .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+          .shadow({ radius: 12, color: $r('app.color.card_shadow'), offsetX: 0, offsetY: 2 })
+        }, (record: ConsumptionRecord) => record.id.toString())
+      }
     }
     .width('100%')
     .padding({ bottom: 70 })
@@ -871,6 +1035,8 @@ struct Index {
               Column() {
                 if (this.activePage === HomePage.OPERATIONS) {
                   this.OperationsPage()
+                } else if (this.activePage === HomePage.RECORDS) {
+                  this.RecordsPage()
                 } else {
                   this.ConfigPage()
                 }
