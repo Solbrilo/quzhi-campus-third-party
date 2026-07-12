@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,7 +49,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.DashboardSnapshot
-import cn.qzxy.hotwater.OperationHistory
 import cn.qzxy.hotwater.designsystem.component.GlassButton
 import cn.qzxy.hotwater.designsystem.theme.GlassAccent
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
@@ -64,7 +62,6 @@ fun OperationsPage(
     snapshot: DashboardSnapshot?,
     busy: Boolean,
     statusMessage: String,
-    history: List<OperationHistory>,
     onToggle: () -> Unit,
     onRefreshBalance: () -> Unit,
 ) {
@@ -138,18 +135,12 @@ fun OperationsPage(
             )
         }
 
-        // 历史记录卡片
-        item {
-            HistoryCard(history = history)
-        }
-
         // 底部间距
         item {
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }
-
 @Composable
 private fun BalanceCard(
     snapshot: DashboardSnapshot?,
@@ -227,7 +218,6 @@ private fun BalanceCard(
         )
     }
 }
-
 @Composable
 private fun UsageTimer(startedAtMillis: Long?) {
     if (startedAtMillis == null) {
@@ -429,114 +419,6 @@ private fun ToggleButton(
             color = tokens.textPrimary,
             fontSize = 56.sp,
             fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-private fun HistoryCard(history: List<OperationHistory>) {
-    val tokens = LocalGlassTokens.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassConvex(cornerRadius = 28.dp, tokens = tokens)
-            .padding(14.dp)
-    ) {
-        Text(
-            text = "最近操作",
-            color = tokens.textPrimary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        if (history.isEmpty()) {
-            Text(
-                text = "暂无操作记录",
-                color = tokens.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                textAlign = TextAlign.Center
-            )
-        } else {
-            Spacer(modifier = Modifier.height(10.dp))
-            history.forEach { item ->
-                HistoryItem(item = item)
-                if (item != history.last()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HistoryItem(item: OperationHistory) {
-    val tokens = LocalGlassTokens.current
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(tokens.tintConvex, RoundedCornerShape(16.dp))
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .background(
-                    if (item.success) GlassAccent.success.copy(alpha = 0.15f)
-                    else GlassAccent.error.copy(alpha = 0.15f),
-                    CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (item.success) "✓" else "✗",
-                color = if (item.success) GlassAccent.success else GlassAccent.error,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.type.label,
-                color = tokens.textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = item.message,
-                color = tokens.textSecondary,
-                fontSize = 12.sp,
-                maxLines = 1
-            )
-            item.getConsumptionLabel()?.let { consumptionLabel ->
-                Text(
-                    text = consumptionLabel,
-                    color = GlassAccent.error,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            item.getUsageDurationLabel()?.let { durationLabel ->
-                Text(
-                    text = "开启时长 $durationLabel",
-                    color = tokens.textTertiary,
-                    fontSize = 12.sp,
-                )
-            }
-        }
-
-        Text(
-            text = item.getFormattedTime(),
-            color = tokens.textTertiary,
-            fontSize = 12.sp
         )
     }
 }

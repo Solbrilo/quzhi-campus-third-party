@@ -138,6 +138,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = HotWaterUiText.firstMeaningfulLine(result.summary),
                     consumptionYuan = result.consumptionYuan,
                     usageDurationMillis = result.usageDurationMillis,
+                    usageStartedAtMillis = result.usageStartedAtMillis,
                 )
                 store.saveHistory(history)
                 _history.value = store.loadHistory()

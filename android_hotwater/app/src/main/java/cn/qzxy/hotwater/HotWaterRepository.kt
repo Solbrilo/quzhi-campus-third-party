@@ -26,6 +26,7 @@ data class OperationResult(
     val snapshot: DashboardSnapshot? = null,
     val consumptionYuan: Double? = null,
     val usageDurationMillis: Long? = null,
+    val usageStartedAtMillis: Long? = null,
 )
 
 class HotWaterRepository(
@@ -249,6 +250,7 @@ class HotWaterRepository(
             snapshot = snapshot,
             consumptionYuan = consumptionYuan,
             usageDurationMillis = usageDurationMillis,
+            usageStartedAtMillis = if (usageEnded) usageSession?.startedAtMillis else null,
         )
     }
 

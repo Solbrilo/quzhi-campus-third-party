@@ -2,6 +2,8 @@ import common from '@ohos.app.ability.common'
 import picker from '@ohos.file.picker'
 import fs from '@ohos.file.fs'
 import window from '@ohos.window'
+import bundleManager from '@ohos.bundle.bundleManager'
+import router from '@ohos.router'
 import { Want } from '@kit.AbilityKit'
 import { CaptureParser } from '../common/CaptureParser'
 import { ConsumptionRecord, DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
@@ -9,6 +11,7 @@ import { HotWaterRepository } from '../common/HotWaterRepository'
 import { HotWaterStore } from '../common/HotWaterStore'
 import { LaunchActionBridge } from '../common/LaunchActionBridge'
 import { RuntimeDeviceInfoResolver } from '../common/RuntimeDeviceInfoResolver'
+import { GiteeUpdateRepository, UpdateCheckState } from '../common/AppUpdate'
 
 const LOW_BALANCE_WARNING_YUAN: number = 5
 const ALIPAY_RECHARGE_URI: string = 'alipays://platformapi/startapp?appId=20000001'
@@ -33,6 +36,7 @@ struct Index {
   private hostContext?: common.Context
   private store?: HotWaterStore
   private repository?: HotWaterRepository
+  private updateRepository: GiteeUpdateRepository = new GiteeUpdateRepository()
 
   @State activePage: number = HomePage.OPERATIONS
   @State busy: boolean = false
@@ -50,6 +54,8 @@ struct Index {
   @State usageElapsedMillis: number = 0
   @State consumptionRecords: ConsumptionRecord[] = []
   private usageTimerGeneration: number = 0
+  @State aboutMenuVisible: boolean = false
+  @State currentVersionLabel: string = '1.2.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -100,6 +106,7 @@ struct Index {
   }
 
   private async initialize(): Promise<void> {
+    await this.loadCurrentVersion()
     const runtimeInfo = RuntimeDeviceInfoResolver.resolve()
     this.applyRuntimeInfo(runtimeInfo)
 
@@ -118,6 +125,7 @@ struct Index {
       await this.refreshBalance(false)
     }
     await this.consumePendingLaunchAction()
+    this.checkForUpdates(true)
   }
 
   private applyRuntimeInfo(runtimeInfo: RuntimeDeviceInfo): void {
@@ -442,6 +450,105 @@ struct Index {
       text += String.fromCharCode(bytes[index])
     }
     return text
+  }
+
+  private async loadCurrentVersion(): Promise<void> {
+    try {
+      const bundleInfo = await bundleManager.getBundleInfoForSelf(
+        bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT
+      )
+      if (bundleInfo.versionName.length > 0) {
+        this.currentVersionLabel = bundleInfo.versionName
+      }
+    } catch (error) {
+      this.currentVersionLabel = '1.2.0'
+    }
+  }
+
+  private openAbout(): void {
+    this.aboutMenuVisible = false
+    router.pushUrl({ url: 'pages/About' })
+  }
+
+  private async checkForUpdates(showDialogWhenAvailable: boolean = false): Promise<void> {
+    try {
+      const result = await this.updateRepository.check(this.currentVersionLabel)
+      if (showDialogWhenAvailable && result.state === UpdateCheckState.UPDATE_AVAILABLE && result.update) {
+        this.showUpdateAvailableDialog(result.update.versionName, result.update.releaseNotes)
+      }
+    } catch (error) {
+      // 启动检查失败时保持静默，用户可在关于页手动重试。
+    }
+  }
+
+  private showUpdateAvailableDialog(versionName: string, releaseNotes: string): void {
+    AlertDialog.show({
+      title: `发现新版本 v${versionName}`,
+      message: releaseNotes.length > 0 ? releaseNotes : '已有新版本可用，建议及时更新。',
+      primaryButton: {
+        value: '查看详情',
+        action: () => {
+          this.openAbout()
+        }
+      },
+      secondaryButton: {
+        value: '稍后',
+        action: () => {
+        }
+      }
+    })
+  }
+
+  @Builder
+  private TopHeader(): void {
+    Column({ space: 6 }) {
+      Row() {
+        Column({ space: 4 }) {
+          Text('趣智校园热水')
+            .fontSize(30)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+          Text('HarmonyOS 迁移版 · 导入抓包后可直接刷新余额和开关热水')
+            .fontSize(14)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text('⋮')
+          .fontSize(28)
+          .fontColor($r('app.color.text_primary'))
+          .width(40)
+          .height(40)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.aboutMenuVisible = !this.aboutMenuVisible
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+
+      if (this.aboutMenuVisible) {
+        Row() {
+          Row().layoutWeight(1)
+          Text('关于')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_primary'))
+            .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+            .backgroundColor($r('app.color.card_background'))
+            .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+            .borderRadius(14)
+            .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+            .onClick(() => {
+              this.openAbout()
+            })
+        }
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .padding({ top: this.statusBarHeight > 0 ? this.statusBarHeight : 0 })
   }
 
   @Builder
@@ -1016,18 +1123,7 @@ struct Index {
         .offset({ x: -30, y: -20 })
 
       Column({ space: 18 }) {
-        Column({ space: 4 }) {
-          Text('趣智校园热水')
-            .fontSize(30)
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_primary'))
-          Text('HarmonyOS 迁移版 · 导入抓包后可直接刷新余额和开关热水')
-            .fontSize(14)
-            .fontColor($r('app.color.text_secondary'))
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding({ top: this.statusBarHeight > 0 ? this.statusBarHeight : 0 })
+        this.TopHeader()
 
         Stack({ alignContent: Alignment.Bottom }) {
           Scroll() {
@@ -1045,15 +1141,13 @@ struct Index {
               .transition(
                 TransitionEffect.asymmetric(
                   TransitionEffect.OPACITY
-                    .combine(TransitionEffect.translate({ x: 30 }))
-                    .animation({ duration: 350, curve: Curve.EaseInOut }),
+                    .combine(TransitionEffect.translate({ x: -36 }))
+                    .animation({ duration: 360, curve: Curve.EaseInOut }),
                   TransitionEffect.OPACITY
-                    .combine(TransitionEffect.translate({ x: -30 }))
-                    .animation({ duration: 350, curve: Curve.EaseInOut })
+                    .combine(TransitionEffect.translate({ x: 24 }))
+                    .animation({ duration: 240, curve: Curve.EaseInOut })
                 )
               )
-
-
             }
             .width('100%')
             .padding({ left: 2, right: 2 })

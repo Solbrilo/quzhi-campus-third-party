@@ -8,6 +8,7 @@ data class OperationHistory(
     val timestamp: Long = System.currentTimeMillis(),
     val consumptionYuan: Double? = null,
     val usageDurationMillis: Long? = null,
+    val usageStartedAtMillis: Long? = null,
 ) {
     enum class OperationType(val label: String) {
         OPEN("开热水"),
@@ -36,6 +37,12 @@ data class OperationHistory(
 
     fun getUsageDurationLabel(): String? {
         return usageDurationMillis?.let { formatDuration(it) }
+    }
+
+    fun getUsageStartedAtLabel(): String? {
+        val startedAtMillis = usageStartedAtMillis ?: return null
+        val sdf = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(startedAtMillis))
     }
 
     private fun formatDuration(durationMillis: Long): String {
