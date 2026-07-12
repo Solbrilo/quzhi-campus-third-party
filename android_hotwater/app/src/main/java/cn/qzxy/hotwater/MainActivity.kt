@@ -18,6 +18,7 @@ import cn.qzxy.hotwater.ui.HotWaterApp
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private lateinit var updateManager: AppUpdateManager
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
@@ -37,11 +38,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        updateManager = AppUpdateManager(applicationContext)
 
         setContent {
             GlassTheme {
                 HotWaterApp(
                     viewModel = viewModel,
+                    updateManager = updateManager,
+                    onOpenAbout = { startActivity(Intent(this, AboutActivity::class.java)) },
                     onExportConfig = { exportConfig() },
                     onImportConfig = { importConfig() },
                     onOpenAlipayRecharge = { openAlipayForRecharge() },

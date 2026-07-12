@@ -164,6 +164,7 @@ class HotWaterConfigStore(context: Context) {
                 put("timestamp", item.timestamp)
                 put("consumptionYuan", item.consumptionYuan)
                 put("usageDurationMillis", item.usageDurationMillis)
+                put("usageStartedAtMillis", item.usageStartedAtMillis)
             }
             jsonArray.put(jsonObject)
         }
@@ -190,6 +191,8 @@ class HotWaterConfigStore(context: Context) {
                         ?.optDouble("consumptionYuan"),
                     usageDurationMillis = jsonObject.takeIf { it.has("usageDurationMillis") && !it.isNull("usageDurationMillis") }
                         ?.optLong("usageDurationMillis"),
+                    usageStartedAtMillis = jsonObject.takeIf { it.has("usageStartedAtMillis") && !it.isNull("usageStartedAtMillis") }
+                        ?.optLong("usageStartedAtMillis"),
                 )
             }
         } catch (e: Exception) {
