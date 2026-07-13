@@ -9,7 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,9 +48,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +66,6 @@ import cn.qzxy.hotwater.AppUpdateManager
 import cn.qzxy.hotwater.MainViewModel
 import cn.qzxy.hotwater.designsystem.theme.GlassAccent
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConcave
 import cn.qzxy.hotwater.designsystem.theme.glassConvex
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeTint
@@ -161,12 +163,21 @@ fun HotWaterApp(
     if (showUpdateDialog && availableUpdate != null) {
         AlertDialog(
             onDismissRequest = { showUpdateDialog = false },
-            title = { Text(text = "发现新版本 v${availableUpdate.update.versionName}") },
+            containerColor = tokens.meshBase,
+            titleContentColor = tokens.textPrimary,
+            textContentColor = tokens.textSecondary,
+            title = {
+                Text(
+                    text = "发现新版本 v${availableUpdate.update.versionName}",
+                    color = tokens.textPrimary,
+                )
+            },
             text = {
                 Text(
                     text = availableUpdate.update.releaseNotes.ifBlank {
                         "已有新版本可用，建议立即更新。"
                     },
+                    color = tokens.textSecondary,
                 )
             },
             confirmButton = {
@@ -175,10 +186,12 @@ fun HotWaterApp(
                         showUpdateDialog = false
                         installUpdate(availableUpdate.update)
                     },
-                ) { Text(text = "立即更新") }
+                ) { Text(text = "立即更新", color = GlassAccent.primary) }
             },
             dismissButton = {
-                TextButton(onClick = { showUpdateDialog = false }) { Text(text = "稍后") }
+                TextButton(onClick = { showUpdateDialog = false }) {
+                    Text(text = "稍后", color = tokens.textSecondary)
+                }
             },
         )
     }
@@ -186,10 +199,15 @@ fun HotWaterApp(
     installStatusMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { installStatusMessage = null },
-            title = { Text(text = "更新提示") },
-            text = { Text(text = message) },
+            containerColor = tokens.meshBase,
+            titleContentColor = tokens.textPrimary,
+            textContentColor = tokens.textSecondary,
+            title = { Text(text = "更新提示", color = tokens.textPrimary) },
+            text = { Text(text = message, color = tokens.textSecondary) },
             confirmButton = {
-                TextButton(onClick = { installStatusMessage = null }) { Text(text = "知道了") }
+                TextButton(onClick = { installStatusMessage = null }) {
+                    Text(text = "知道了", color = GlassAccent.primary)
+                }
             },
         )
     }
@@ -197,12 +215,12 @@ fun HotWaterApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .hazeSource(state = hazeState)
+            .windowInsetsPadding(WindowInsets.statusBars),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .hazeSource(state = hazeState)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             AppHeader(
@@ -333,6 +351,12 @@ private fun BottomDock(
 ) {
     val tokens = LocalGlassTokens.current
     val dockShape = RoundedCornerShape(28.dp)
+    val lowerMeshColor = lerp(
+        tokens.meshSpots[2].color.copy(alpha = 1f),
+        tokens.meshSpots[3].color.copy(alpha = 1f),
+        0.5f,
+    )
+    val dockAmbientColor = lerp(tokens.meshBase, lowerMeshColor, 0.16f)
     var tabWidthPx by remember { mutableStateOf(0) }
     val indicatorOffset by animateIntOffsetAsState(
         targetValue = IntOffset(tabWidthPx * currentScreen.tabIndex, 0),
@@ -345,27 +369,38 @@ private fun BottomDock(
             .widthIn(max = 520.dp)
             .fillMaxWidth()
             .height(60.dp)
-            .shadow(elevation = 14.dp, shape = dockShape),
+            .shadow(
+                elevation = 10.dp,
+                shape = dockShape,
+                ambientColor = tokens.outerShadow,
+                spotColor = tokens.outerShadow,
+            ),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(dockShape)
                 .hazeEffect(state = hazeState) {
-                    blurRadius = 10.dp
-                    noiseFactor = 0.08f
-                    backgroundColor = Color.Transparent
-                    tints = listOf(HazeTint(tokens.meshBase.copy(alpha = 0.16f)))
-                    fallbackTint = HazeTint(tokens.meshBase.copy(alpha = 0.72f))
+                    blurEnabled = true
+                    blurRadius = 22.dp
+                    noiseFactor = 0.035f
+                    backgroundColor = dockAmbientColor
+                    tints = listOf(HazeTint(tokens.textPrimary.copy(alpha = 0.025f)))
+                    fallbackTint = HazeTint(dockAmbientColor.copy(alpha = 0.94f))
                 },
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .border(
-                    width = 1.dp,
-                    color = tokens.borderHi.copy(alpha = 0.65f),
-                    shape = dockShape,
+                .clip(dockShape)
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to tokens.borderHi.copy(alpha = 0.045f),
+                            0.45f to Color.Transparent,
+                            1f to tokens.textPrimary.copy(alpha = 0.025f),
+                        ),
+                    ),
                 ),
         )
 
@@ -382,11 +417,11 @@ private fun BottomDock(
                     .height(48.dp)
                     .onSizeChanged { tabWidthPx = it.width }
                     .padding(horizontal = 3.dp)
-                    .glassConcave(cornerRadius = 22.dp, tokens = tokens),
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(tokens.textPrimary.copy(alpha = 0.07f)),
             )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TabButton("操作页", currentScreen == AppScreen.OPERATIONS, { onScreenSelected(AppScreen.OPERATIONS) }, Modifier.weight(1f))
@@ -394,6 +429,14 @@ private fun BottomDock(
                 TabButton("配置页", currentScreen == AppScreen.CONFIG, { onScreenSelected(AppScreen.CONFIG) }, Modifier.weight(1f))
             }
         }
+    }
+}
+
+@Composable
+internal fun bottomDockClearance(): Dp {
+    val density = LocalDensity.current
+    return 64.dp + with(density) {
+        WindowInsets.navigationBars.getBottom(this).toDp()
     }
 }
 

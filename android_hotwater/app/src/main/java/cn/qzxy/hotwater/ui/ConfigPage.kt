@@ -198,7 +198,7 @@ fun ConfigPage(
         }
 
         // 底部间距
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(bottomDockClearance()))
     }
 }
 

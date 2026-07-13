@@ -7,7 +7,7 @@ import { GiteeUpdateRepository, UpdateCheckState } from '../common/AppUpdate'
 struct About {
   private updateRepository: GiteeUpdateRepository = new GiteeUpdateRepository()
 
-  @State currentVersionLabel: string = '1.2.0'
+  @State currentVersionLabel: string = '1.3.0'
   @State checkingUpdate: boolean = false
   @State updateCheckState: UpdateCheckState = UpdateCheckState.IDLE
   @State updateStatusLabel: string = '通过 Gitee Release 检查新版本。'
@@ -33,7 +33,7 @@ struct About {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '1.2.0'
+      this.currentVersionLabel = '1.3.0'
     }
   }
 
