@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.AppUpdateCheckResult
+import cn.qzxy.hotwater.AppUpdateDownloadProgress
 import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.BuildConfig
@@ -30,6 +31,7 @@ fun AboutPage(
     installResult: AppUpdateInstallResult?,
     checking: Boolean,
     installing: Boolean,
+    downloadProgress: AppUpdateDownloadProgress?,
     onCheckForUpdate: () -> Unit,
     onInstallUpdate: (AppUpdateInfo) -> Unit,
 ) {
@@ -90,6 +92,13 @@ fun AboutPage(
                 isLoading = checking,
             )
 
+            if (installing) {
+                UpdateDownloadProgressContent(
+                    progress = downloadProgress,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             if (availableUpdate != null) {
                 Text(
                     text = "发现 v${availableUpdate.update.versionName}",
@@ -106,7 +115,7 @@ fun AboutPage(
                     text = "立即更新",
                     onClick = { onInstallUpdate(availableUpdate.update) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !checking,
+                    enabled = !checking && !installing,
                     isLoading = installing,
                 )
             }

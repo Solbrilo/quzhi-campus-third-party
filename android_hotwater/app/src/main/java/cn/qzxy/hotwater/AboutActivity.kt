@@ -72,6 +72,7 @@ private fun StandaloneAboutPage(
     var closing by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var installing by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var checkResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var installResult by remember { mutableStateOf<AppUpdateInstallResult?>(null) }
 
@@ -86,8 +87,14 @@ private fun StandaloneAboutPage(
     val installUpdate: (AppUpdateInfo) -> Unit = { update ->
         scope.launch {
             installing = true
-            installResult = updateManager.downloadAndInstall(update)
-            installing = false
+            downloadProgress = null
+            try {
+                installResult = updateManager.downloadAndInstall(update) { progress ->
+                    downloadProgress = progress
+                }
+            } finally {
+                installing = false
+            }
         }
     }
     val closePage: () -> Unit = {
@@ -144,6 +151,7 @@ private fun StandaloneAboutPage(
                 installResult = installResult,
                 checking = checking,
                 installing = installing,
+                downloadProgress = downloadProgress,
                 onCheckForUpdate = checkForUpdate,
                 onInstallUpdate = installUpdate,
             )
