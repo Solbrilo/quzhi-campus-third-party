@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.qzxy.hotwater.AppUpdateCheckResult
+import cn.qzxy.hotwater.AppUpdateDownloadProgress
 import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.AppUpdateManager
@@ -96,6 +97,8 @@ fun HotWaterApp(
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateCheckResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var downloadingUpdate by remember { mutableStateOf(false) }
+    var updateDownloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var installStatusMessage by remember { mutableStateOf<String?>(null) }
     val updateScope = rememberCoroutineScope()
     val hazeState = remember { HazeState() }
@@ -119,14 +122,22 @@ fun HotWaterApp(
     }
     val installUpdate: (AppUpdateInfo) -> Unit = { update ->
         updateScope.launch {
-            when (val result = updateManager.downloadAndInstall(update)) {
-                AppUpdateInstallResult.InstallationLaunched -> Unit
-                AppUpdateInstallResult.SourcePermissionRequired -> {
-                    installStatusMessage = "请允许安装未知应用后，再次点击立即更新。"
+            downloadingUpdate = true
+            updateDownloadProgress = null
+            try {
+                when (val result = updateManager.downloadAndInstall(update) { progress ->
+                    updateDownloadProgress = progress
+                }) {
+                    AppUpdateInstallResult.InstallationLaunched -> Unit
+                    AppUpdateInstallResult.SourcePermissionRequired -> {
+                        installStatusMessage = "请允许安装未知应用后，再次点击立即更新。"
+                    }
+                    is AppUpdateInstallResult.Failed -> {
+                        installStatusMessage = result.message
+                    }
                 }
-                is AppUpdateInstallResult.Failed -> {
-                    installStatusMessage = result.message
-                }
+            } finally {
+                downloadingUpdate = false
             }
         }
     }
@@ -160,6 +171,18 @@ fun HotWaterApp(
     }
 
     val availableUpdate = updateCheckResult as? AppUpdateCheckResult.UpdateAvailable
+    if (downloadingUpdate) {
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = tokens.meshBase,
+            titleContentColor = tokens.textPrimary,
+            textContentColor = tokens.textSecondary,
+            title = { Text(text = "正在下载更新", color = tokens.textPrimary) },
+            text = { UpdateDownloadProgressContent(progress = updateDownloadProgress) },
+            confirmButton = {},
+        )
+    }
+
     if (showUpdateDialog && availableUpdate != null) {
         AlertDialog(
             onDismissRequest = { showUpdateDialog = false },

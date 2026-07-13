@@ -23,6 +23,16 @@ data class AppUpdateInfo(
     val apkUrl: String,
 )
 
+data class AppUpdateDownloadProgress(
+    val downloadedBytes: Long,
+    val totalBytes: Long?,
+) {
+    val fraction: Float?
+        get() = totalBytes
+            ?.takeIf { it > 0L }
+            ?.let { (downloadedBytes.toFloat() / it).coerceIn(0f, 1f) }
+}
+
 sealed interface AppUpdateCheckResult {
     data class UpdateAvailable(val update: AppUpdateInfo) : AppUpdateCheckResult
     data object UpToDate : AppUpdateCheckResult
@@ -86,21 +96,66 @@ class AppUpdateManager(context: Context) {
         }
     }
 
-    suspend fun downloadAndInstall(update: AppUpdateInfo): AppUpdateInstallResult = withContext(Dispatchers.IO) {
+    suspend fun downloadAndInstall(
+        update: AppUpdateInfo,
+        onProgress: (AppUpdateDownloadProgress) -> Unit = {},
+    ): AppUpdateInstallResult = withContext(Dispatchers.IO) {
+        val targetFile = updateFile(update.versionName)
+        val partialFile = File(targetFile.parentFile, "${targetFile.name}.part")
         try {
             val request = Request.Builder()
                 .url(update.apkUrl)
                 .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
                 .build()
-            val targetFile = updateFile(update.versionName)
+            partialFile.delete()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext AppUpdateInstallResult.Failed("下载安装包失败：HTTP ${response.code}")
                 }
                 val body = response.body ?: return@withContext AppUpdateInstallResult.Failed("下载安装包失败：响应为空")
-                targetFile.outputStream().use { output ->
-                    body.byteStream().use { input -> input.copyTo(output) }
+                val totalBytes = body.contentLength().takeIf { it > 0L }
+                var downloadedBytes = 0L
+                var lastReportedPercent = -1
+                var lastReportedBytes = -PROGRESS_REPORT_INTERVAL_BYTES
+
+                suspend fun reportProgress(force: Boolean = false) {
+                    val progress = AppUpdateDownloadProgress(downloadedBytes, totalBytes)
+                    val percent = progress.fraction?.let { (it * 100).toInt() }
+                    val shouldReport = force || when {
+                        percent != null -> percent != lastReportedPercent
+                        else -> downloadedBytes - lastReportedBytes >= PROGRESS_REPORT_INTERVAL_BYTES
+                    }
+                    if (shouldReport) {
+                        lastReportedPercent = percent ?: lastReportedPercent
+                        lastReportedBytes = downloadedBytes
+                        withContext(Dispatchers.Main.immediate) { onProgress(progress) }
+                    }
                 }
+
+                reportProgress(force = true)
+                partialFile.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    body.byteStream().use { input ->
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            downloadedBytes += read
+                            reportProgress()
+                        }
+                    }
+                    output.flush()
+                }
+                reportProgress(force = true)
+            }
+
+            if (targetFile.exists() && !targetFile.delete()) {
+                partialFile.delete()
+                return@withContext AppUpdateInstallResult.Failed("无法替换旧的安装包")
+            }
+            if (!partialFile.renameTo(targetFile)) {
+                partialFile.copyTo(targetFile, overwrite = true)
+                partialFile.delete()
             }
 
             val packageInfo = appContext.packageManager.getPackageArchiveInfo(
@@ -118,8 +173,10 @@ class AppUpdateManager(context: Context) {
             withContext(Dispatchers.Main) { launchPackageInstaller(targetFile) }
             AppUpdateInstallResult.InstallationLaunched
         } catch (error: IOException) {
+            partialFile.delete()
             AppUpdateInstallResult.Failed("下载安装包失败，请检查网络后重试")
         } catch (error: Exception) {
+            partialFile.delete()
             AppUpdateInstallResult.Failed("无法启动安装：${error.message ?: "未知错误"}")
         }
     }
@@ -183,6 +240,7 @@ class AppUpdateManager(context: Context) {
         const val LATEST_RELEASE_URL =
             "https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases/latest"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        const val PROGRESS_REPORT_INTERVAL_BYTES = 256L * 1024L
         val VERSION_PATTERN = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)$")
     }
 }
