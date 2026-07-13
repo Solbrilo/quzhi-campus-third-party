@@ -77,7 +77,7 @@ fun RecordsPage(history: List<OperationHistory>) {
             }
         }
 
-        item { Spacer(modifier = Modifier.height(20.dp)) }
+        item { Spacer(modifier = Modifier.height(bottomDockClearance())) }
     }
 }
 

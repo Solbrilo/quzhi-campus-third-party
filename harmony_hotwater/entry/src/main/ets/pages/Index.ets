@@ -55,7 +55,7 @@ struct Index {
   @State consumptionRecords: ConsumptionRecord[] = []
   private usageTimerGeneration: number = 0
   @State aboutMenuVisible: boolean = false
-  @State currentVersionLabel: string = '1.2.0'
+  @State currentVersionLabel: string = '1.3.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -461,7 +461,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '1.2.0'
+      this.currentVersionLabel = '1.3.0'
     }
   }
 
@@ -482,9 +482,10 @@ struct Index {
   }
 
   private showUpdateAvailableDialog(versionName: string, releaseNotes: string): void {
+    const updateNotice = '已发布更新，请自行下载项目完成更新。'
     AlertDialog.show({
-      title: `发现新版本 v${versionName}`,
-      message: releaseNotes.length > 0 ? releaseNotes : '已有新版本可用，建议及时更新。',
+      title: `已发布新版本 v${versionName}`,
+      message: releaseNotes.length > 0 ? `${updateNotice}\n\n${releaseNotes}` : updateNotice,
       primaryButton: {
         value: '查看详情',
         action: () => {

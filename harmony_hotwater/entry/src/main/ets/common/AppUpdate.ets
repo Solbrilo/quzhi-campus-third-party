@@ -56,9 +56,9 @@ export class GiteeUpdateRepository {
         result.message = '当前已是最新版本。'
         return result
       }
-      if (!this.hasHarmonyPackage(release['assets'], versionName)) {
+      if (!this.hasAndroidPackage(release['assets'], versionName)) {
         result.state = UpdateCheckState.INVALID_RELEASE
-        result.message = 'Release 中未找到 Harmony HAP。'
+        result.message = 'Release 中未找到 Android APK。'
         return result
       }
 
@@ -67,7 +67,7 @@ export class GiteeUpdateRepository {
       update.releaseNotes = String(release['body'] ?? '').trim()
       result.state = UpdateCheckState.UPDATE_AVAILABLE
       result.update = update
-      result.message = `发现 v${versionName}，请查看发布说明完成更新。`
+      result.message = `已发布 v${versionName}，请自行下载项目完成更新。`
       return result
     } catch (error) {
       result.state = UpdateCheckState.FAILED
@@ -78,11 +78,11 @@ export class GiteeUpdateRepository {
     }
   }
 
-  private hasHarmonyPackage(value: Object | undefined, versionName: string): boolean {
+  private hasAndroidPackage(value: Object | undefined, versionName: string): boolean {
     if (!Array.isArray(value)) {
       return false
     }
-    const expectedName = `hotwater-harmony-v${versionName}.hap`
+    const expectedName = `hotwater-android-v${versionName}.apk`
     const assets = value as Array<Record<string, Object>>
     for (let index = 0; index < assets.length; index++) {
       const name = String(assets[index]['name'] ?? '')
