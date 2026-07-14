@@ -55,7 +55,7 @@ struct Index {
   @State consumptionRecords: ConsumptionRecord[] = []
   private usageTimerGeneration: number = 0
   @State aboutMenuVisible: boolean = false
-  @State currentVersionLabel: string = '1.3.0'
+  @State currentVersionLabel: string = '1.4.1'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -461,7 +461,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '1.3.0'
+      this.currentVersionLabel = '1.3.1'
     }
   }
 
