@@ -109,6 +109,10 @@ fun HotWaterApp(
     updateManager: AppUpdateManager,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    glassIntensity: Float,
+    onGlassIntensityChange: (Float) -> Unit,
+    onGlassIntensityChangeFinished: () -> Unit,
+    onResetGlassIntensity: () -> Unit,
     onOpenAbout: () -> Unit,
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
@@ -333,11 +337,12 @@ fun HotWaterApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .glassHazeSource(zIndex = 1f)
             .imePadding(),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .glassHazeSource(zIndex = 1f),
         ) {
             AppHeader(
                 themeMode = themeMode,
@@ -422,6 +427,10 @@ fun HotWaterApp(
                         AppScreen.CONFIG -> ConfigPage(
                             config = config,
                             busy = busy,
+                            glassIntensity = glassIntensity,
+                            onGlassIntensityChange = onGlassIntensityChange,
+                            onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
+                            onResetGlassIntensity = onResetGlassIntensity,
                             onSave = { viewModel.saveConfig(it) },
                             onExport = onExportConfig,
                             onImport = onImportConfig,

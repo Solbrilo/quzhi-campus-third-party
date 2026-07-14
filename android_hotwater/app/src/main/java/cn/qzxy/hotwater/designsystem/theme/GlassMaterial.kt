@@ -27,9 +27,18 @@ enum class GlassMaterial {
     Overlay,
 }
 
-private data class ResolvedGlassMaterial(
+internal data class ResolvedGlassMaterial(
     val surface: Color,
     val fallback: Color,
+    val elevation: Dp,
+    val blurRadius: Dp,
+    val noiseFactor: Float,
+    val canBlur: Boolean,
+    val highlight: Color,
+    val shadow: Color,
+)
+
+private data class GlassMaterialMetrics(
     val elevation: Dp,
     val blurRadius: Dp,
     val noiseFactor: Float,
@@ -45,18 +54,28 @@ fun Modifier.glassMaterial(
     tokens: GlassTokens = LocalGlassTokens.current,
 ): Modifier {
     val environment = LocalGlassEnvironment.current
-    val resolved = resolveGlassMaterial(material, tokens, pressed, enabled)
+    val resolved = resolveGlassMaterial(
+        material = material,
+        tokens = tokens,
+        pressed = pressed,
+        enabled = enabled,
+        glassIntensity = environment.glassIntensity,
+    )
     val shape = RoundedCornerShape(cornerRadius)
     val opaqueSurface = if (resolved.canBlur) {
-        resolved.fallback
+        tokens.fallbackSurface.copy(alpha = 1f)
     } else {
         lerp(
-            tokens.fallbackSurface,
+            tokens.fallbackSurface.copy(alpha = 1f),
             resolved.surface.copy(alpha = 1f),
             0.35f,
         )
     }
-    val surfaceModifier = if (resolved.canBlur && environment.blurAvailable) {
+    val surfaceModifier = if (
+        resolved.canBlur &&
+        environment.blurAvailable &&
+        environment.glassIntensity > 0f
+    ) {
         Modifier.hazeEffect(state = environment.hazeState) {
             blurEnabled = true
             blurRadius = resolved.blurRadius
@@ -84,8 +103,16 @@ fun Modifier.glassMaterial(
                     elevation = resolved.elevation,
                     shape = shape,
                     clip = false,
-                    ambientColor = tokens.outerShadow,
-                    spotColor = tokens.outerShadow,
+                    ambientColor = if (environment.preferOpaqueMaterials) {
+                        tokens.outerShadow
+                    } else {
+                        resolved.shadow
+                    },
+                    spotColor = if (environment.preferOpaqueMaterials) {
+                        tokens.outerShadow
+                    } else {
+                        resolved.shadow
+                    },
                 )
             } else {
                 Modifier
@@ -115,10 +142,14 @@ fun Modifier.glassMaterial(
                     borderColors
                 },
             )
-            val highlight = if (pressed) {
-                tokens.borderLo.copy(alpha = tokens.borderLo.alpha * 0.72f)
+            val highlight = if (environment.preferOpaqueMaterials) {
+                if (pressed) {
+                    tokens.borderLo.copy(alpha = tokens.borderLo.alpha * 0.72f)
+                } else {
+                    tokens.innerHighlight
+                }
             } else {
-                tokens.innerHighlight
+                resolved.highlight
             }
 
             onDrawWithContent {
@@ -138,12 +169,15 @@ fun Modifier.glassMaterial(
         }
 }
 
-private fun resolveGlassMaterial(
+internal fun resolveGlassMaterial(
     material: GlassMaterial,
     tokens: GlassTokens,
     pressed: Boolean,
     enabled: Boolean,
+    glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
 ): ResolvedGlassMaterial {
+    val normalizedIntensity = sanitizeGlassIntensity(glassIntensity)
+    val intensityProfile = resolveGlassIntensityProfile(normalizedIntensity)
     val baseSurface = when (material) {
         GlassMaterial.Panel -> tokens.panelSurface
         GlassMaterial.Floating -> tokens.floatingSurface
@@ -162,18 +196,98 @@ private fun resolveGlassMaterial(
     } else {
         baseSurface
     }
-    val surface = if (enabled) {
+    val unscaledSurface = if (enabled) {
         pressedSurface
     } else {
         pressedSurface.copy(alpha = pressedSurface.alpha * 0.72f)
     }
+    val surface = unscaledSurface.withAlphaScale(intensityProfile.tintAlphaScale)
+    val fallback = tokens.fallbackSurface.withAlphaScale(intensityProfile.fallbackAlphaScale)
+    val highlightBase = if (pressed) {
+        tokens.borderLo.copy(alpha = tokens.borderLo.alpha * 0.72f)
+    } else {
+        tokens.innerHighlight
+    }
+    val highlight = highlightBase.withAlphaScale(intensityProfile.highlightAlphaScale)
+    val shadow = tokens.outerShadow.withAlphaScale(intensityProfile.shadowAlphaScale)
 
-    return when (material) {
-        GlassMaterial.Panel -> ResolvedGlassMaterial(surface, tokens.fallbackSurface, 5.dp, 0.dp, 0f, false)
-        GlassMaterial.Floating -> ResolvedGlassMaterial(surface, tokens.fallbackSurface, 12.dp, 22.dp, 0.025f, true)
-        GlassMaterial.Control -> ResolvedGlassMaterial(surface, tokens.fallbackSurface, 3.dp, 0.dp, 0f, false)
-        GlassMaterial.EmbeddedControl -> ResolvedGlassMaterial(surface, tokens.fallbackSurface, 0.dp, 0.dp, 0f, false)
-        GlassMaterial.Input -> ResolvedGlassMaterial(surface, tokens.fallbackSurface, 0.dp, 0.dp, 0f, false)
-        GlassMaterial.Overlay -> ResolvedGlassMaterial(surface, tokens.fallbackSurface, 18.dp, 28.dp, 0.03f, true)
+    val metrics = when (material) {
+        GlassMaterial.Panel -> GlassMaterialMetrics(5.dp, 0.dp, 0f, false)
+        GlassMaterial.Floating -> GlassMaterialMetrics(
+            elevation = 12.dp,
+            blurRadius = intensityProfile.floatingBlurRadius,
+            noiseFactor = intensityProfile.floatingNoiseFactor,
+            canBlur = true,
+        )
+        GlassMaterial.Control -> GlassMaterialMetrics(3.dp, 0.dp, 0f, false)
+        GlassMaterial.EmbeddedControl -> GlassMaterialMetrics(0.dp, 0.dp, 0f, false)
+        GlassMaterial.Input -> GlassMaterialMetrics(0.dp, 0.dp, 0f, false)
+        GlassMaterial.Overlay -> GlassMaterialMetrics(
+            elevation = 18.dp,
+            blurRadius = intensityProfile.overlayBlurRadius,
+            noiseFactor = intensityProfile.overlayNoiseFactor,
+            canBlur = true,
+        )
+    }
+    return ResolvedGlassMaterial(
+        surface = surface,
+        fallback = fallback,
+        elevation = metrics.elevation,
+        blurRadius = metrics.blurRadius,
+        noiseFactor = metrics.noiseFactor,
+        canBlur = metrics.canBlur,
+        highlight = highlight,
+        shadow = shadow,
+    )
+}
+
+/** The interpolated values used by all glass surfaces for one strength value. */
+internal data class GlassIntensityProfile(
+    val floatingBlurRadius: Dp,
+    val floatingNoiseFactor: Float,
+    val overlayBlurRadius: Dp,
+    val overlayNoiseFactor: Float,
+    val tintAlphaScale: Float,
+    val fallbackAlphaScale: Float,
+    val highlightAlphaScale: Float,
+    val shadowAlphaScale: Float,
+)
+
+/**
+ * Resolves the strength using the historical 75% point as an explicit anchor.
+ * This preserves the v1.4.1 values while making both ends of the slider useful.
+ */
+internal fun resolveGlassIntensityProfile(value: Float): GlassIntensityProfile {
+    val intensity = sanitizeGlassIntensity(value)
+    return GlassIntensityProfile(
+        floatingBlurRadius = anchoredDp(intensity, 0f, 22f, 30f),
+        floatingNoiseFactor = anchored(intensity, 0f, 0.025f, 0.032f),
+        overlayBlurRadius = anchoredDp(intensity, 0f, 28f, 36f),
+        overlayNoiseFactor = anchored(intensity, 0f, 0.030f, 0.038f),
+        tintAlphaScale = anchored(intensity, 0.72f, 1f, 1.08f),
+        fallbackAlphaScale = anchored(intensity, 0.90f, 1f, 1.03f),
+        highlightAlphaScale = anchored(intensity, 0f, 1f, 1.15f),
+        shadowAlphaScale = anchored(intensity, 0.45f, 1f, 1.10f),
+    )
+}
+
+private fun anchoredDp(value: Float, atZero: Float, atDefault: Float, atMax: Float): Dp =
+    Dp(anchored(value, atZero, atDefault, atMax))
+
+private fun anchored(value: Float, atZero: Float, atDefault: Float, atMax: Float): Float {
+    val intensity = sanitizeGlassIntensity(value)
+    return when (intensity) {
+        0f -> atZero
+        DEFAULT_GLASS_INTENSITY -> atDefault
+        1f -> atMax
+        else -> if (intensity < DEFAULT_GLASS_INTENSITY) {
+            atZero + (atDefault - atZero) * (intensity / DEFAULT_GLASS_INTENSITY)
+        } else {
+            atDefault + (atMax - atDefault) *
+                ((intensity - DEFAULT_GLASS_INTENSITY) / (1f - DEFAULT_GLASS_INTENSITY))
+        }
     }
 }
+
+private fun Color.withAlphaScale(scale: Float): Color =
+    if (scale == 1f) this else copy(alpha = (alpha * scale).coerceIn(0f, 1f))

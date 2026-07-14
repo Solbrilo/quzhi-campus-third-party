@@ -36,6 +36,8 @@ data class GlassEnvironment(
     val blurAvailable: Boolean,
     val motionEnabled: Boolean,
     val preferOpaqueMaterials: Boolean,
+    /** Shared material strength, normalized to the inclusive [0f, 1f] range. */
+    val glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
 )
 
 private val PreviewGlassEnvironment = GlassEnvironment(
@@ -43,6 +45,7 @@ private val PreviewGlassEnvironment = GlassEnvironment(
     blurAvailable = false,
     motionEnabled = true,
     preferOpaqueMaterials = false,
+    glassIntensity = DEFAULT_GLASS_INTENSITY,
 )
 
 val LocalGlassEnvironment = staticCompositionLocalOf { PreviewGlassEnvironment }
@@ -50,11 +53,13 @@ val LocalGlassEnvironment = staticCompositionLocalOf { PreviewGlassEnvironment }
 @Composable
 fun GlassTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = themeMode.resolveDarkTheme(isSystemInDarkTheme())
     GlassThemeContent(
         darkTheme = darkTheme,
+        glassIntensity = glassIntensity,
         content = content,
     )
 }
@@ -66,17 +71,24 @@ fun GlassTheme(
 @Composable
 fun GlassTheme(
     darkTheme: Boolean,
+    glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
     content: @Composable () -> Unit,
 ) {
-    GlassThemeContent(darkTheme = darkTheme, content = content)
+    GlassThemeContent(
+        darkTheme = darkTheme,
+        glassIntensity = glassIntensity,
+        content = content,
+    )
 }
 
 @Composable
 private fun GlassThemeContent(
     darkTheme: Boolean,
+    glassIntensity: Float,
     content: @Composable () -> Unit,
 ) {
     val tokens = if (darkTheme) DarkGlassTokens else LightGlassTokens
+    val normalizedGlassIntensity = sanitizeGlassIntensity(glassIntensity)
     val view = LocalView.current
     val preferOpaqueMaterials = rememberPreferOpaqueMaterials()
     val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2 &&
@@ -84,12 +96,19 @@ private fun GlassThemeContent(
         !preferOpaqueMaterials
     val hazeState = rememberHazeState(blurEnabled = blurAvailable)
     val motionEnabled = rememberMotionEnabled()
-    val environment = remember(hazeState, blurAvailable, motionEnabled, preferOpaqueMaterials) {
+    val environment = remember(
+        hazeState,
+        blurAvailable,
+        motionEnabled,
+        preferOpaqueMaterials,
+        normalizedGlassIntensity,
+    ) {
         GlassEnvironment(
             hazeState = hazeState,
             blurAvailable = blurAvailable,
             motionEnabled = motionEnabled,
             preferOpaqueMaterials = preferOpaqueMaterials,
+            glassIntensity = normalizedGlassIntensity,
         )
     }
 

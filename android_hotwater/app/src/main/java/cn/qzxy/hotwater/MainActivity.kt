@@ -14,17 +14,22 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
+import cn.qzxy.hotwater.designsystem.theme.GlassIntensityPreferences
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.ThemeModePreferences
+import cn.qzxy.hotwater.designsystem.theme.sanitizeGlassIntensity
 import cn.qzxy.hotwater.ui.HotWaterApp
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var updateManager: AppUpdateManager
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var glassIntensity by mutableFloatStateOf(DEFAULT_GLASS_INTENSITY)
     private var notificationPermissionRequested = false
     private var pendingOpenRequested = false
     private var pendingOpenAction: (() -> Unit)? = null
@@ -59,9 +64,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
         themeMode = ThemeModePreferences.read(this)
+        glassIntensity = if (savedInstanceState?.containsKey(STATE_GLASS_INTENSITY) == true) {
+            sanitizeGlassIntensity(savedInstanceState.getFloat(STATE_GLASS_INTENSITY))
+        } else {
+            GlassIntensityPreferences.read(this)
+        }
 
         setContent {
-            GlassTheme(themeMode = themeMode) {
+            GlassTheme(
+                themeMode = themeMode,
+                glassIntensity = glassIntensity,
+            ) {
                 HotWaterApp(
                     viewModel = viewModel,
                     updateManager = updateManager,
@@ -71,6 +84,17 @@ class MainActivity : ComponentActivity() {
                             themeMode = nextMode
                             ThemeModePreferences.write(this, nextMode)
                         }
+                    },
+                    glassIntensity = glassIntensity,
+                    onGlassIntensityChange = { nextIntensity ->
+                        glassIntensity = sanitizeGlassIntensity(nextIntensity)
+                    },
+                    onGlassIntensityChangeFinished = {
+                        GlassIntensityPreferences.write(this, glassIntensity)
+                    },
+                    onResetGlassIntensity = {
+                        glassIntensity = DEFAULT_GLASS_INTENSITY
+                        GlassIntensityPreferences.write(this, glassIntensity)
                     },
                     onOpenAbout = { startActivity(Intent(this, AboutActivity::class.java)) },
                     onExportConfig = { exportConfig() },
@@ -89,6 +113,7 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_PERMISSION_REQUESTED, notificationPermissionRequested)
         outState.putBoolean(STATE_PENDING_OPEN, pendingOpenRequested)
+        outState.putFloat(STATE_GLASS_INTENSITY, glassIntensity)
         super.onSaveInstanceState(outState)
     }
 
@@ -183,6 +208,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val STATE_PENDING_OPEN = "pending_open_after_notification_permission"
         private const val STATE_PERMISSION_REQUESTED = "notification_permission_requested"
+        private const val STATE_GLASS_INTENSITY = "glass_intensity"
         private const val ALIPAY_PACKAGE_NAME = "com.eg.android.AlipayGphone"
     }
 }

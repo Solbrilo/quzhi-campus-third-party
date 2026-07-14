@@ -17,8 +17,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -33,6 +36,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -43,15 +50,23 @@ import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.HotWaterConfig
 import cn.qzxy.hotwater.designsystem.component.GlassButton
 import cn.qzxy.hotwater.designsystem.component.GlassInput
+import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun ConfigPage(
     config: HotWaterConfig,
     busy: Boolean,
+    glassIntensity: Float,
+    onGlassIntensityChange: (Float) -> Unit,
+    onGlassIntensityChangeFinished: () -> Unit,
+    onResetGlassIntensity: () -> Unit,
     onSave: (HotWaterConfig) -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
@@ -311,8 +326,108 @@ fun ConfigPage(
             )
         }
 
+        GlassIntensityPanel(
+            glassIntensity = glassIntensity,
+            onGlassIntensityChange = onGlassIntensityChange,
+            onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
+            onResetGlassIntensity = onResetGlassIntensity,
+        )
+
         // 底部间距
         Spacer(modifier = Modifier.height(bottomDockClearance()))
+    }
+}
+
+@Composable
+internal fun GlassIntensityPanel(
+    glassIntensity: Float,
+    onGlassIntensityChange: (Float) -> Unit,
+    onGlassIntensityChangeFinished: () -> Unit,
+    onResetGlassIntensity: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalGlassTokens.current
+    val normalizedIntensity = glassIntensity
+        .takeIf { it.isFinite() }
+        ?.coerceIn(0f, 1f)
+        ?: DEFAULT_GLASS_INTENSITY
+    val percentage = (normalizedIntensity * 100f).roundToInt()
+    val percentageText = "$percentage%"
+    val resetEnabled = abs(normalizedIntensity - DEFAULT_GLASS_INTENSITY) > 0.0001f
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(GlassIntensityPanelTag)
+            .glassMaterial(GlassMaterial.Panel, 28.dp)
+            .padding(18.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "液态玻璃效果",
+                color = tokens.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = percentageText,
+                color = tokens.textPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                modifier = Modifier.testTag(GlassIntensityValueTag),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Slider(
+                value = normalizedIntensity,
+                onValueChange = { onGlassIntensityChange(it.coerceIn(0f, 1f)) },
+                onValueChangeFinished = onGlassIntensityChangeFinished,
+                valueRange = 0f..1f,
+                steps = 0,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(GlassIntensitySliderTag)
+                    .semantics {
+                        contentDescription = GlassIntensitySliderDescription
+                        stateDescription = percentageText
+                    },
+            )
+            GlassPressable(
+                onClick = onResetGlassIntensity,
+                enabled = resetEnabled,
+                cornerRadius = 24.dp,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag(GlassIntensityResetTag)
+                    .semantics {
+                        contentDescription = GlassIntensityResetDescription
+                        stateDescription = if (resetEnabled) {
+                            "可恢复为默认强度 75%"
+                        } else {
+                            "当前已是默认强度 75%"
+                        }
+                    },
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Restore,
+                    contentDescription = null,
+                    tint = tokens.textPrimary,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
     }
 }
 
@@ -429,6 +544,12 @@ private fun ConfigTransferButton(
 
 private const val ExportConfigLabel = "导出配置"
 private const val ImportConfigLabel = "导入配置"
+internal const val GlassIntensityPanelTag = "glass_intensity_panel"
+internal const val GlassIntensitySliderTag = "glass_intensity_slider"
+internal const val GlassIntensityValueTag = "glass_intensity_value"
+internal const val GlassIntensityResetTag = "glass_intensity_reset"
+internal const val GlassIntensitySliderDescription = "液态玻璃效果强度"
+internal const val GlassIntensityResetDescription = "恢复默认液态玻璃强度"
 
 private fun buildConfigSummary(config: HotWaterConfig): String {
     return if (config.isComplete()) {
