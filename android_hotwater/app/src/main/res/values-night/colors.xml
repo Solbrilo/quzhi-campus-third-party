@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="surface">#1A1D2E</color>
-    <color name="surface_alt">#141625</color>
-    <color name="card">#2A2D3E</color>
-    <color name="border">#3A3D4E</color>
-    <color name="text_primary">#E8EAF0</color>
-    <color name="text_secondary">#9BA1B7</color>
-    <color name="accent">#8BABFF</color>
-    <color name="accent_soft">#6B8BE0</color>
-    <color name="chip_fill">#2A2D3E</color>
+    <color name="surface">#17253A</color>
+    <color name="surface_alt">#132033</color>
+    <color name="card">#26364F</color>
+    <color name="border">#425877</color>
+    <color name="text_primary">#F7FAFF</color>
+    <color name="text_secondary">#B8C8DE</color>
+    <color name="accent">#9CC4FF</color>
+    <color name="accent_soft">#6F96CC</color>
+    <color name="chip_fill">#26364F</color>
 </resources>
