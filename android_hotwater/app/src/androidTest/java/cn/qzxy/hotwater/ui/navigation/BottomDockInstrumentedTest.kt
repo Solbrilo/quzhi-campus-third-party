@@ -185,6 +185,125 @@ class BottomDockInstrumentedTest {
     }
 
     @Test
+    fun fastReleaseProjectsToNextSnapPointWithoutCrossingRawRegion() {
+        val haptic = RecordingHapticFeedback()
+        val selections = mutableListOf<DockSelection>()
+        val dragStates = mutableListOf<Boolean>()
+        setDockContent(
+            haptic = haptic,
+            selections = selections,
+            dragStates = dragStates,
+        )
+        val twelveDpPx = with(composeRule.density) { 12.dp.toPx() }
+
+        composeRule.onNodeWithTag(DockTag).performTouchInput {
+            val start = Offset(width / 6f, height / 2f)
+            down(start)
+            moveBy(Offset(twelveDpPx, 0f), delayMillis = 200L)
+            moveBy(Offset(width / 20f, 0f), delayMillis = 16L)
+            moveBy(Offset(width / 20f, 0f), delayMillis = 16L)
+            up()
+        }
+
+        composeRule.runOnIdle {
+            assertEquals(listOf(DockSelection(1, DockSelectionSource.Drag)), selections)
+            assertEquals(listOf(true, false), dragStates)
+            assertEquals(listOf(HapticFeedbackType.SegmentTick), haptic.events)
+        }
+        composeRule.onNodeWithTag(tabTag(1)).assertIsSelected()
+    }
+
+    @Test
+    fun settlingIndicatorCanBeRegrabbedAndRetargetedInReverse() {
+        val haptic = RecordingHapticFeedback()
+        val selections = mutableListOf<DockSelection>()
+        val dragStates = mutableListOf<Boolean>()
+        val twelveDpPx = with(composeRule.density) { 12.dp.toPx() }
+
+        setDockContent(
+            haptic = haptic,
+            selections = selections,
+            dragStates = dragStates,
+        )
+        composeRule.mainClock.autoAdvance = false
+
+        try {
+            composeRule.onNodeWithTag(DockTag).performTouchInput {
+                val start = Offset(width / 6f, height / 2f)
+                down(start)
+                moveBy(Offset(twelveDpPx, 0f), delayMillis = 200L)
+                moveBy(Offset(width / 20f, 0f), delayMillis = 16L)
+                moveBy(Offset(width / 20f, 0f), delayMillis = 16L)
+                up()
+            }
+            composeRule.mainClock.advanceTimeByFrame()
+            composeRule.waitForIdle()
+            composeRule.runOnIdle {
+                assertEquals(1, selections.last().index)
+            }
+            composeRule.mainClock.advanceTimeBy(32L)
+            composeRule.waitForIdle()
+
+            val tabZeroCenterX = composeRule.onNodeWithTag(tabTag(0))
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .center
+                .x
+            val tabOneCenterX = composeRule.onNodeWithTag(tabTag(1))
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .center
+                .x
+            val dockLeft = composeRule.onNodeWithTag(DockTag)
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .left
+            val settlingCenterX = composeRule.onNodeWithTag(IndicatorTag)
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .center
+                .x
+
+            assertTrue(settlingCenterX > tabZeroCenterX)
+            assertTrue(settlingCenterX < tabOneCenterX - 1f)
+            composeRule.onNodeWithTag(DockTag).performTouchInput {
+                val y = height / 2f
+                down(Offset(settlingCenterX - dockLeft, y))
+                moveBy(Offset(-twelveDpPx, 0f), delayMillis = 120L)
+                moveTo(Offset(width / 6f, y), delayMillis = 300L)
+                advanceEventTime(300L)
+                up()
+            }
+            composeRule.runOnIdle {
+                assertEquals(0, selections.last().index)
+            }
+            composeRule.mainClock.advanceTimeBy(1_000L)
+        } finally {
+            composeRule.mainClock.autoAdvance = true
+        }
+
+        composeRule.waitForIdle()
+        composeRule.runOnIdle {
+            assertEquals(0, selections.last().index)
+            assertTrue(selections.all { it.source == DockSelectionSource.Drag })
+            assertEquals(listOf(true, false, true, false), dragStates)
+            assertTrue(haptic.events.all { it == HapticFeedbackType.SegmentTick })
+        }
+        composeRule.onNodeWithTag(tabTag(0)).assertIsSelected()
+        val tabZeroCenterX = composeRule.onNodeWithTag(tabTag(0))
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .center
+            .x
+        val settledCenterX = composeRule.onNodeWithTag(IndicatorTag)
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .center
+            .x
+        assertEquals(tabZeroCenterX, settledCenterX, 1f)
+    }
+
+    @Test
     fun rtlAlignsLogicalZeroWithIndicatorOnRightAndMapsClickAndDrag() {
         val haptic = RecordingHapticFeedback()
         val selections = mutableListOf<DockSelection>()

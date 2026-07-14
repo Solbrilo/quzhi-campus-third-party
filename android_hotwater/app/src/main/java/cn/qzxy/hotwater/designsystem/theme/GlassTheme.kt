@@ -49,7 +49,31 @@ val LocalGlassEnvironment = staticCompositionLocalOf { PreviewGlassEnvironment }
 
 @Composable
 fun GlassTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    content: @Composable () -> Unit,
+) {
+    val darkTheme = themeMode.resolveDarkTheme(isSystemInDarkTheme())
+    GlassThemeContent(
+        darkTheme = darkTheme,
+        content = content,
+    )
+}
+
+/**
+ * Compatibility entry point for callers that already resolved a boolean theme.
+ * New screens should pass [ThemeMode] so the system choice remains explicit.
+ */
+@Composable
+fun GlassTheme(
+    darkTheme: Boolean,
+    content: @Composable () -> Unit,
+) {
+    GlassThemeContent(darkTheme = darkTheme, content = content)
+}
+
+@Composable
+private fun GlassThemeContent(
+    darkTheme: Boolean,
     content: @Composable () -> Unit,
 ) {
     val tokens = if (darkTheme) DarkGlassTokens else LightGlassTokens

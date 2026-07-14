@@ -16,24 +16,31 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
@@ -53,12 +60,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -77,6 +87,7 @@ import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
+import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import cn.qzxy.hotwater.ui.navigation.BottomDock
@@ -96,6 +107,8 @@ private enum class AppScreen(val tabIndex: Int) {
 fun HotWaterApp(
     viewModel: MainViewModel,
     updateManager: AppUpdateManager,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
     onOpenAbout: () -> Unit,
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
@@ -320,29 +333,38 @@ fun HotWaterApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
+            .glassHazeSource(zIndex = 1f)
             .imePadding(),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .glassHazeSource(zIndex = 1f)
-                .padding(horizontal = 20.dp, vertical = 18.dp),
+            modifier = Modifier.fillMaxSize(),
         ) {
             AppHeader(
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
                 overflowExpanded = showOverflowMenu,
                 onOverflowExpandedChange = { showOverflowMenu = it },
                 onOpenAbout = {
                     showOverflowMenu = false
                     onOpenAbout()
                 },
+                modifier = Modifier
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                        ),
+                    )
+                    .padding(start = 20.dp, top = 18.dp, end = 20.dp),
             )
 
             AnimatedContent(
                 targetState = currentScreen,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(top = 18.dp),
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+                    )
+                    .padding(start = 20.dp, top = 18.dp, end = 20.dp),
                 transitionSpec = {
                     val logicalDirection = if (targetState.tabIndex > initialState.tabIndex) 1 else -1
                     val direction = if (layoutDirection == LayoutDirection.Rtl) {
@@ -422,6 +444,11 @@ fun HotWaterApp(
             onDragStateChanged = { dockDragging = it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                )
                 .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
         )
 
@@ -429,6 +456,11 @@ fun HotWaterApp(
             visible = feedbackVisible && displayedFeedback != null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                )
                 .padding(start = 20.dp, end = 20.dp, bottom = 82.dp),
             enter = if (motionEnabled) {
                 fadeIn(tween(120)) + slideInVertically(
@@ -522,14 +554,25 @@ private fun FeedbackBanner(
 }
 
 @Composable
-private fun AppHeader(
+internal fun AppHeader(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
     overflowExpanded: Boolean,
     onOverflowExpandedChange: (Boolean) -> Unit,
     onOpenAbout: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGlassTokens.current
+    val nextThemeMode = themeMode.next()
+    val currentThemeLabel = themeMode.accessibilityLabel()
+    val nextThemeLabel = nextThemeMode.accessibilityLabel()
+    val themeIcon = when (themeMode) {
+        ThemeMode.SYSTEM -> Icons.Outlined.BrightnessAuto
+        ThemeMode.LIGHT -> Icons.Outlined.LightMode
+        ThemeMode.DARK -> Icons.Outlined.DarkMode
+    }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -548,40 +591,73 @@ private fun AppHeader(
         }
         Box {
             GlassPressable(
-                onClick = { onOverflowExpandedChange(true) },
+                onClick = { onOverflowExpandedChange(!overflowExpanded) },
                 material = GlassMaterial.Control,
-                cornerRadius = 16.dp,
-                modifier = Modifier.size(48.dp),
+                cornerRadius = 24.dp,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag(OverflowMenuButtonTag)
+                    .semantics {
+                        contentDescription = "更多选项"
+                        stateDescription = if (overflowExpanded) "菜单已展开" else "菜单已收起"
+                    },
             ) {
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
-                    contentDescription = "更多",
+                    contentDescription = null,
                     tint = tokens.textPrimary,
                 )
             }
             DropdownMenu(
                 expanded = overflowExpanded,
                 onDismissRequest = { onOverflowExpandedChange(false) },
-                modifier = Modifier.glassMaterial(
-                    material = GlassMaterial.Panel,
-                    cornerRadius = 14.dp,
-                ),
-                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.testTag(OverflowMenuHostTag),
+                shape = RoundedCornerShape(0.dp),
                 containerColor = Color.Transparent,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp,
             ) {
-                GlassPressable(
-                    onClick = onOpenAbout,
-                    material = GlassMaterial.EmbeddedControl,
-                    cornerRadius = 12.dp,
-                    contentAlignment = Alignment.CenterStart,
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
+                        .width(112.dp)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    Text(text = "关于", color = tokens.textPrimary)
+                    GlassPressable(
+                        onClick = onOpenAbout,
+                        material = GlassMaterial.Control,
+                        cornerRadius = 24.dp,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag(OverflowAboutButtonTag)
+                            .semantics { contentDescription = "关于" },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = tokens.textPrimary,
+                        )
+                    }
+                    GlassPressable(
+                        onClick = { onThemeModeChange(nextThemeMode) },
+                        onClickLabel = "切换为${nextThemeLabel}主题",
+                        material = GlassMaterial.Control,
+                        cornerRadius = 24.dp,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag(OverflowThemeButtonTag)
+                            .semantics {
+                                contentDescription = "主题模式"
+                                stateDescription =
+                                    "当前${currentThemeLabel}主题，下一模式为${nextThemeLabel}主题"
+                            },
+                    ) {
+                        Icon(
+                            imageVector = themeIcon,
+                            contentDescription = null,
+                            tint = tokens.textPrimary,
+                        )
+                    }
                 }
             }
         }
@@ -590,8 +666,21 @@ private fun AppHeader(
 
 @Composable
 internal fun bottomDockClearance(): Dp {
-    return 76.dp
+    val density = LocalDensity.current
+    val bottomSafeInset = WindowInsets.safeDrawing.getBottom(density)
+    return 76.dp + with(density) { bottomSafeInset.toDp() }
 }
+
+private fun ThemeMode.accessibilityLabel(): String = when (this) {
+    ThemeMode.SYSTEM -> "系统"
+    ThemeMode.LIGHT -> "明亮"
+    ThemeMode.DARK -> "暗夜"
+}
+
+internal const val OverflowMenuButtonTag = "overflow_menu_button"
+internal const val OverflowMenuHostTag = "overflow_menu_host"
+internal const val OverflowAboutButtonTag = "overflow_about_button"
+internal const val OverflowThemeButtonTag = "overflow_theme_button"
 
 @Composable
 private fun GlassDialogAction(

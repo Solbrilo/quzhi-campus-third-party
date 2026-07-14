@@ -16,6 +16,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,6 +33,7 @@ fun GlassButton(
     height: Dp = 52.dp,
     cornerRadius: Dp = 22.dp,
     icon: (@Composable () -> Unit)? = null,
+    singleLineText: Boolean = false,
     material: GlassMaterial = GlassMaterial.Control,
     hapticFeedback: (() -> HapticFeedbackType?)? = {
         HapticFeedbackType.SegmentTick
@@ -70,6 +72,9 @@ fun GlassButton(
                     color = tokens.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
+                    maxLines = if (singleLineText) 1 else Int.MAX_VALUE,
+                    softWrap = !singleLineText,
+                    overflow = if (singleLineText) TextOverflow.Visible else TextOverflow.Clip,
                 )
             }
 
@@ -78,6 +83,9 @@ fun GlassButton(
                 color = tokens.textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
+                maxLines = if (singleLineText) 1 else Int.MAX_VALUE,
+                softWrap = !singleLineText,
+                overflow = if (singleLineText) TextOverflow.Visible else TextOverflow.Clip,
             )
         }
     }

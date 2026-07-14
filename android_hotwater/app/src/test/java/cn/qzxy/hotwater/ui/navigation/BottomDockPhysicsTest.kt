@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.PI
+import kotlin.math.cos
 
 class BottomDockPhysicsTest {
     @Test
@@ -65,6 +67,76 @@ class BottomDockPhysicsTest {
     }
 
     @Test
+    fun magneticMapKeepsTabAnchorsAndRegionBoundariesFixed() {
+        listOf(0f, 50f, 100f, 150f, 200f).forEach { offsetPx ->
+            assertEquals(
+                offsetPx,
+                bottomDockMagneticPositionForOffset(offsetPx, tabWidthPx = 100f),
+                0.0001f,
+            )
+        }
+    }
+
+    @Test
+    fun magneticMapIsSymmetricAndAttractsTowardRegionCenter() {
+        val left = bottomDockMagneticMap(localPosition = -0.25f, widthPx = 100f)
+        val right = bottomDockMagneticMap(localPosition = 0.25f, widthPx = 100f)
+
+        assertEquals(0f, bottomDockMagneticMap(0f, widthPx = 100f), 0f)
+        assertEquals(-right, left, 0.0001f)
+        assertTrue(right in 0f..25f)
+        assertEquals(
+            200f,
+            bottomDockMagneticPositionForOffset(75f, 100f) +
+                bottomDockMagneticPositionForOffset(125f, 100f),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun magneticDerivativeIsPointFourFiveAtCentersAndOnePointFiveFiveAtBoundaries() {
+        assertEquals(0.45f, bottomDockMagneticDerivative(0f), 0.0001f)
+        assertEquals(1.55f, bottomDockMagneticDerivative(-0.5f), 0.0001f)
+        assertEquals(1.55f, bottomDockMagneticDerivative(0.5f), 0.0001f)
+        assertEquals(0.45f, bottomDockMagneticVelocityScaleForOffset(100f, 100f), 0.0001f)
+        assertEquals(1.55f, bottomDockMagneticVelocityScaleForOffset(50f, 100f), 0.0001f)
+    }
+
+    @Test
+    fun magneticInverseRecoversRawOffsetsAfterSixteenBisections() {
+        listOf(0f, 12.5f, 49.9f, 50f, 50.1f, 75f, 100f, 125f, 150f, 187.5f, 200f)
+            .forEach { rawOffsetPx ->
+                val mappedOffsetPx = bottomDockMagneticPositionForOffset(rawOffsetPx, 100f)
+
+                assertEquals(
+                    rawOffsetPx,
+                    bottomDockMagneticInverseOffset(mappedOffsetPx, 100f),
+                    0.002f,
+                )
+            }
+    }
+
+    @Test
+    fun presentationCombinesMagnetRubberBandAndReducedMotionBypass() {
+        val magnetic = bottomDockPresentedOffset(25f, 100f, 300f, reducedMotion = false)
+        val expectedOvershoot = bottomDockRubberBandPosition(
+            positionPx = 300f,
+            minPx = 0f,
+            maxPx = 200f,
+            dimensionPx = 300f,
+            reducedMotion = false,
+        )
+
+        assertTrue(magnetic in 0f..25f)
+        assertEquals(expectedOvershoot, bottomDockPresentedOffset(300f, 100f, 300f, false), 0f)
+        assertEquals(-20f, bottomDockMagneticPositionForOffset(-20f, 100f), 0f)
+        assertEquals(220f, bottomDockMagneticInverseOffset(220f, 100f), 0f)
+        assertEquals(1f, bottomDockMagneticVelocityScaleForOffset(-20f, 100f), 0f)
+        assertEquals(25f, bottomDockPresentedOffset(25f, 100f, 300f, true), 0f)
+        assertEquals(200f, bottomDockPresentedOffset(300f, 100f, 300f, true), 0f)
+    }
+
+    @Test
     fun velocityProjectionUsesExponentialDecay() {
         assertEquals(99f, bottomDockProjectedDistance(1_000f), 0.001f)
         assertEquals(-99f, bottomDockProjectedDistance(-1_000f), 0.001f)
@@ -72,19 +144,39 @@ class BottomDockPhysicsTest {
     }
 
     @Test
-    fun projectedSnapUsesReleaseVelocityAndPreservesHandoffVelocity() {
+    fun projectedSnapScalesReleaseVelocityThroughMagneticDerivative() {
+        val rawOffsetPx = 120f
+        val displayedOffsetPx = bottomDockMagneticPositionForOffset(rawOffsetPx, 100f)
         val forward = bottomDockProjectedSnapTarget(
-            currentPhysicalOffsetPx = 120f,
+            currentPhysicalOffsetPx = displayedOffsetPx,
             releasePhysicalVelocityPxPerSecond = 1_000f,
             tabWidthPx = 100f,
             isRtl = false,
             reducedMotion = false,
+            currentRawPhysicalOffsetPx = rawOffsetPx,
         )
+        val expectedScale = 1f - 0.55f * cos((2.0 * PI * 0.2).toFloat())
+        val expectedVelocity = 1_000f * expectedScale
 
         assertEquals(2, forward.logicalIndex)
         assertEquals(200f, forward.targetPhysicalOffsetPx, 0f)
-        assertEquals(219f, forward.projectedPhysicalOffsetPx, 0.001f)
-        assertEquals(1_000f, forward.initialPhysicalVelocityPxPerSecond, 0f)
+        assertEquals(
+            displayedOffsetPx + bottomDockProjectedDistance(expectedVelocity),
+            forward.projectedPhysicalOffsetPx,
+            0.001f,
+        )
+        assertEquals(expectedVelocity, forward.initialPhysicalVelocityPxPerSecond, 0.001f)
+    }
+
+    @Test
+    fun releaseVelocityUsesCenterAndBoundaryMagneticScales() {
+        val atCenter = bottomDockProjectedSnapTarget(100f, 1_000f, 100f, false, false)
+        val atBoundary = bottomDockProjectedSnapTarget(50f, 1_000f, 100f, false, false)
+
+        assertEquals(450f, atCenter.initialPhysicalVelocityPxPerSecond, 0.001f)
+        assertEquals(1_550f, atBoundary.initialPhysicalVelocityPxPerSecond, 0.001f)
+        assertEquals(144.55f, atCenter.projectedPhysicalOffsetPx, 0.001f)
+        assertEquals(203.45f, atBoundary.projectedPhysicalOffsetPx, 0.001f)
     }
 
     @Test
@@ -106,7 +198,11 @@ class BottomDockPhysicsTest {
 
         assertEquals(0, reversed.logicalIndex)
         assertEquals(0f, reversed.targetPhysicalOffsetPx, 0f)
-        assertEquals(-1_500f, reversed.initialPhysicalVelocityPxPerSecond, 0f)
+        assertEquals(
+            -1_500f * bottomDockMagneticVelocityScaleForOffset(160f, 100f),
+            reversed.initialPhysicalVelocityPxPerSecond,
+            0.001f,
+        )
         assertEquals(2, continued.logicalIndex)
         assertEquals(200f, continued.targetPhysicalOffsetPx, 0f)
     }
