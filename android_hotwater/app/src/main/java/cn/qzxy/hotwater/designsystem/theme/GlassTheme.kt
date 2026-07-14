@@ -43,7 +43,7 @@ fun GlassTheme(
                 surface = tokens.meshBase,
                 onBackground = tokens.textPrimary,
                 onSurface = tokens.textPrimary,
-                primary = GlassAccent.primary,
+                primary = tokens.accentPrimary,
             ),
             typography = GlassTypography,
         ) {

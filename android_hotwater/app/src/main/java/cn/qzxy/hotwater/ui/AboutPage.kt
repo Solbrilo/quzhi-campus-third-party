@@ -21,7 +21,6 @@ import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.BuildConfig
 import cn.qzxy.hotwater.designsystem.component.GlassButton
-import cn.qzxy.hotwater.designsystem.theme.GlassAccent
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassConvex
 
@@ -34,6 +33,7 @@ fun AboutPage(
     downloadProgress: AppUpdateDownloadProgress?,
     onCheckForUpdate: () -> Unit,
     onInstallUpdate: (AppUpdateInfo) -> Unit,
+    onCancelInstall: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
     val availableUpdate = checkResult as? AppUpdateCheckResult.UpdateAvailable
@@ -64,7 +64,7 @@ fun AboutPage(
             )
             Text(
                 text = "当前版本 v${BuildConfig.VERSION_NAME}",
-                color = GlassAccent.primary,
+                color = tokens.accentPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
@@ -97,12 +97,17 @@ fun AboutPage(
                     progress = downloadProgress,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                GlassButton(
+                    text = "取消下载",
+                    onClick = onCancelInstall,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             if (availableUpdate != null) {
                 Text(
                     text = "发现 v${availableUpdate.update.versionName}",
-                    color = GlassAccent.primary,
+                    color = tokens.accentPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -133,14 +138,14 @@ private fun UpdateStatusText(
     val tokens = LocalGlassTokens.current
     val (message, color) = when {
         installResult is AppUpdateInstallResult.InstallationLaunched ->
-            "已打开系统安装确认，请完成更新。" to GlassAccent.success
+            "已打开系统安装确认，请完成更新。" to tokens.accentSuccess
         installResult is AppUpdateInstallResult.SourcePermissionRequired ->
-            "请允许安装未知应用后，再次点击立即更新。" to GlassAccent.warning
-        installResult is AppUpdateInstallResult.Failed -> installResult.message to GlassAccent.error
-        checkResult is AppUpdateCheckResult.UpToDate -> "当前已是最新版本。" to GlassAccent.success
+            "请允许安装未知应用后，再次点击立即更新。" to tokens.accentWarning
+        installResult is AppUpdateInstallResult.Failed -> installResult.message to tokens.accentError
+        checkResult is AppUpdateCheckResult.UpToDate -> "当前已是最新版本。" to tokens.accentSuccess
         checkResult is AppUpdateCheckResult.NoRelease -> "暂无已发布版本。" to tokens.textSecondary
-        checkResult is AppUpdateCheckResult.InvalidRelease -> checkResult.message to GlassAccent.warning
-        checkResult is AppUpdateCheckResult.Failed -> checkResult.message to GlassAccent.error
+        checkResult is AppUpdateCheckResult.InvalidRelease -> checkResult.message to tokens.accentWarning
+        checkResult is AppUpdateCheckResult.Failed -> checkResult.message to tokens.accentError
         else -> "通过 Gitee Release 检查新版本。" to tokens.textSecondary
     }
     Text(

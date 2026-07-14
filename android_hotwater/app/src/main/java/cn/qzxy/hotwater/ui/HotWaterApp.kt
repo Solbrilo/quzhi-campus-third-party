@@ -1,17 +1,25 @@
 package cn.qzxy.hotwater.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,15 +28,22 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,15 +59,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -64,14 +88,17 @@ import cn.qzxy.hotwater.AppUpdateDownloadProgress
 import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.AppUpdateManager
+import cn.qzxy.hotwater.FeedbackEvent
 import cn.qzxy.hotwater.MainViewModel
-import cn.qzxy.hotwater.designsystem.theme.GlassAccent
+import cn.qzxy.hotwater.designsystem.motion.rememberMotionEnabled
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassConvex
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private enum class AppScreen(val tabIndex: Int) {
@@ -89,25 +116,57 @@ fun HotWaterApp(
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
     onOpenAlipayRecharge: () -> Unit,
+    onRequestNotificationPermission: ((() -> Unit) -> Unit),
 ) {
     val tokens = LocalGlassTokens.current
-    var currentScreen by remember { mutableStateOf(AppScreen.OPERATIONS) }
+    var currentScreen by rememberSaveable { mutableStateOf(AppScreen.OPERATIONS) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showLowBalanceDialog by remember { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateCheckResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var downloadingUpdate by remember { mutableStateOf(false) }
+    var updateDownloadJob by remember { mutableStateOf<Job?>(null) }
     var updateDownloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var installStatusMessage by remember { mutableStateOf<String?>(null) }
+    var displayedFeedback by remember { mutableStateOf<FeedbackEvent?>(null) }
+    var feedbackVisible by remember { mutableStateOf(false) }
+    var lastAnnouncedFeedbackId by rememberSaveable { mutableStateOf<Long?>(null) }
     val updateScope = rememberCoroutineScope()
     val hazeState = remember { HazeState() }
+    val saveableStateHolder = rememberSaveableStateHolder()
+    val motionEnabled = rememberMotionEnabled()
+    val haptic = LocalHapticFeedback.current
 
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
+    val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
+
+    BackHandler(enabled = currentScreen != AppScreen.OPERATIONS) {
+        currentScreen = AppScreen.OPERATIONS
+    }
+
+    LaunchedEffect(feedbackEvent) {
+        val event = feedbackEvent ?: return@LaunchedEffect
+        if (lastAnnouncedFeedbackId == event.id) return@LaunchedEffect
+        lastAnnouncedFeedbackId = event.id
+        displayedFeedback = event
+        feedbackVisible = true
+        haptic.performHapticFeedback(
+            when (event.type) {
+                FeedbackEvent.FeedbackType.SUCCESS -> HapticFeedbackType.Confirm
+                FeedbackEvent.FeedbackType.ERROR -> HapticFeedbackType.Reject
+                FeedbackEvent.FeedbackType.WARNING -> HapticFeedbackType.SegmentTick
+            }
+        )
+        delay(3_200L)
+        feedbackVisible = false
+        delay(if (motionEnabled) 180L else 80L)
+        viewModel.clearFeedbackEvent()
+    }
 
     val checkForUpdate: (Boolean) -> Unit = { notifyWhenAvailable ->
         updateScope.launch {
@@ -120,8 +179,9 @@ fun HotWaterApp(
             checkingUpdate = false
         }
     }
-    val installUpdate: (AppUpdateInfo) -> Unit = { update ->
-        updateScope.launch {
+    val installUpdate: (AppUpdateInfo) -> Unit = installUpdate@{ update ->
+        if (updateDownloadJob?.isActive == true) return@installUpdate
+        updateDownloadJob = updateScope.launch {
             downloadingUpdate = true
             updateDownloadProgress = null
             try {
@@ -138,6 +198,7 @@ fun HotWaterApp(
                 }
             } finally {
                 downloadingUpdate = false
+                updateDownloadJob = null
             }
         }
     }
@@ -157,15 +218,15 @@ fun HotWaterApp(
                         showLowBalanceDialog = false
                         onOpenAlipayRecharge()
                     },
-                ) { Text(text = "已知晓并前往充值") }
+                ) { Text(text = "前往支付宝充值") }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
                         showLowBalanceDialog = false
-                        viewModel.toggle()
+                        onRequestNotificationPermission { viewModel.toggleWhenIdle() }
                     },
-                ) { Text(text = "继续开启热水") }
+                ) { Text(text = "仍要开启") }
             },
         )
     }
@@ -173,13 +234,18 @@ fun HotWaterApp(
     val availableUpdate = updateCheckResult as? AppUpdateCheckResult.UpdateAvailable
     if (downloadingUpdate) {
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = { updateDownloadJob?.cancel() },
             containerColor = tokens.meshBase,
             titleContentColor = tokens.textPrimary,
             textContentColor = tokens.textSecondary,
             title = { Text(text = "正在下载更新", color = tokens.textPrimary) },
             text = { UpdateDownloadProgressContent(progress = updateDownloadProgress) },
             confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { updateDownloadJob?.cancel() }) {
+                    Text(text = "取消下载", color = tokens.textSecondary)
+                }
+            },
         )
     }
 
@@ -209,7 +275,7 @@ fun HotWaterApp(
                         showUpdateDialog = false
                         installUpdate(availableUpdate.update)
                     },
-                ) { Text(text = "立即更新", color = GlassAccent.primary) }
+                ) { Text(text = "立即更新", color = tokens.accentPrimary) }
             },
             dismissButton = {
                 TextButton(onClick = { showUpdateDialog = false }) {
@@ -229,7 +295,7 @@ fun HotWaterApp(
             text = { Text(text = message, color = tokens.textSecondary) },
             confirmButton = {
                 TextButton(onClick = { installStatusMessage = null }) {
-                    Text(text = "知道了", color = GlassAccent.primary)
+                    Text(text = "知道了", color = tokens.accentPrimary)
                 }
             },
         )
@@ -238,7 +304,8 @@ fun HotWaterApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars),
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .imePadding(),
     ) {
         Column(
             modifier = Modifier
@@ -262,39 +329,53 @@ fun HotWaterApp(
                     .padding(top = 18.dp),
                 transitionSpec = {
                     val direction = if (targetState.tabIndex > initialState.tabIndex) 1 else -1
-                    slideInHorizontally(
-                        animationSpec = tween(280),
-                        initialOffsetX = { it * direction },
-                    ) + fadeIn(tween(280)) togetherWith
-                        slideOutHorizontally(
-                            animationSpec = tween(220),
-                            targetOffsetX = { -(it * direction * 0.16f).toInt() },
-                        ) + fadeOut(tween(220))
+                    if (motionEnabled) {
+                        slideInHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ),
+                            initialOffsetX = { it * direction / 6 },
+                        ) + fadeIn(tween(140)) togetherWith
+                            slideOutHorizontally(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
+                                targetOffsetX = { -it * direction / 6 },
+                            ) + fadeOut(tween(140))
+                    } else {
+                        fadeIn(tween(90)) togetherWith fadeOut(tween(70))
+                    }
                 },
                 label = "screen_transition",
             ) { screen ->
-                when (screen) {
-                    AppScreen.OPERATIONS -> OperationsPage(
-                        snapshot = snapshot,
-                        busy = busy,
-                        statusMessage = statusMessage,
-                        onToggle = {
-                            if (viewModel.shouldShowLowBalanceOpenWarning()) {
-                                showLowBalanceDialog = true
-                            } else {
-                                viewModel.toggle()
-                            }
-                        },
-                        onRefreshBalance = { viewModel.refreshBalance() },
-                    )
-                    AppScreen.RECORDS -> RecordsPage(history = history)
-                    AppScreen.CONFIG -> ConfigPage(
-                        config = config,
-                        busy = busy,
-                        onSave = { viewModel.saveConfig(it) },
-                        onExport = onExportConfig,
-                        onImport = onImportConfig,
-                    )
+                saveableStateHolder.SaveableStateProvider(screen.name) {
+                    when (screen) {
+                        AppScreen.OPERATIONS -> OperationsPage(
+                            snapshot = snapshot,
+                            busy = busy,
+                            statusMessage = statusMessage,
+                            onToggle = {
+                                if (viewModel.shouldShowLowBalanceOpenWarning()) {
+                                    showLowBalanceDialog = true
+                                } else if (snapshot?.hasCachedOrder != true && config.isComplete()) {
+                                    onRequestNotificationPermission { viewModel.toggleWhenIdle() }
+                                } else {
+                                    viewModel.toggle()
+                                }
+                            },
+                            onRefreshBalance = { viewModel.refreshBalance() },
+                        )
+                        AppScreen.RECORDS -> RecordsPage(history = history)
+                        AppScreen.CONFIG -> ConfigPage(
+                            config = config,
+                            busy = busy,
+                            onSave = { viewModel.saveConfig(it) },
+                            onExport = onExportConfig,
+                            onImport = onImportConfig,
+                        )
+                    }
                 }
             }
         }
@@ -305,9 +386,94 @@ fun HotWaterApp(
             hazeState = hazeState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
         )
+
+        AnimatedVisibility(
+            visible = feedbackVisible && displayedFeedback != null,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 20.dp, end = 20.dp, bottom = 82.dp),
+            enter = if (motionEnabled) {
+                fadeIn(tween(120)) + slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    initialOffsetY = { it / 3 },
+                )
+            } else {
+                fadeIn(tween(80))
+            },
+            exit = if (motionEnabled) {
+                fadeOut(tween(140)) + slideOutVertically(tween(160)) { it / 3 }
+            } else {
+                fadeOut(tween(70))
+            },
+        ) {
+            displayedFeedback?.let { event ->
+                FeedbackBanner(
+                    event = event,
+                    onDismiss = {
+                        feedbackVisible = false
+                        viewModel.clearFeedbackEvent()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedbackBanner(
+    event: FeedbackEvent,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalGlassTokens.current
+    val (icon, accent) = when (event.type) {
+        FeedbackEvent.FeedbackType.SUCCESS -> Icons.Outlined.CheckCircle to tokens.accentSuccess
+        FeedbackEvent.FeedbackType.ERROR -> Icons.Outlined.ErrorOutline to tokens.accentError
+        FeedbackEvent.FeedbackType.WARNING -> Icons.Outlined.WarningAmber to tokens.accentWarning
+    }
+
+    Row(
+        modifier = Modifier
+            .widthIn(max = 520.dp)
+            .fillMaxWidth()
+            .glassConvex(cornerRadius = 18.dp, tokens = tokens)
+            .semantics {
+                liveRegion = if (event.type == FeedbackEvent.FeedbackType.ERROR) {
+                    LiveRegionMode.Assertive
+                } else {
+                    LiveRegionMode.Polite
+                }
+                stateDescription = event.message
+            }
+            .padding(start = 14.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = event.message,
+            color = tokens.textPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 10.dp),
+        )
+        IconButton(onClick = onDismiss) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = "关闭提示",
+                tint = tokens.textSecondary,
+            )
+        }
     }
 }
 
@@ -383,7 +549,14 @@ private fun BottomDock(
     var tabWidthPx by remember { mutableStateOf(0) }
     val indicatorOffset by animateIntOffsetAsState(
         targetValue = IntOffset(tabWidthPx * currentScreen.tabIndex, 0),
-        animationSpec = tween(350),
+        animationSpec = if (rememberMotionEnabled()) {
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow,
+            )
+        } else {
+            snap()
+        },
         label = "tab_indicator",
     )
 
@@ -444,12 +617,14 @@ private fun BottomDock(
                     .background(tokens.textPrimary.copy(alpha = 0.07f)),
             )
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectableGroup(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TabButton("操作页", currentScreen == AppScreen.OPERATIONS, { onScreenSelected(AppScreen.OPERATIONS) }, Modifier.weight(1f))
-                TabButton("记录页", currentScreen == AppScreen.RECORDS, { onScreenSelected(AppScreen.RECORDS) }, Modifier.weight(1f))
-                TabButton("配置页", currentScreen == AppScreen.CONFIG, { onScreenSelected(AppScreen.CONFIG) }, Modifier.weight(1f))
+                TabButton("操作", currentScreen == AppScreen.OPERATIONS, { onScreenSelected(AppScreen.OPERATIONS) }, Modifier.weight(1f))
+                TabButton("记录", currentScreen == AppScreen.RECORDS, { onScreenSelected(AppScreen.RECORDS) }, Modifier.weight(1f))
+                TabButton("配置", currentScreen == AppScreen.CONFIG, { onScreenSelected(AppScreen.CONFIG) }, Modifier.weight(1f))
             }
         }
     }
@@ -457,10 +632,7 @@ private fun BottomDock(
 
 @Composable
 internal fun bottomDockClearance(): Dp {
-    val density = LocalDensity.current
-    return 64.dp + with(density) {
-        WindowInsets.navigationBars.getBottom(this).toDp()
-    }
+    return 76.dp
 }
 
 @Composable
@@ -471,20 +643,40 @@ private fun TabButton(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGlassTokens.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val motionEnabled = rememberMotionEnabled()
+    val haptic = LocalHapticFeedback.current
+    val scale by animateFloatAsState(
+        targetValue = if (motionEnabled && isPressed) 0.97f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = if (isPressed) Spring.StiffnessHigh else Spring.StiffnessMedium,
+        ),
+        label = "tab_button_scale",
+    )
     Box(
         modifier = modifier
             .height(48.dp)
+            .scale(scale)
             .clip(RoundedCornerShape(22.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+            .selectable(
+                selected = isSelected,
+                interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick,
+                role = Role.Tab,
+                onClick = {
+                    if (!isSelected) {
+                        haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                        onClick()
+                    }
+                },
             ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = if (isSelected) GlassAccent.primary else tokens.textSecondary,
+            color = if (isSelected) tokens.accentPrimary else tokens.textSecondary,
             fontSize = 15.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
         )
