@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.GlassIntensityPreferences
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
@@ -64,8 +65,12 @@ class AboutActivity : ComponentActivity() {
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
         val themeMode = ThemeModePreferences.read(this)
+        val glassIntensity = GlassIntensityPreferences.read(this)
         setContent {
-            GlassTheme(themeMode = themeMode) {
+            GlassTheme(
+                themeMode = themeMode,
+                glassIntensity = glassIntensity,
+            ) {
                 StandaloneAboutPage(
                     updateManager = updateManager,
                     onFinish = { finish() },
