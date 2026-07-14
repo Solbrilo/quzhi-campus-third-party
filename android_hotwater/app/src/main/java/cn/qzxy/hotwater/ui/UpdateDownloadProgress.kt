@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.AppUpdateDownloadProgress
-import cn.qzxy.hotwater.designsystem.theme.GlassAccent
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 
 @Composable
@@ -28,14 +27,14 @@ internal fun UpdateDownloadProgressContent(
         if (fraction == null) {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
-                color = GlassAccent.primary,
+                color = tokens.accentPrimary,
                 trackColor = tokens.textPrimary.copy(alpha = 0.12f),
             )
         } else {
             LinearProgressIndicator(
                 progress = { fraction },
                 modifier = Modifier.fillMaxWidth(),
-                color = GlassAccent.primary,
+                color = tokens.accentPrimary,
                 trackColor = tokens.textPrimary.copy(alpha = 0.12f),
             )
         }
@@ -56,7 +55,7 @@ private fun downloadProgressLabel(progress: AppUpdateDownloadProgress?): String 
 
 private fun formatDownloadSize(bytes: Long): String {
     return if (bytes < 1024L * 1024L) {
-        "${(bytes / 1024L).coerceAtLeast(1L)} KB"
+        if (bytes < 1024L) "${bytes.coerceAtLeast(0L)} B" else "${bytes / 1024L} KB"
     } else {
         "%.1f MB".format(bytes.toDouble() / (1024L * 1024L))
     }

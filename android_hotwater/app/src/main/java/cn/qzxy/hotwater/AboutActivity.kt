@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -39,8 +39,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
+import cn.qzxy.hotwater.designsystem.motion.rememberMotionEnabled
 import cn.qzxy.hotwater.ui.AboutPage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class AboutActivity : ComponentActivity() {
@@ -68,10 +70,13 @@ private fun StandaloneAboutPage(
 ) {
     val tokens = LocalGlassTokens.current
     val scope = rememberCoroutineScope()
+    val motionEnabled = rememberMotionEnabled()
+    val exitDuration = if (motionEnabled) 220L else 80L
     var visible by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var installing by remember { mutableStateOf(false) }
+    var installJob by remember { mutableStateOf<Job?>(null) }
     var downloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var checkResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var installResult by remember { mutableStateOf<AppUpdateInstallResult?>(null) }
@@ -84,8 +89,9 @@ private fun StandaloneAboutPage(
             checking = false
         }
     }
-    val installUpdate: (AppUpdateInfo) -> Unit = { update ->
-        scope.launch {
+    val installUpdate: (AppUpdateInfo) -> Unit = installUpdate@{ update ->
+        if (installJob?.isActive == true) return@installUpdate
+        installJob = scope.launch {
             installing = true
             downloadProgress = null
             try {
@@ -94,16 +100,18 @@ private fun StandaloneAboutPage(
                 }
             } finally {
                 installing = false
+                installJob = null
             }
         }
     }
     val closePage: () -> Unit = {
         if (!closing) {
             closing = true
+            installJob?.cancel()
             if (visible) {
                 visible = false
                 scope.launch {
-                    delay(220)
+                    delay(exitDuration)
                     onFinish()
                 }
             } else {
@@ -121,13 +129,21 @@ private fun StandaloneAboutPage(
     AnimatedVisibility(
         visible = visible,
         modifier = Modifier.fillMaxSize(),
-        enter = fadeIn(tween(260)) + slideInHorizontally(tween(320)) { it / 5 },
-        exit = fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 5 },
+        enter = if (motionEnabled) {
+            fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 5 }
+        } else {
+            fadeIn(tween(80))
+        },
+        exit = if (motionEnabled) {
+            fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 5 }
+        } else {
+            fadeOut(tween(70))
+        },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -154,6 +170,7 @@ private fun StandaloneAboutPage(
                 downloadProgress = downloadProgress,
                 onCheckForUpdate = checkForUpdate,
                 onInstallUpdate = installUpdate,
+                onCancelInstall = { installJob?.cancel() },
             )
         }
     }

@@ -26,6 +26,10 @@ data class GlassTokens(
     val textPrimary: Color,        // 主文字色
     val textSecondary: Color,      // 次文字色
     val textTertiary: Color,       // 三级文字色
+    val accentPrimary: Color,
+    val accentSuccess: Color,
+    val accentWarning: Color,
+    val accentError: Color,
 )
 
 // ═══ 深色玻璃（炫彩暗底） ═══
@@ -46,6 +50,10 @@ val DarkGlassTokens = GlassTokens(
     textPrimary = Color(0xFFFFFFFF),
     textSecondary = Color(0xC7FFFFFF),
     textTertiary = Color(0x8CFFFFFF),
+    accentPrimary = Color(0xFF9AB4FF),
+    accentSuccess = Color(0xFF6EDDBD),
+    accentWarning = Color(0xFFFFD18B),
+    accentError = Color(0xFFFF9B9B),
 )
 
 // ═══ 浅色玻璃（通透奶白） ═══
@@ -67,6 +75,10 @@ val LightGlassTokens = GlassTokens(
     textPrimary = Color(0xFF1A1B1E),
     textSecondary = Color(0xB31A1B1E),
     textTertiary = Color(0x801A1B1E),
+    accentPrimary = Color(0xFF3159B8),
+    accentSuccess = Color(0xFF0F755B),
+    accentWarning = Color(0xFF8A4A00),
+    accentError = Color(0xFFB3261E),
 )
 
 val LocalGlassTokens = staticCompositionLocalOf { DarkGlassTokens }

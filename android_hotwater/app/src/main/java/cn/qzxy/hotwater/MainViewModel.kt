@@ -3,6 +3,8 @@ package cn.qzxy.hotwater
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,6 +13,7 @@ import kotlinx.coroutines.launch
 data class FeedbackEvent(
     val type: FeedbackType,
     val message: String,
+    val id: Long = System.nanoTime(),
 ) {
     enum class FeedbackType {
         SUCCESS,
@@ -40,8 +43,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _feedbackEvent = MutableStateFlow<FeedbackEvent?>(null)
     val feedbackEvent: StateFlow<FeedbackEvent?> = _feedbackEvent.asStateFlow()
+    private var initialized = false
 
     fun initialize() {
+        if (initialized) return
+        initialized = true
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         _config.value = preparedConfig
         _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
@@ -58,6 +64,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         runOperation(
             busyMessage = if (announce) "正在刷新余额…" else "正在同步余额…",
             operationType = OperationHistory.OperationType.REFRESH,
+            announceSuccess = announce,
         ) { config ->
             repository.check(config)
         }
@@ -69,6 +76,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         runOperation(
             busyMessage = if (shouldClose) "正在关闭热水…" else "正在开启热水…",
             operationType = operationType,
+            announceSuccess = true,
         ) { config ->
             if (shouldClose) repository.close(config) else repository.open(config)
         }
@@ -98,9 +106,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         HotWaterWidgetUi.updateAllWidgets(getApplication())
         _statusMessage.value = "配置已保存，正在同步关键数据…"
+        _feedbackEvent.value = FeedbackEvent(
+            type = FeedbackEvent.FeedbackType.SUCCESS,
+            message = "配置已保存",
+        )
         if (prepared.isComplete()) {
             refreshBalance(announce = false)
         }
+    }
+
+    fun toggleWhenIdle() {
+        viewModelScope.launch {
+            while (_busy.value) delay(50L)
+            toggle()
+        }
+    }
+
+    fun reportFeedback(type: FeedbackEvent.FeedbackType, message: String) {
+        _statusMessage.value = message
+        _feedbackEvent.value = FeedbackEvent(type = type, message = message)
     }
 
     fun getConfig(): HotWaterConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
@@ -108,8 +132,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun runOperation(
         busyMessage: String,
         operationType: OperationHistory.OperationType,
+        announceSuccess: Boolean,
         block: suspend (HotWaterConfig) -> OperationResult,
     ) {
+        if (_busy.value) return
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         if (!preparedConfig.isComplete()) {
             _statusMessage.value = "配置还不完整，请先到配置页补全字段。"
@@ -127,14 +153,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val result = block(preparedConfig)
                 _snapshot.value = result.snapshot ?: buildPlaceholderSnapshot(preparedConfig)
-                _statusMessage.value = HotWaterUiText.firstMeaningfulLine(result.summary)
+                val summary = HotWaterUiText.firstMeaningfulLine(result.summary)
+                _statusMessage.value = summary
                 syncWidgetStatus(result.title, result.summary)
                 syncNotificationState()
+                if (announceSuccess) {
+                    val feedbackType = when (result.outcome) {
+                        OperationOutcome.SUCCESS -> FeedbackEvent.FeedbackType.SUCCESS
+                        OperationOutcome.PENDING, OperationOutcome.WARNING -> FeedbackEvent.FeedbackType.WARNING
+                    }
+                    _feedbackEvent.value = FeedbackEvent(
+                        type = feedbackType,
+                        message = summary.ifBlank { "操作已完成" },
+                    )
+                }
 
                 // 保存成功历史
+                val operationSucceeded = result.outcome == OperationOutcome.SUCCESS
                 val history = OperationHistory(
                     type = operationType,
-                    success = true,
+                    success = operationSucceeded,
                     message = HotWaterUiText.firstMeaningfulLine(result.summary),
                     consumptionYuan = result.consumptionYuan,
                     usageDurationMillis = result.usageDurationMillis,
@@ -142,6 +180,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 store.saveHistory(history)
                 _history.value = store.loadHistory()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
                 val message = HotWaterUiText.summarizeError(error)
