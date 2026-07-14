@@ -1,5 +1,6 @@
 package cn.qzxy.hotwater
 
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
@@ -36,22 +37,22 @@ class HotWaterTileService : TileService() {
                 isOperating -> {
                     state = Tile.STATE_ACTIVE
                     label = "处理中…"
-                    subtitle = "请稍候"
+                    setSubtitleCompat("请稍候")
                 }
                 !config.isComplete() -> {
                     state = Tile.STATE_UNAVAILABLE
                     label = "热水"
-                    subtitle = "未配置"
+                    setSubtitleCompat("未配置")
                 }
                 hasCachedOrder -> {
                     state = Tile.STATE_ACTIVE
                     label = "关热水"
-                    subtitle = "点击关闭"
+                    setSubtitleCompat("点击关闭")
                 }
                 else -> {
                     state = Tile.STATE_INACTIVE
                     label = "开热水"
-                    subtitle = "点击开启"
+                    setSubtitleCompat("点击开启")
                 }
             }
             updateTile()
@@ -81,7 +82,7 @@ class HotWaterTileService : TileService() {
         qsTile?.apply {
             state = Tile.STATE_ACTIVE
             label = if (shouldClose) "关闭中…" else "开启中…"
-            subtitle = "请稍候"
+            setSubtitleCompat("请稍候")
             updateTile()
         }
 
@@ -103,11 +104,11 @@ class HotWaterTileService : TileService() {
                     if (result.snapshot?.isDeviceBusyByOther == true) {
                         state = Tile.STATE_INACTIVE
                         label = "开热水"
-                        subtitle = "设备占用"
+                        setSubtitleCompat("设备占用")
                     } else {
                         state = if (shouldClose) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
                         label = if (shouldClose) "开热水" else "关热水"
-                        subtitle = if (shouldClose) "已关闭" else "已开启"
+                        setSubtitleCompat(if (shouldClose) "已关闭" else "已开启")
                     }
                     updateTile()
                 }
@@ -125,7 +126,7 @@ class HotWaterTileService : TileService() {
                 qsTile?.apply {
                     state = Tile.STATE_ACTIVE
                     label = "热水"
-                    subtitle = "操作失败"
+                    setSubtitleCompat("操作失败")
                     updateTile()
                 }
 
@@ -150,5 +151,11 @@ class HotWaterTileService : TileService() {
         super.onStopListening()
         // 不取消协程，让请求完成
         // 只是不再更新 UI
+    }
+}
+
+private fun Tile.setSubtitleCompat(value: String) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        subtitle = value
     }
 }

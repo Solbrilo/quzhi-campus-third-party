@@ -482,7 +482,7 @@ struct Index {
   }
 
   private showUpdateAvailableDialog(versionName: string, releaseNotes: string): void {
-    const updateNotice = '已发布更新，请自行下载项目完成更新。'
+    const updateNotice = '已发布 HarmonyOS 更新，请下载 HAP 手动安装。'
     AlertDialog.show({
       title: `已发布新版本 v${versionName}`,
       message: releaseNotes.length > 0 ? `${updateNotice}\n\n${releaseNotes}` : updateNotice,
