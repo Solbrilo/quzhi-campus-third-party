@@ -1,13 +1,21 @@
 package cn.qzxy.hotwater.ui.navigation
 
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 internal const val BOTTOM_DOCK_TAB_COUNT = 3
 internal const val BOTTOM_DOCK_DRAG_THRESHOLD_DP = 10f
 internal const val BOTTOM_DOCK_BOUNDARY_HYSTERESIS_DP = 10f
 internal const val BOTTOM_DOCK_RUBBER_BAND_CONSTANT = 0.55f
 internal const val BOTTOM_DOCK_DECELERATION_RATE = 0.99f
+internal const val BOTTOM_DOCK_MAGNETIC_STRENGTH = 0.55f
+internal const val BOTTOM_DOCK_MAGNETIC_INVERSE_ITERATIONS = 16
+
+private const val BottomDockTwoPi = 6.2831855f
+private const val BottomDockMagneticHalfWidth = 0.5f
 
 internal data class BottomDockRegionState(
     val logicalIndex: Int,
@@ -156,6 +164,231 @@ internal fun bottomDockRubberBandPosition(
     }
 }
 
+/**
+ * Maps a local position in one tab region through the continuous magnetic field.
+ *
+ * The local coordinate is centered on the tab (`0f`) and spans `[-0.5f, 0.5f]` at
+ * the region boundaries. This makes the map odd, keeps every boundary fixed, and
+ * gives a velocity scale of `0.45` at the tab center and `1.55` at either boundary.
+ */
+internal fun bottomDockMagneticMap(
+    localPosition: Float,
+    widthPx: Float = 1f,
+): Float {
+    require(localPosition.isFinite())
+    require(widthPx.isFinite() && widthPx > 0f)
+
+    return widthPx * (
+        localPosition -
+            BOTTOM_DOCK_MAGNETIC_STRENGTH / BottomDockTwoPi *
+            sin(BottomDockTwoPi * localPosition)
+        )
+}
+
+internal fun bottomDockMagneticDerivative(localPosition: Float): Float {
+    require(localPosition.isFinite())
+
+    return 1f - BOTTOM_DOCK_MAGNETIC_STRENGTH *
+        cos(BottomDockTwoPi * localPosition)
+}
+
+/** Alias that makes the velocity interpretation explicit at call sites. */
+internal fun bottomDockMagneticVelocityScale(localPosition: Float): Float {
+    return bottomDockMagneticDerivative(localPosition)
+}
+
+/**
+ * Inverts [bottomDockMagneticMap] with a fixed number of bisection steps. The map is
+ * strictly monotonic because its derivative is bounded below by `1 - 0.55`. The
+ * returned value is the local normalized coordinate supplied to the forward map.
+ */
+internal fun bottomDockMagneticInverse(
+    mappedPosition: Float,
+    widthPx: Float = 1f,
+    iterations: Int = BOTTOM_DOCK_MAGNETIC_INVERSE_ITERATIONS,
+): Float {
+    require(mappedPosition.isFinite())
+    require(widthPx.isFinite() && widthPx > 0f)
+    require(iterations > 0)
+
+    val target = (mappedPosition / widthPx).coerceIn(
+        -BottomDockMagneticHalfWidth,
+        BottomDockMagneticHalfWidth,
+    )
+    if (target == -BottomDockMagneticHalfWidth || target == BottomDockMagneticHalfWidth) {
+        return target
+    }
+
+    var low = -BottomDockMagneticHalfWidth
+    var high = BottomDockMagneticHalfWidth
+    repeat(iterations) {
+        val middle = (low + high) / 2f
+        if (bottomDockMagneticMap(middle) < target) {
+            low = middle
+        } else {
+            high = middle
+        }
+    }
+    return (low + high) / 2f
+}
+
+/**
+ * Applies the magnetic map to a tab-center position. [physicalRegionIndex] is selected
+ * from the untransformed/raw position and is intentionally supplied by the caller so
+ * selection never depends on the presented magnetic position.
+ */
+internal fun bottomDockMagneticPosition(
+    positionPx: Float,
+    tabWidthPx: Float,
+    physicalRegionIndex: Int,
+): Float {
+    require(positionPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+    require(physicalRegionIndex in 0 until BOTTOM_DOCK_TAB_COUNT)
+
+    val regionCenterPx = (physicalRegionIndex + 0.5f) * tabWidthPx
+    val localPosition = (positionPx - regionCenterPx) / tabWidthPx
+    if (localPosition < -BottomDockMagneticHalfWidth ||
+        localPosition > BottomDockMagneticHalfWidth
+    ) {
+        // The rubber-band path owns positions outside the dock bounds.
+        return positionPx
+    }
+    return regionCenterPx + bottomDockMagneticMap(localPosition, tabWidthPx)
+}
+
+internal fun bottomDockMagneticInversePosition(
+    mappedPositionPx: Float,
+    tabWidthPx: Float,
+    physicalRegionIndex: Int,
+): Float {
+    require(mappedPositionPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+    require(physicalRegionIndex in 0 until BOTTOM_DOCK_TAB_COUNT)
+
+    val regionCenterPx = (physicalRegionIndex + 0.5f) * tabWidthPx
+    val localPosition = (mappedPositionPx - regionCenterPx) / tabWidthPx
+    if (localPosition < -BottomDockMagneticHalfWidth ||
+        localPosition > BottomDockMagneticHalfWidth
+    ) {
+        return mappedPositionPx
+    }
+    return regionCenterPx + bottomDockMagneticInverse(
+        mappedPosition = localPosition,
+        widthPx = 1f,
+    ) * tabWidthPx
+}
+
+internal fun bottomDockPhysicalRegionAt(
+    centerPositionPx: Float,
+    tabWidthPx: Float,
+): Int {
+    require(centerPositionPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+
+    return floor(centerPositionPx / tabWidthPx)
+        .toInt()
+        .coerceIn(0, BOTTOM_DOCK_TAB_COUNT - 1)
+}
+
+internal fun bottomDockMagneticPositionForOffset(
+    offsetPx: Float,
+    tabWidthPx: Float,
+): Float {
+    require(offsetPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+
+    val maxOffsetPx = tabWidthPx * (BOTTOM_DOCK_TAB_COUNT - 1)
+    if (offsetPx < 0f || offsetPx > maxOffsetPx) return offsetPx
+
+    val physicalRegion = bottomDockPhysicalRegionAt(
+        centerPositionPx = offsetPx + tabWidthPx / 2f,
+        tabWidthPx = tabWidthPx,
+    )
+    val mappedCenter = bottomDockMagneticPosition(
+        positionPx = offsetPx + tabWidthPx / 2f,
+        tabWidthPx = tabWidthPx,
+        physicalRegionIndex = physicalRegion,
+    )
+    return mappedCenter - tabWidthPx / 2f
+}
+
+internal fun bottomDockMagneticInverseOffset(
+    mappedOffsetPx: Float,
+    tabWidthPx: Float,
+): Float {
+    require(mappedOffsetPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+
+    val maxOffsetPx = tabWidthPx * (BOTTOM_DOCK_TAB_COUNT - 1)
+    if (mappedOffsetPx < 0f || mappedOffsetPx > maxOffsetPx) return mappedOffsetPx
+
+    val physicalRegion = bottomDockPhysicalRegionAt(
+        centerPositionPx = mappedOffsetPx + tabWidthPx / 2f,
+        tabWidthPx = tabWidthPx,
+    )
+    val rawCenter = bottomDockMagneticInversePosition(
+        mappedPositionPx = mappedOffsetPx + tabWidthPx / 2f,
+        tabWidthPx = tabWidthPx,
+        physicalRegionIndex = physicalRegion,
+    )
+    return rawCenter - tabWidthPx / 2f
+}
+
+internal fun bottomDockMagneticVelocityScaleForOffset(
+    rawOffsetPx: Float,
+    tabWidthPx: Float,
+): Float {
+    require(rawOffsetPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+
+    val maxOffsetPx = tabWidthPx * (BOTTOM_DOCK_TAB_COUNT - 1)
+    if (rawOffsetPx < 0f || rawOffsetPx > maxOffsetPx) return 1f
+
+    val centerPositionPx = rawOffsetPx + tabWidthPx / 2f
+    val physicalRegion = bottomDockPhysicalRegionAt(centerPositionPx, tabWidthPx)
+    val regionCenterPx = (physicalRegion + 0.5f) * tabWidthPx
+    val localPosition = (centerPositionPx - regionCenterPx) / tabWidthPx
+    return if (localPosition < -BottomDockMagneticHalfWidth ||
+        localPosition > BottomDockMagneticHalfWidth
+    ) {
+        1f
+    } else {
+        bottomDockMagneticDerivative(localPosition)
+    }
+}
+
+/**
+ * Presents a raw indicator offset while preserving the existing rubber-band behavior. The
+ * magnetic field is only applied inside the dock bounds; outside them the rubber-band owns
+ * the coordinate and, in reduced-motion mode, the value is clamped as before.
+ */
+internal fun bottomDockPresentedOffset(
+    rawOffsetPx: Float,
+    tabWidthPx: Float,
+    contentWidthPx: Float,
+    reducedMotion: Boolean,
+): Float {
+    require(rawOffsetPx.isFinite())
+    require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+    require(contentWidthPx.isFinite() && contentWidthPx > 0f)
+
+    val maxOffsetPx = tabWidthPx * (BOTTOM_DOCK_TAB_COUNT - 1)
+    if (reducedMotion || rawOffsetPx < 0f || rawOffsetPx > maxOffsetPx) {
+        return bottomDockRubberBandPosition(
+            positionPx = rawOffsetPx,
+            minPx = 0f,
+            maxPx = maxOffsetPx,
+            dimensionPx = contentWidthPx,
+            reducedMotion = reducedMotion,
+        )
+    }
+    return bottomDockMagneticPositionForOffset(
+        offsetPx = rawOffsetPx,
+        tabWidthPx = tabWidthPx,
+    )
+}
+
 internal fun bottomDockProjectedDistance(
     velocityPxPerSecond: Float,
     decelerationRate: Float = BOTTOM_DOCK_DECELERATION_RATE,
@@ -173,17 +406,29 @@ internal fun bottomDockProjectedSnapTarget(
     tabWidthPx: Float,
     isRtl: Boolean,
     reducedMotion: Boolean,
+    currentRawPhysicalOffsetPx: Float = currentPhysicalOffsetPx,
 ): BottomDockSnapTarget {
     require(currentPhysicalOffsetPx.isFinite())
     require(releasePhysicalVelocityPxPerSecond.isFinite())
     require(tabWidthPx.isFinite() && tabWidthPx > 0f)
+    require(currentRawPhysicalOffsetPx.isFinite())
 
     val maxOffsetPx = tabWidthPx * (BOTTOM_DOCK_TAB_COUNT - 1)
+    val magneticVelocityScale = if (reducedMotion) {
+        1f
+    } else {
+        bottomDockMagneticVelocityScaleForOffset(
+            rawOffsetPx = currentRawPhysicalOffsetPx,
+            tabWidthPx = tabWidthPx,
+        )
+    }
+    val presentedVelocityPxPerSecond =
+        releasePhysicalVelocityPxPerSecond * magneticVelocityScale
     val projectedOffsetPx = if (reducedMotion) {
         currentPhysicalOffsetPx.coerceIn(0f, maxOffsetPx)
     } else {
         currentPhysicalOffsetPx + bottomDockProjectedDistance(
-            velocityPxPerSecond = releasePhysicalVelocityPxPerSecond,
+            velocityPxPerSecond = presentedVelocityPxPerSecond,
         )
     }
     val physicalIndex = (projectedOffsetPx.coerceIn(0f, maxOffsetPx) / tabWidthPx)
@@ -202,7 +447,7 @@ internal fun bottomDockProjectedSnapTarget(
         initialPhysicalVelocityPxPerSecond = if (reducedMotion) {
             0f
         } else {
-            releasePhysicalVelocityPxPerSecond
+            presentedVelocityPxPerSecond
         },
     )
 }

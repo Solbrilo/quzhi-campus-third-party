@@ -13,12 +13,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
+import cn.qzxy.hotwater.designsystem.theme.ThemeMode
+import cn.qzxy.hotwater.designsystem.theme.ThemeModePreferences
 import cn.qzxy.hotwater.ui.HotWaterApp
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var updateManager: AppUpdateManager
+    private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var notificationPermissionRequested = false
     private var pendingOpenRequested = false
     private var pendingOpenAction: (() -> Unit)? = null
@@ -52,12 +58,20 @@ class MainActivity : ComponentActivity() {
         pendingOpenRequested = savedInstanceState?.getBoolean(STATE_PENDING_OPEN) ?: false
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
+        themeMode = ThemeModePreferences.read(this)
 
         setContent {
-            GlassTheme {
+            GlassTheme(themeMode = themeMode) {
                 HotWaterApp(
                     viewModel = viewModel,
                     updateManager = updateManager,
+                    themeMode = themeMode,
+                    onThemeModeChange = { nextMode ->
+                        if (themeMode != nextMode) {
+                            themeMode = nextMode
+                            ThemeModePreferences.write(this, nextMode)
+                        }
+                    },
                     onOpenAbout = { startActivity(Intent(this, AboutActivity::class.java)) },
                     onExportConfig = { exportConfig() },
                     onImportConfig = { importConfig() },

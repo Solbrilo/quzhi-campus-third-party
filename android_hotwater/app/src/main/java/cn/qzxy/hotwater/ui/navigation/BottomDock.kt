@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,7 +83,7 @@ internal fun BottomDock(
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val latestSelectedIndex by rememberUpdatedState(selectedIndex)
     val scope = rememberCoroutineScope()
-    var contentWidthPx by remember { mutableStateOf(0) }
+    var contentWidthPx by remember { mutableIntStateOf(0) }
     var isDragging by remember { mutableStateOf(false) }
     var settlingJob by remember { mutableStateOf<Job?>(null) }
     var settlingLogicalIndex by remember { mutableStateOf<Int?>(null) }
@@ -145,6 +146,7 @@ internal fun BottomDock(
                         var dragFinished = false
                         var dragOriginPosition: Offset = down.position
                         var startIndicatorOffsetPx = 0f
+                        var rawDragIndicatorOffsetPx = 0f
                         var regionState = BottomDockRegionState(latestSelectedIndex)
                         var lastEmittedIndex = latestSelectedIndex
 
@@ -176,6 +178,7 @@ internal fun BottomDock(
                                     tabWidthPx = tabWidthPx,
                                     isRtl = isRtl,
                                     reducedMotion = !environment.motionEnabled,
+                                    currentRawPhysicalOffsetPx = rawDragIndicatorOffsetPx,
                                 )
                             }
 
@@ -251,8 +254,20 @@ internal fun BottomDock(
                                     settlingJob?.cancel()
                                     settlingLogicalIndex = null
                                     settlingRtl = null
+                                    // The displayed position is magnetic space; invert the current
+                                    // frame to keep the raw pointer coordinate continuous when a
+                                    // settle is re-grabbed.
+                                    val displayedOffsetPx = indicatorPosition.value * tabWidthPx
                                     dragIndicatorPosition = indicatorPosition.value
-                                    startIndicatorOffsetPx = dragIndicatorPosition * tabWidthPx
+                                    startIndicatorOffsetPx = if (environment.motionEnabled) {
+                                        bottomDockMagneticInverseOffset(
+                                            mappedOffsetPx = displayedOffsetPx,
+                                            tabWidthPx = tabWidthPx,
+                                        )
+                                    } else {
+                                        displayedOffsetPx
+                                    }
+                                    rawDragIndicatorOffsetPx = startIndicatorOffsetPx
                                     dragOriginPosition = Offset(
                                         x = down.position.x + if (intentDelta.x >= 0f) {
                                             dragThresholdPx
@@ -282,18 +297,20 @@ internal fun BottomDock(
                                     change.consume()
                                     val dragDelta = change.position - dragOriginPosition
                                     val rawOffsetPx = startIndicatorOffsetPx + dragDelta.x
-                                    val presentedOffsetPx = bottomDockRubberBandPosition(
-                                        positionPx = rawOffsetPx,
-                                        minPx = 0f,
-                                        maxPx = tabWidthPx * (BOTTOM_DOCK_TAB_COUNT - 1),
-                                        dimensionPx = contentWidthPx.toFloat(),
+                                    rawDragIndicatorOffsetPx = rawOffsetPx
+                                    val presentedOffsetPx = bottomDockPresentedOffset(
+                                        rawOffsetPx = rawOffsetPx,
+                                        tabWidthPx = tabWidthPx,
+                                        contentWidthPx = contentWidthPx.toFloat(),
                                         reducedMotion = !environment.motionEnabled,
                                     )
                                     dragIndicatorPosition = presentedOffsetPx / tabWidthPx
-                                    val indicatorCenterPx = presentedOffsetPx + tabWidthPx / 2f
+                                    // Region transitions are based on the raw position, before
+                                    // magnetic presentation (and before rubber-band distortion).
+                                    val rawIndicatorCenterPx = rawOffsetPx + tabWidthPx / 2f
                                     val updatedRegion = updateBottomDockRegion(
                                         state = regionState,
-                                        physicalPositionPx = indicatorCenterPx,
+                                        physicalPositionPx = rawIndicatorCenterPx,
                                         widthPx = contentWidthPx.toFloat(),
                                         isRtl = isRtl,
                                         hysteresisPx = hysteresisPx,

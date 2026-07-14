@@ -1,6 +1,7 @@
 package cn.qzxy.hotwater.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,9 +33,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.HotWaterConfig
@@ -56,7 +60,6 @@ fun ConfigPage(
     val scrollState = rememberScrollState()
     val focusManager = LocalFocusManager.current
     val haptic = LocalHapticFeedback.current
-    val stackSecondaryActions = LocalDensity.current.fontScale > 1.3f
     val projectIdFocus = remember { FocusRequester() }
     val userIdFocus = remember { FocusRequester() }
     val accountIdFocus = remember { FocusRequester() }
@@ -272,58 +275,11 @@ fun ConfigPage(
 
             // 导出/导入按钮
             Spacer(modifier = Modifier.height(12.dp))
-            @Composable
-            fun ExportButton(modifier: Modifier) {
-                GlassButton(
-                    text = "导出配置",
-                    onClick = onExport,
-                    enabled = !busy,
-                    modifier = modifier,
-                    height = 44.dp,
-                    cornerRadius = 22.dp,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Outlined.FileUpload,
-                            contentDescription = null,
-                            tint = tokens.textPrimary,
-                        )
-                    },
-                )
-            }
-
-            @Composable
-            fun ImportButton(modifier: Modifier) {
-                GlassButton(
-                    text = "导入配置",
-                    onClick = onImport,
-                    enabled = !busy,
-                    modifier = modifier,
-                    height = 44.dp,
-                    cornerRadius = 22.dp,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Outlined.FileDownload,
-                            contentDescription = null,
-                            tint = tokens.textPrimary,
-                        )
-                    },
-                )
-            }
-
-            if (stackSecondaryActions) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ExportButton(Modifier.fillMaxWidth())
-                    ImportButton(Modifier.fillMaxWidth())
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    ExportButton(Modifier.weight(1f))
-                    ImportButton(Modifier.weight(1f))
-                }
-            }
+            ConfigTransferActions(
+                busy = busy,
+                onExport = onExport,
+                onImport = onImport,
+            )
         }
 
         // 设备信息卡片
@@ -359,6 +315,120 @@ fun ConfigPage(
         Spacer(modifier = Modifier.height(bottomDockClearance()))
     }
 }
+
+@Composable
+internal fun ConfigTransferActions(
+    busy: Boolean,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val buttonTextStyle = TextStyle(
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium,
+    )
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val widestLabel = with(density) {
+            maxOf(
+                textMeasurer.measure(
+                    text = ExportConfigLabel,
+                    style = buttonTextStyle,
+                    maxLines = 1,
+                    softWrap = false,
+                ).size.width.toDp(),
+                textMeasurer.measure(
+                    text = ImportConfigLabel,
+                    style = buttonTextStyle,
+                    maxLines = 1,
+                    softWrap = false,
+                ).size.width.toDp(),
+            )
+        }
+        val minimumButtonWidth = maxOf(
+            120.dp,
+            48.dp + 24.dp + 8.dp + widestLabel,
+        )
+        val minimumTwoColumnWidth = minimumButtonWidth * 2f + 12.dp + 2.dp
+        val stackButtons = maxWidth < minimumTwoColumnWidth
+
+        if (stackButtons) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ConfigTransferButton(
+                    text = ExportConfigLabel,
+                    onClick = onExport,
+                    enabled = !busy,
+                    export = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ConfigTransferButton(
+                    text = ImportConfigLabel,
+                    onClick = onImport,
+                    enabled = !busy,
+                    export = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ConfigTransferButton(
+                    text = ExportConfigLabel,
+                    onClick = onExport,
+                    enabled = !busy,
+                    export = true,
+                    modifier = Modifier.weight(1f),
+                )
+                ConfigTransferButton(
+                    text = ImportConfigLabel,
+                    onClick = onImport,
+                    enabled = !busy,
+                    export = false,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConfigTransferButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    export: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalGlassTokens.current
+
+    GlassButton(
+        text = text,
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        height = 44.dp,
+        cornerRadius = 22.dp,
+        singleLineText = true,
+        icon = {
+            Icon(
+                imageVector = if (export) Icons.Outlined.FileUpload else Icons.Outlined.FileDownload,
+                contentDescription = null,
+                tint = tokens.textPrimary,
+                modifier = Modifier.size(24.dp),
+            )
+        },
+    )
+}
+
+private const val ExportConfigLabel = "导出配置"
+private const val ImportConfigLabel = "导入配置"
 
 private fun buildConfigSummary(config: HotWaterConfig): String {
     return if (config.isComplete()) {

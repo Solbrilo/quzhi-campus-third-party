@@ -50,6 +50,7 @@ import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
+import cn.qzxy.hotwater.designsystem.theme.ThemeModePreferences
 import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
 import cn.qzxy.hotwater.ui.AboutPage
 import kotlinx.coroutines.Job
@@ -62,8 +63,9 @@ class AboutActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
+        val themeMode = ThemeModePreferences.read(this)
         setContent {
-            GlassTheme {
+            GlassTheme(themeMode = themeMode) {
                 StandaloneAboutPage(
                     updateManager = updateManager,
                     onFinish = { finish() },
