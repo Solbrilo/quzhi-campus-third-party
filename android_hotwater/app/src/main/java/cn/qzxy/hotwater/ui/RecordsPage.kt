@@ -17,9 +17,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.OperationHistory
-import cn.qzxy.hotwater.designsystem.theme.GlassAccent
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import java.util.Locale
 
 @Composable
@@ -54,7 +54,7 @@ fun RecordsPage(history: List<OperationHistory>) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassConvex(cornerRadius = 24.dp, tokens = tokens)
+                        .glassMaterial(GlassMaterial.Panel, 24.dp)
                         .padding(20.dp),
                 ) {
                     Text(
@@ -91,7 +91,7 @@ private fun ConsumptionRecordCard(record: OperationHistory) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassConvex(cornerRadius = 24.dp, tokens = tokens)
+            .glassMaterial(GlassMaterial.Panel, 24.dp)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -114,7 +114,7 @@ private fun ConsumptionRecordCard(record: OperationHistory) {
             }
             Text(
                 text = amountLabel,
-                color = GlassAccent.error,
+                color = tokens.accentError,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
             )

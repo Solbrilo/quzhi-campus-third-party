@@ -10,21 +10,39 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.HotWaterConfig
 import cn.qzxy.hotwater.designsystem.component.GlassButton
 import cn.qzxy.hotwater.designsystem.component.GlassInput
+import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 
 @Composable
 fun ConfigPage(
@@ -36,14 +54,50 @@ fun ConfigPage(
 ) {
     val tokens = LocalGlassTokens.current
     val scrollState = rememberScrollState()
+    val focusManager = LocalFocusManager.current
+    val haptic = LocalHapticFeedback.current
+    val stackSecondaryActions = LocalDensity.current.fontScale > 1.3f
+    val projectIdFocus = remember { FocusRequester() }
+    val userIdFocus = remember { FocusRequester() }
+    val accountIdFocus = remember { FocusRequester() }
+    val loginCodeFocus = remember { FocusRequester() }
+    val telephoneFocus = remember { FocusRequester() }
+    val snCodeFocus = remember { FocusRequester() }
 
     // 本地输入状态
-    var projectId by remember(config.projectId) { mutableStateOf(config.projectId?.toString().orEmpty()) }
-    var userId by remember(config.userId) { mutableStateOf(config.userId?.toString().orEmpty()) }
-    var accountId by remember(config.accountId) { mutableStateOf(config.accountId?.toString().orEmpty()) }
-    var loginCode by remember(config.loginCode) { mutableStateOf(config.loginCode) }
-    var telephone by remember(config.telephone) { mutableStateOf(config.telephone) }
-    var snCode by remember(config.snCode) { mutableStateOf(config.snCode) }
+    var projectId by rememberSaveable(config.projectId) { mutableStateOf(config.projectId?.toString().orEmpty()) }
+    var userId by rememberSaveable(config.userId) { mutableStateOf(config.userId?.toString().orEmpty()) }
+    var accountId by rememberSaveable(config.accountId) { mutableStateOf(config.accountId?.toString().orEmpty()) }
+    var loginCode by rememberSaveable(config.loginCode) { mutableStateOf(config.loginCode) }
+    var telephone by rememberSaveable(config.telephone) { mutableStateOf(config.telephone) }
+    var snCode by rememberSaveable(config.snCode) { mutableStateOf(config.snCode) }
+    var showValidationErrors by rememberSaveable { mutableStateOf(false) }
+
+    fun numericError(value: String, key: String): String? {
+        if (!showValidationErrors) return null
+        return when {
+            value.isBlank() -> "请输入 $key"
+            value.trim().toIntOrNull() == null -> "$key 需要是数字"
+            else -> null
+        }
+    }
+
+    fun requiredError(value: String, key: String): String? {
+        return if (showValidationErrors && value.isBlank()) "请输入 $key" else null
+    }
+
+    val projectIdError = numericError(projectId, "projectId")
+    val userIdError = numericError(userId, "userId")
+    val accountIdError = numericError(accountId, "accountId")
+    val loginCodeError = requiredError(loginCode, "loginCode")
+    val telephoneError = requiredError(telephone, "telephone")
+    val snCodeError = requiredError(snCode, "snCode")
+    val nextActions = KeyboardActions(
+        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+    )
+    val doneActions = KeyboardActions(
+        onDone = { focusManager.clearFocus() },
+    )
 
     Column(
         modifier = Modifier
@@ -55,7 +109,7 @@ fun ConfigPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
                 .padding(18.dp)
         ) {
             Text(
@@ -75,42 +129,90 @@ fun ConfigPage(
             GlassInput(
                 value = projectId,
                 onValueChange = { projectId = it },
+                label = "项目 ID",
                 placeholder = "projectId",
+                errorMessage = projectIdError,
+                focusRequester = projectIdFocus,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = nextActions,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
             GlassInput(
                 value = userId,
                 onValueChange = { userId = it },
+                label = "用户 ID",
                 placeholder = "userId",
+                errorMessage = userIdError,
+                focusRequester = userIdFocus,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = nextActions,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
             GlassInput(
                 value = accountId,
                 onValueChange = { accountId = it },
+                label = "账户 ID",
                 placeholder = "accountId",
+                errorMessage = accountIdError,
+                focusRequester = accountIdFocus,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = nextActions,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
             GlassInput(
                 value = loginCode,
                 onValueChange = { loginCode = it },
+                label = "登录凭据",
                 placeholder = "loginCode",
+                errorMessage = loginCodeError,
+                focusRequester = loginCodeFocus,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = nextActions,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
             GlassInput(
                 value = telephone,
                 onValueChange = { telephone = it },
+                label = "手机号",
                 placeholder = "telephone",
+                errorMessage = telephoneError,
+                focusRequester = telephoneFocus,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Phone,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = nextActions,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
             GlassInput(
                 value = snCode,
                 onValueChange = { snCode = it },
+                label = "设备序列号",
                 placeholder = "snCode",
+                errorMessage = snCodeError,
+                focusRequester = snCodeFocus,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = doneActions,
             )
 
             // 配置状态
@@ -137,34 +239,90 @@ fun ConfigPage(
                         phoneSystem = config.phoneSystem,
                         version = config.version,
                     )
-                    onSave(rawConfig)
+                    showValidationErrors = true
+                    val firstInvalidFocus = when {
+                        rawConfig.projectId == null -> projectIdFocus
+                        rawConfig.userId == null -> userIdFocus
+                        rawConfig.accountId == null -> accountIdFocus
+                        rawConfig.loginCode.isBlank() -> loginCodeFocus
+                        rawConfig.telephone.isBlank() -> telephoneFocus
+                        rawConfig.snCode.isBlank() -> snCodeFocus
+                        else -> null
+                    }
+                    if (firstInvalidFocus != null) {
+                        haptic.performGlassHapticFeedback(HapticFeedbackType.Reject)
+                        firstInvalidFocus.requestFocus()
+                    } else {
+                        haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
+                        focusManager.clearFocus()
+                        onSave(rawConfig)
+                    }
                 },
                 enabled = !busy,
+                hapticFeedback = { null },
                 modifier = Modifier.fillMaxWidth(),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Save,
+                        contentDescription = null,
+                        tint = tokens.textPrimary,
+                    )
+                },
             )
 
             // 导出/导入按钮
             Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            @Composable
+            fun ExportButton(modifier: Modifier) {
                 GlassButton(
                     text = "导出配置",
                     onClick = onExport,
                     enabled = !busy,
-                    modifier = Modifier.weight(1f),
+                    modifier = modifier,
                     height = 44.dp,
                     cornerRadius = 22.dp,
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Outlined.FileUpload,
+                            contentDescription = null,
+                            tint = tokens.textPrimary,
+                        )
+                    },
                 )
+            }
+
+            @Composable
+            fun ImportButton(modifier: Modifier) {
                 GlassButton(
                     text = "导入配置",
                     onClick = onImport,
                     enabled = !busy,
-                    modifier = Modifier.weight(1f),
+                    modifier = modifier,
                     height = 44.dp,
                     cornerRadius = 22.dp,
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Outlined.FileDownload,
+                            contentDescription = null,
+                            tint = tokens.textPrimary,
+                        )
+                    },
                 )
+            }
+
+            if (stackSecondaryActions) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ExportButton(Modifier.fillMaxWidth())
+                    ImportButton(Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ExportButton(Modifier.weight(1f))
+                    ImportButton(Modifier.weight(1f))
+                }
             }
         }
 
@@ -172,7 +330,7 @@ fun ConfigPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
                 .padding(18.dp)
         ) {
             Text(

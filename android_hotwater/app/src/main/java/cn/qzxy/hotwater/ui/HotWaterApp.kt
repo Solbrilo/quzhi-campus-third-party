@@ -1,42 +1,45 @@
 package cn.qzxy.hotwater.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,18 +47,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,14 +70,19 @@ import cn.qzxy.hotwater.AppUpdateDownloadProgress
 import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.AppUpdateManager
+import cn.qzxy.hotwater.FeedbackEvent
 import cn.qzxy.hotwater.MainViewModel
-import cn.qzxy.hotwater.designsystem.theme.GlassAccent
+import cn.qzxy.hotwater.designsystem.component.GlassPressable
+import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
+import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
+import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
+import cn.qzxy.hotwater.ui.navigation.BottomDock
+import cn.qzxy.hotwater.ui.navigation.DockSelectionSource
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private enum class AppScreen(val tabIndex: Int) {
@@ -89,25 +100,65 @@ fun HotWaterApp(
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
     onOpenAlipayRecharge: () -> Unit,
+    onRequestNotificationPermission: ((() -> Unit) -> Unit),
 ) {
     val tokens = LocalGlassTokens.current
-    var currentScreen by remember { mutableStateOf(AppScreen.OPERATIONS) }
+    val environment = LocalGlassEnvironment.current
+    val layoutDirection = LocalLayoutDirection.current
+    var currentScreen by rememberSaveable { mutableStateOf(AppScreen.OPERATIONS) }
+    var dockDragging by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showLowBalanceDialog by remember { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateCheckResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var downloadingUpdate by remember { mutableStateOf(false) }
+    var updateDownloadJob by remember { mutableStateOf<Job?>(null) }
     var updateDownloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var installStatusMessage by remember { mutableStateOf<String?>(null) }
+    var displayedFeedback by remember { mutableStateOf<FeedbackEvent?>(null) }
+    var feedbackVisible by remember { mutableStateOf(false) }
+    var lastAnnouncedFeedbackId by rememberSaveable { mutableStateOf<Long?>(null) }
     val updateScope = rememberCoroutineScope()
-    val hazeState = remember { HazeState() }
+    val saveableStateHolder = rememberSaveableStateHolder()
+    val motionEnabled = environment.motionEnabled
+    val haptic = LocalHapticFeedback.current
 
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
+    val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
+    val performToggleHaptic: (Boolean) -> Unit = { turningOn ->
+        haptic.performGlassHapticFeedback(
+            if (turningOn) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff,
+        )
+    }
+
+    BackHandler(enabled = currentScreen != AppScreen.OPERATIONS) {
+        dockDragging = false
+        currentScreen = AppScreen.OPERATIONS
+    }
+
+    LaunchedEffect(feedbackEvent) {
+        val event = feedbackEvent ?: return@LaunchedEffect
+        if (lastAnnouncedFeedbackId == event.id) return@LaunchedEffect
+        lastAnnouncedFeedbackId = event.id
+        displayedFeedback = event
+        feedbackVisible = true
+        haptic.performGlassHapticFeedback(
+            when (event.type) {
+                FeedbackEvent.FeedbackType.SUCCESS -> HapticFeedbackType.Confirm
+                FeedbackEvent.FeedbackType.ERROR -> HapticFeedbackType.Reject
+                FeedbackEvent.FeedbackType.WARNING -> HapticFeedbackType.SegmentTick
+            }
+        )
+        delay(3_200L)
+        feedbackVisible = false
+        delay(if (motionEnabled) 180L else 80L)
+        viewModel.clearFeedbackEvent()
+    }
 
     val checkForUpdate: (Boolean) -> Unit = { notifyWhenAvailable ->
         updateScope.launch {
@@ -120,8 +171,9 @@ fun HotWaterApp(
             checkingUpdate = false
         }
     }
-    val installUpdate: (AppUpdateInfo) -> Unit = { update ->
-        updateScope.launch {
+    val installUpdate: (AppUpdateInfo) -> Unit = installUpdate@{ update ->
+        if (updateDownloadJob?.isActive == true) return@installUpdate
+        updateDownloadJob = updateScope.launch {
             downloadingUpdate = true
             updateDownloadProgress = null
             try {
@@ -138,6 +190,7 @@ fun HotWaterApp(
                 }
             } finally {
                 downloadingUpdate = false
+                updateDownloadJob = null
             }
         }
     }
@@ -149,23 +202,35 @@ fun HotWaterApp(
     if (showLowBalanceDialog) {
         AlertDialog(
             onDismissRequest = { showLowBalanceDialog = false },
-            title = { Text(text = "余额不足5元") },
-            text = { Text(text = "余额不足5元，建议通过支付宝进行充值。") },
+            modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+            containerColor = Color.Transparent,
+            tonalElevation = 0.dp,
+            titleContentColor = tokens.textPrimary,
+            textContentColor = tokens.textSecondary,
+            title = { Text(text = "余额不足5元", color = tokens.textPrimary) },
+            text = { Text(text = "余额不足5元，建议通过支付宝进行充值。", color = tokens.textSecondary) },
             confirmButton = {
-                TextButton(
+                GlassDialogAction(
+                    text = "前往支付宝充值",
                     onClick = {
                         showLowBalanceDialog = false
                         onOpenAlipayRecharge()
                     },
-                ) { Text(text = "已知晓并前往充值") }
+                    emphasized = true,
+                )
             },
             dismissButton = {
-                TextButton(
+                GlassDialogAction(
+                    text = "仍要开启",
                     onClick = {
                         showLowBalanceDialog = false
-                        viewModel.toggle()
+                        onRequestNotificationPermission {
+                            performToggleHaptic(true)
+                            viewModel.toggleWhenIdle()
+                        }
                     },
-                ) { Text(text = "继续开启热水") }
+                    hapticFeedback = { null },
+                )
             },
         )
     }
@@ -173,20 +238,30 @@ fun HotWaterApp(
     val availableUpdate = updateCheckResult as? AppUpdateCheckResult.UpdateAvailable
     if (downloadingUpdate) {
         AlertDialog(
-            onDismissRequest = {},
-            containerColor = tokens.meshBase,
+            onDismissRequest = { updateDownloadJob?.cancel() },
+            modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+            containerColor = Color.Transparent,
+            tonalElevation = 0.dp,
             titleContentColor = tokens.textPrimary,
             textContentColor = tokens.textSecondary,
             title = { Text(text = "正在下载更新", color = tokens.textPrimary) },
             text = { UpdateDownloadProgressContent(progress = updateDownloadProgress) },
             confirmButton = {},
+            dismissButton = {
+                GlassDialogAction(
+                    text = "取消下载",
+                    onClick = { updateDownloadJob?.cancel() },
+                )
+            },
         )
     }
 
     if (showUpdateDialog && availableUpdate != null) {
         AlertDialog(
             onDismissRequest = { showUpdateDialog = false },
-            containerColor = tokens.meshBase,
+            modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+            containerColor = Color.Transparent,
+            tonalElevation = 0.dp,
             titleContentColor = tokens.textPrimary,
             textContentColor = tokens.textSecondary,
             title = {
@@ -204,17 +279,20 @@ fun HotWaterApp(
                 )
             },
             confirmButton = {
-                TextButton(
+                GlassDialogAction(
+                    text = "立即更新",
                     onClick = {
                         showUpdateDialog = false
                         installUpdate(availableUpdate.update)
                     },
-                ) { Text(text = "立即更新", color = GlassAccent.primary) }
+                    emphasized = true,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showUpdateDialog = false }) {
-                    Text(text = "稍后", color = tokens.textSecondary)
-                }
+                GlassDialogAction(
+                    text = "稍后",
+                    onClick = { showUpdateDialog = false },
+                )
             },
         )
     }
@@ -222,15 +300,19 @@ fun HotWaterApp(
     installStatusMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { installStatusMessage = null },
-            containerColor = tokens.meshBase,
+            modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+            containerColor = Color.Transparent,
+            tonalElevation = 0.dp,
             titleContentColor = tokens.textPrimary,
             textContentColor = tokens.textSecondary,
             title = { Text(text = "更新提示", color = tokens.textPrimary) },
             text = { Text(text = message, color = tokens.textSecondary) },
             confirmButton = {
-                TextButton(onClick = { installStatusMessage = null }) {
-                    Text(text = "知道了", color = GlassAccent.primary)
-                }
+                GlassDialogAction(
+                    text = "知道了",
+                    onClick = { installStatusMessage = null },
+                    emphasized = true,
+                )
             },
         )
     }
@@ -238,12 +320,13 @@ fun HotWaterApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars),
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .imePadding(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .hazeSource(state = hazeState)
+                .glassHazeSource(zIndex = 1f)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             AppHeader(
@@ -261,53 +344,180 @@ fun HotWaterApp(
                     .weight(1f)
                     .padding(top = 18.dp),
                 transitionSpec = {
-                    val direction = if (targetState.tabIndex > initialState.tabIndex) 1 else -1
-                    slideInHorizontally(
-                        animationSpec = tween(280),
-                        initialOffsetX = { it * direction },
-                    ) + fadeIn(tween(280)) togetherWith
-                        slideOutHorizontally(
-                            animationSpec = tween(220),
-                            targetOffsetX = { -(it * direction * 0.16f).toInt() },
-                        ) + fadeOut(tween(220))
+                    val logicalDirection = if (targetState.tabIndex > initialState.tabIndex) 1 else -1
+                    val direction = if (layoutDirection == LayoutDirection.Rtl) {
+                        -logicalDirection
+                    } else {
+                        logicalDirection
+                    }
+                    if (dockDragging) {
+                        fadeIn(tween(90)) togetherWith fadeOut(tween(90))
+                    } else if (motionEnabled) {
+                        slideInHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = 400f,
+                            ),
+                            initialOffsetX = { it * direction / 6 },
+                        ) + fadeIn(tween(140)) togetherWith
+                            slideOutHorizontally(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = 400f,
+                                ),
+                                targetOffsetX = { -it * direction / 6 },
+                            ) + fadeOut(tween(140))
+                    } else {
+                        fadeIn(tween(90)) togetherWith fadeOut(tween(70))
+                    }
                 },
                 label = "screen_transition",
             ) { screen ->
-                when (screen) {
-                    AppScreen.OPERATIONS -> OperationsPage(
-                        snapshot = snapshot,
-                        busy = busy,
-                        statusMessage = statusMessage,
-                        onToggle = {
-                            if (viewModel.shouldShowLowBalanceOpenWarning()) {
-                                showLowBalanceDialog = true
-                            } else {
-                                viewModel.toggle()
-                            }
-                        },
-                        onRefreshBalance = { viewModel.refreshBalance() },
-                    )
-                    AppScreen.RECORDS -> RecordsPage(history = history)
-                    AppScreen.CONFIG -> ConfigPage(
-                        config = config,
-                        busy = busy,
-                        onSave = { viewModel.saveConfig(it) },
-                        onExport = onExportConfig,
-                        onImport = onImportConfig,
-                    )
+                saveableStateHolder.SaveableStateProvider(screen.name) {
+                    when (screen) {
+                        AppScreen.OPERATIONS -> OperationsPage(
+                            snapshot = snapshot,
+                            busy = busy,
+                            statusMessage = statusMessage,
+                            onToggle = {
+                                if (viewModel.shouldShowLowBalanceOpenWarning()) {
+                                    showLowBalanceDialog = true
+                                } else if (snapshot?.hasCachedOrder == true) {
+                                    performToggleHaptic(false)
+                                    viewModel.toggle()
+                                } else if (config.isComplete()) {
+                                    onRequestNotificationPermission {
+                                        performToggleHaptic(true)
+                                        viewModel.toggleWhenIdle()
+                                    }
+                                } else {
+                                    viewModel.toggle()
+                                }
+                            },
+                            onRefreshBalance = { viewModel.refreshBalance() },
+                        )
+                        AppScreen.RECORDS -> RecordsPage(history = history)
+                        AppScreen.CONFIG -> ConfigPage(
+                            config = config,
+                            busy = busy,
+                            onSave = { viewModel.saveConfig(it) },
+                            onExport = onExportConfig,
+                            onImport = onImportConfig,
+                        )
+                    }
                 }
             }
         }
 
         BottomDock(
-            currentScreen = currentScreen,
-            onScreenSelected = { currentScreen = it },
-            hazeState = hazeState,
+            labels = listOf("操作", "记录", "配置"),
+            selectedIndex = currentScreen.tabIndex,
+            onSelected = { index, source ->
+                val nextScreen = AppScreen.entries[index]
+                if (nextScreen != currentScreen) {
+                    dockDragging = source == DockSelectionSource.Drag
+                    currentScreen = nextScreen
+                }
+            },
+            onDragStateChanged = { dockDragging = it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
         )
+
+        AnimatedVisibility(
+            visible = feedbackVisible && displayedFeedback != null,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 20.dp, end = 20.dp, bottom = 82.dp),
+            enter = if (motionEnabled) {
+                fadeIn(tween(120)) + slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    initialOffsetY = { it / 3 },
+                )
+            } else {
+                fadeIn(tween(80))
+            },
+            exit = if (motionEnabled) {
+                fadeOut(tween(140)) + slideOutVertically(tween(160)) { it / 3 }
+            } else {
+                fadeOut(tween(70))
+            },
+        ) {
+            displayedFeedback?.let { event ->
+                FeedbackBanner(
+                    event = event,
+                    onDismiss = {
+                        feedbackVisible = false
+                        viewModel.clearFeedbackEvent()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedbackBanner(
+    event: FeedbackEvent,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalGlassTokens.current
+    val (icon, accent) = when (event.type) {
+        FeedbackEvent.FeedbackType.SUCCESS -> Icons.Outlined.CheckCircle to tokens.accentSuccess
+        FeedbackEvent.FeedbackType.ERROR -> Icons.Outlined.ErrorOutline to tokens.accentError
+        FeedbackEvent.FeedbackType.WARNING -> Icons.Outlined.WarningAmber to tokens.accentWarning
+    }
+
+    Row(
+        modifier = Modifier
+            .widthIn(max = 520.dp)
+            .fillMaxWidth()
+            .glassMaterial(
+                material = GlassMaterial.Floating,
+                cornerRadius = 18.dp,
+            )
+            .semantics {
+                liveRegion = if (event.type == FeedbackEvent.FeedbackType.ERROR) {
+                    LiveRegionMode.Assertive
+                } else {
+                    LiveRegionMode.Polite
+                }
+                stateDescription = event.message
+            }
+            .padding(start = 14.dp, top = 10.dp, end = 6.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = event.message,
+            color = tokens.textPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 10.dp),
+        )
+        GlassPressable(
+            onClick = onDismiss,
+            material = GlassMaterial.EmbeddedControl,
+            cornerRadius = 16.dp,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = "关闭提示",
+                tint = tokens.textSecondary,
+            )
+        }
     }
 }
 
@@ -337,7 +547,12 @@ private fun AppHeader(
             )
         }
         Box {
-            IconButton(onClick = { onOverflowExpandedChange(true) }) {
+            GlassPressable(
+                onClick = { onOverflowExpandedChange(true) },
+                material = GlassMaterial.Control,
+                cornerRadius = 16.dp,
+                modifier = Modifier.size(48.dp),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
                     contentDescription = "更多",
@@ -347,109 +562,27 @@ private fun AppHeader(
             DropdownMenu(
                 expanded = overflowExpanded,
                 onDismissRequest = { onOverflowExpandedChange(false) },
-                modifier = Modifier.glassConvex(cornerRadius = 14.dp, tokens = tokens),
+                modifier = Modifier.glassMaterial(
+                    material = GlassMaterial.Panel,
+                    cornerRadius = 14.dp,
+                ),
                 shape = RoundedCornerShape(14.dp),
                 containerColor = Color.Transparent,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp,
             ) {
-                DropdownMenuItem(
-                    text = { Text(text = "关于", color = tokens.textPrimary) },
+                GlassPressable(
                     onClick = onOpenAbout,
-                    colors = MenuDefaults.itemColors(
-                        textColor = tokens.textPrimary,
-                    ),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BottomDock(
-    currentScreen: AppScreen,
-    onScreenSelected: (AppScreen) -> Unit,
-    hazeState: HazeState,
-    modifier: Modifier = Modifier,
-) {
-    val tokens = LocalGlassTokens.current
-    val dockShape = RoundedCornerShape(28.dp)
-    val lowerMeshColor = lerp(
-        tokens.meshSpots[2].color.copy(alpha = 1f),
-        tokens.meshSpots[3].color.copy(alpha = 1f),
-        0.5f,
-    )
-    val dockAmbientColor = lerp(tokens.meshBase, lowerMeshColor, 0.16f)
-    var tabWidthPx by remember { mutableStateOf(0) }
-    val indicatorOffset by animateIntOffsetAsState(
-        targetValue = IntOffset(tabWidthPx * currentScreen.tabIndex, 0),
-        animationSpec = tween(350),
-        label = "tab_indicator",
-    )
-
-    Box(
-        modifier = modifier
-            .widthIn(max = 520.dp)
-            .fillMaxWidth()
-            .height(60.dp)
-            .shadow(
-                elevation = 10.dp,
-                shape = dockShape,
-                ambientColor = tokens.outerShadow,
-                spotColor = tokens.outerShadow,
-            ),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(dockShape)
-                .hazeEffect(state = hazeState) {
-                    blurEnabled = true
-                    blurRadius = 22.dp
-                    noiseFactor = 0.035f
-                    backgroundColor = dockAmbientColor
-                    tints = listOf(HazeTint(tokens.textPrimary.copy(alpha = 0.025f)))
-                    fallbackTint = HazeTint(dockAmbientColor.copy(alpha = 0.94f))
-                },
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(dockShape)
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to tokens.borderHi.copy(alpha = 0.045f),
-                            0.45f to Color.Transparent,
-                            1f to tokens.textPrimary.copy(alpha = 0.025f),
-                        ),
-                    ),
-                ),
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(6.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset { indicatorOffset }
-                    .fillMaxWidth(1f / 3f)
-                    .height(48.dp)
-                    .onSizeChanged { tabWidthPx = it.width }
-                    .padding(horizontal = 3.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(tokens.textPrimary.copy(alpha = 0.07f)),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TabButton("操作页", currentScreen == AppScreen.OPERATIONS, { onScreenSelected(AppScreen.OPERATIONS) }, Modifier.weight(1f))
-                TabButton("记录页", currentScreen == AppScreen.RECORDS, { onScreenSelected(AppScreen.RECORDS) }, Modifier.weight(1f))
-                TabButton("配置页", currentScreen == AppScreen.CONFIG, { onScreenSelected(AppScreen.CONFIG) }, Modifier.weight(1f))
+                    material = GlassMaterial.EmbeddedControl,
+                    cornerRadius = 12.dp,
+                    contentAlignment = Alignment.CenterStart,
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Text(text = "关于", color = tokens.textPrimary)
+                }
             }
         }
     }
@@ -457,36 +590,32 @@ private fun BottomDock(
 
 @Composable
 internal fun bottomDockClearance(): Dp {
-    val density = LocalDensity.current
-    return 64.dp + with(density) {
-        WindowInsets.navigationBars.getBottom(this).toDp()
-    }
+    return 76.dp
 }
 
 @Composable
-private fun TabButton(
+private fun GlassDialogAction(
     text: String,
-    isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
+    hapticFeedback: (() -> HapticFeedbackType?)? = {
+        HapticFeedbackType.SegmentTick
+    },
 ) {
     val tokens = LocalGlassTokens.current
-    Box(
-        modifier = modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
+    GlassPressable(
+        onClick = onClick,
+        material = GlassMaterial.EmbeddedControl,
+        cornerRadius = 16.dp,
+        hapticFeedback = hapticFeedback,
+        modifier = Modifier.height(48.dp),
     ) {
         Text(
             text = text,
-            color = if (isSelected) GlassAccent.primary else tokens.textSecondary,
-            fontSize = 15.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (emphasized) tokens.accentPrimary else tokens.textSecondary,
+            fontSize = 14.sp,
+            fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 14.dp),
         )
     }
 }

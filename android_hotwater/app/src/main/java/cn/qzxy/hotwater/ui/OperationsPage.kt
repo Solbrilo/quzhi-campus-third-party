@@ -1,8 +1,6 @@
 package cn.qzxy.hotwater.ui
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -10,7 +8,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,40 +19,41 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.DashboardSnapshot
-import cn.qzxy.hotwater.designsystem.component.GlassButton
-import cn.qzxy.hotwater.designsystem.theme.GlassAccent
+import cn.qzxy.hotwater.designsystem.component.GlassPressable
+import cn.qzxy.hotwater.designsystem.motion.rememberMotionEnabled
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConcave
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun OperationsPage(
@@ -103,7 +101,7 @@ fun OperationsPage(
                     .height(280.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val buttonColor = if (snapshot?.hasCachedOrder == true) GlassAccent.error else GlassAccent.primary
+                val buttonColor = if (snapshot?.hasCachedOrder == true) tokens.accentError else tokens.accentPrimary
 
                 // 加载环（仅在 busy 时显示）
                 if (busy) {
@@ -120,18 +118,12 @@ fun OperationsPage(
             }
         }
 
-        // 提示文字
+        // 当前操作状态
         item {
-            Text(
-                text = when {
-                    snapshot?.isDeviceBusyByOther == true -> "已有他人正在使用这台设备，请稍后刷新或重试。"
-                    snapshot?.hasCachedOrder == true -> "检测到缓存订单号，点击大按钮将尝试关热水。"
-                    else -> "当前没有缓存订单号，点击大按钮将尝试开热水。"
-                },
-                color = tokens.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
+            OperationStatus(
+                statusMessage = statusMessage,
+                snapshot = snapshot,
+                busy = busy,
             )
         }
 
@@ -141,6 +133,54 @@ fun OperationsPage(
         }
     }
 }
+
+@Composable
+private fun OperationStatus(
+    statusMessage: String,
+    snapshot: DashboardSnapshot?,
+    busy: Boolean,
+) {
+    val tokens = LocalGlassTokens.current
+    val message = statusMessage.ifBlank {
+        when {
+            snapshot?.isDeviceBusyByOther == true -> "已有他人正在使用这台设备，请稍后刷新或重试。"
+            snapshot?.hasCachedOrder == true -> "点击主按钮可关闭热水。"
+            else -> "点击主按钮可开启热水。"
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassMaterial(
+                material = GlassMaterial.EmbeddedControl,
+                cornerRadius = 18.dp,
+            )
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = message
+            }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = tokens.accentPrimary,
+                strokeWidth = 2.dp,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+        }
+        Text(
+            text = message,
+            color = if (busy) tokens.textPrimary else tokens.textSecondary,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
 @Composable
 private fun BalanceCard(
     snapshot: DashboardSnapshot?,
@@ -152,7 +192,10 @@ private fun BalanceCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+            .glassMaterial(
+                material = GlassMaterial.Panel,
+                cornerRadius = 28.dp,
+            )
             .padding(12.dp)
     ) {
         Row(
@@ -185,7 +228,7 @@ private fun BalanceCard(
         Box(
             modifier = Modifier
                 .background(
-                    GlassAccent.primary.copy(alpha = 0.15f),
+                    tokens.accentPrimary.copy(alpha = 0.15f),
                     RoundedCornerShape(10.dp)
                 )
                 .padding(horizontal = 8.dp, vertical = 3.dp)
@@ -224,6 +267,7 @@ private fun UsageTimer(startedAtMillis: Long?) {
         return
     }
 
+    val tokens = LocalGlassTokens.current
     val elapsedMillis by produceState(
         initialValue = (System.currentTimeMillis() - startedAtMillis).coerceAtLeast(0L),
         key1 = startedAtMillis,
@@ -236,7 +280,7 @@ private fun UsageTimer(startedAtMillis: Long?) {
 
     Text(
         text = "开启时长 ${formatUsageDuration(elapsedMillis)}",
-        color = GlassAccent.primary,
+        color = tokens.accentPrimary,
         fontSize = 12.sp,
         fontWeight = FontWeight.Medium,
     )
@@ -260,54 +304,38 @@ private fun RefreshButton(
     enabled: Boolean,
 ) {
     val tokens = LocalGlassTokens.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    var isPressed by remember { mutableStateOf(false) }
-    val scaleAnim = remember { Animatable(1f) }
-
-    Box(
+    GlassPressable(
+        onClick = onClick,
+        enabled = enabled,
+        role = Role.Button,
+        onClickLabel = "刷新余额",
+        material = GlassMaterial.Control,
+        cornerRadius = 14.dp,
         modifier = Modifier
-            .height(28.dp)
-            .scale(scaleAnim.value)
-            .then(
-                if (isPressed) Modifier.glassConcave(cornerRadius = 12.dp, tokens = tokens)
-                else Modifier.glassConvex(cornerRadius = 12.dp, tokens = tokens)
-            )
-            .clip(RoundedCornerShape(12.dp))
-            .pointerInput(enabled) {
-                if (enabled) {
-                    detectTapGestures(
-                        onPress = {
-                            isPressed = true
-                            scope.launch { scaleAnim.snapTo(0.90f) }
-                            tryAwaitRelease()
-                            isPressed = false
-                            scope.launch {
-                                delay(60)
-                                scaleAnim.animateTo(1f, tween(200, easing = FastOutSlowInEasing))
-                            }
-                        },
-                        onTap = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onClick()
-                        }
-                    )
-                }
-            }
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
+            .size(48.dp)
+            .semantics {
+                contentDescription = "刷新余额"
+                stateDescription = if (enabled) "可用" else "正在处理"
+            },
     ) {
-        Text(
-            text = "刷新",
-            color = tokens.textPrimary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold
+        Icon(
+            imageVector = Icons.Outlined.Refresh,
+            contentDescription = null,
+            tint = tokens.textPrimary,
+            modifier = Modifier.size(18.dp),
         )
     }
 }
 
 @Composable
 private fun LoadingRing(color: androidx.compose.ui.graphics.Color) {
+    val motionEnabled = rememberMotionEnabled()
+
+    if (!motionEnabled) {
+        LoadingRingCanvas(color = color, rotation = 0f, alpha = 0.24f)
+        return
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "loading")
 
     // 忽快忽慢的旋转动画（更快的加速度）
@@ -324,16 +352,25 @@ private fun LoadingRing(color: androidx.compose.ui.graphics.Color) {
         label = "rotation"
     )
 
-    // 呼吸效果（透明度变化）
     val alpha by infiniteTransition.animateFloat(
         initialValue = 0.15f,
         targetValue = 0.35f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
+            animation = tween(1500),
             repeatMode = RepeatMode.Reverse
         ),
         label = "alpha"
     )
+
+    LoadingRingCanvas(color = color, rotation = rotation, alpha = alpha)
+}
+
+@Composable
+private fun LoadingRingCanvas(
+    color: androidx.compose.ui.graphics.Color,
+    rotation: Float,
+    alpha: Float,
+) {
 
     // 10 个等长弧线，每个 20°，间隔 16°
     val arcCount = 10
@@ -378,41 +415,28 @@ private fun ToggleButton(
     onToggle: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    var isPressed by remember { mutableStateOf(false) }
-    val scaleAnim = remember { Animatable(1f) }
+    val actionLabel = if (isCloseMode) "关闭热水" else "开启热水"
 
-    Box(
+    GlassPressable(
+        onClick = onToggle,
+        enabled = enabled,
+        role = Role.Switch,
+        onClickLabel = actionLabel,
+        material = GlassMaterial.Control,
+        cornerRadius = 115.dp,
+        hapticFeedback = { null },
         modifier = Modifier
             .size(230.dp)
-            .scale(scaleAnim.value)
-            .then(
-                if (isPressed) Modifier.glassConcave(cornerRadius = 115.dp, tokens = tokens)
-                else Modifier.glassConvex(cornerRadius = 115.dp, tokens = tokens)
-            )
-            .clip(CircleShape)
-            .pointerInput(enabled) {
-                if (enabled) {
-                    detectTapGestures(
-                        onPress = {
-                            isPressed = true
-                            scope.launch { scaleAnim.snapTo(0.95f) }
-                            tryAwaitRelease()
-                            isPressed = false
-                            scope.launch {
-                                delay(60)
-                                scaleAnim.animateTo(1f, tween(200, easing = FastOutSlowInEasing))
-                            }
-                        },
-                        onTap = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onToggle()
-                        }
-                    )
+            .semantics {
+                contentDescription = actionLabel
+                toggleableState = ToggleableState(isCloseMode)
+                stateDescription = when {
+                    busy && isCloseMode -> "正在关闭热水"
+                    busy -> "正在开启热水"
+                    isCloseMode -> "热水已开启"
+                    else -> "热水未开启"
                 }
             },
-        contentAlignment = Alignment.Center
     ) {
         Text(
             text = if (isCloseMode) "关" else "开",

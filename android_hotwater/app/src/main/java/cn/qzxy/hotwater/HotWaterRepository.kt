@@ -27,7 +27,14 @@ data class OperationResult(
     val consumptionYuan: Double? = null,
     val usageDurationMillis: Long? = null,
     val usageStartedAtMillis: Long? = null,
+    val outcome: OperationOutcome,
 )
+
+enum class OperationOutcome {
+    SUCCESS,
+    PENDING,
+    WARNING,
+}
 
 class HotWaterRepository(
     private val api: HotWaterApi,
@@ -41,6 +48,7 @@ class HotWaterRepository(
             summary = buildSummary(snapshot),
             details = "",
             snapshot = snapshot,
+            outcome = OperationOutcome.SUCCESS,
         )
     }
 
@@ -138,6 +146,7 @@ class HotWaterRepository(
             summary = summary,
             details = detailBuilder.toString().trim(),
             snapshot = snapshotWithUsageSession,
+            outcome = if (success) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
         )
     }
 
@@ -251,6 +260,7 @@ class HotWaterRepository(
             consumptionYuan = consumptionYuan,
             usageDurationMillis = usageDurationMillis,
             usageStartedAtMillis = if (usageEnded) usageSession?.startedAtMillis else null,
+            outcome = if (success) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
         )
     }
 
@@ -293,6 +303,7 @@ class HotWaterRepository(
             summary = "$DEVICE_BUSY_BY_OTHER_MESSAGE\n余额 ${snapshot.balanceLabel} 元",
             details = detailBuilder.toString().trim(),
             snapshot = snapshot,
+            outcome = OperationOutcome.WARNING,
         )
     }
 

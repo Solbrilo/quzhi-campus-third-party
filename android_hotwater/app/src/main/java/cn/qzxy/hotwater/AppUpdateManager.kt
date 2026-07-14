@@ -7,7 +7,12 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -54,6 +59,7 @@ class AppUpdateManager(context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    @OptIn(InternalCoroutinesApi::class)
     suspend fun checkForUpdate(): AppUpdateCheckResult = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
@@ -61,7 +67,15 @@ class AppUpdateManager(context: Context) {
                 .header("Accept", "application/json")
                 .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
                 .build()
-            client.newCall(request).execute().use { response ->
+            val call = client.newCall(request)
+            val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
+                onCancelling = true,
+                invokeImmediately = true,
+            ) { cause ->
+                if (cause is CancellationException) call.cancel()
+            }
+            try {
+                runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
                 if (response.code == 404) {
                     return@withContext AppUpdateCheckResult.NoRelease
                 }
@@ -88,7 +102,12 @@ class AppUpdateManager(context: Context) {
                         apkUrl = apkUrl,
                     ),
                 )
+                }
+            } finally {
+                cancellationHandle.dispose()
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: IOException) {
             AppUpdateCheckResult.Failed("网络连接失败，请稍后重试")
         } catch (error: Exception) {
@@ -96,6 +115,7 @@ class AppUpdateManager(context: Context) {
         }
     }
 
+    @OptIn(InternalCoroutinesApi::class)
     suspend fun downloadAndInstall(
         update: AppUpdateInfo,
         onProgress: (AppUpdateDownloadProgress) -> Unit = {},
@@ -108,7 +128,15 @@ class AppUpdateManager(context: Context) {
                 .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
                 .build()
             partialFile.delete()
-            client.newCall(request).execute().use { response ->
+            val call = client.newCall(request)
+            val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
+                onCancelling = true,
+                invokeImmediately = true,
+            ) { cause ->
+                if (cause is CancellationException) call.cancel()
+            }
+            try {
+                runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
                 if (!response.isSuccessful) {
                     return@withContext AppUpdateInstallResult.Failed("下载安装包失败：HTTP ${response.code}")
                 }
@@ -137,7 +165,7 @@ class AppUpdateManager(context: Context) {
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     body.byteStream().use { input ->
                         while (true) {
-                            val read = input.read(buffer)
+                            val read = runInterruptible(Dispatchers.IO) { input.read(buffer) }
                             if (read == -1) break
                             output.write(buffer, 0, read)
                             downloadedBytes += read
@@ -147,6 +175,9 @@ class AppUpdateManager(context: Context) {
                     output.flush()
                 }
                 reportProgress(force = true)
+                }
+            } finally {
+                cancellationHandle.dispose()
             }
 
             if (targetFile.exists() && !targetFile.delete()) {
@@ -172,6 +203,9 @@ class AppUpdateManager(context: Context) {
             }
             withContext(Dispatchers.Main) { launchPackageInstaller(targetFile) }
             AppUpdateInstallResult.InstallationLaunched
+        } catch (cancelled: CancellationException) {
+            partialFile.delete()
+            throw cancelled
         } catch (error: IOException) {
             partialFile.delete()
             AppUpdateInstallResult.Failed("下载安装包失败，请检查网络后重试")
@@ -241,6 +275,6 @@ class AppUpdateManager(context: Context) {
             "https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases/latest"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val PROGRESS_REPORT_INTERVAL_BYTES = 256L * 1024L
-        val VERSION_PATTERN = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)$")
+        val VERSION_PATTERN = Regex("^v(\\d+)\\.(\\d+)\\.(\\d+)$")
     }
 }
