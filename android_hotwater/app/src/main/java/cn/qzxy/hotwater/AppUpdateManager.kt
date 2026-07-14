@@ -272,9 +272,9 @@ class AppUpdateManager(context: Context) {
 
     private companion object {
         const val LATEST_RELEASE_URL =
-            "https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases/latest"
+            "https://gitee.com/api/v5/repos/lazyoigg/quzhi-campus-android-releases/releases/latest"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val PROGRESS_REPORT_INTERVAL_BYTES = 256L * 1024L
-        val VERSION_PATTERN = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)$")
+        val VERSION_PATTERN = Regex("^v(\\d+)\\.(\\d+)\\.(\\d+)$")
     }
 }
