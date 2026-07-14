@@ -39,8 +39,10 @@ import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.HotWaterConfig
 import cn.qzxy.hotwater.designsystem.component.GlassButton
 import cn.qzxy.hotwater.designsystem.component.GlassInput
+import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 
 @Composable
 fun ConfigPage(
@@ -107,7 +109,7 @@ fun ConfigPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
                 .padding(18.dp)
         ) {
             Text(
@@ -248,14 +250,16 @@ fun ConfigPage(
                         else -> null
                     }
                     if (firstInvalidFocus != null) {
-                        haptic.performHapticFeedback(HapticFeedbackType.Reject)
+                        haptic.performGlassHapticFeedback(HapticFeedbackType.Reject)
                         firstInvalidFocus.requestFocus()
                     } else {
+                        haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
                         focusManager.clearFocus()
                         onSave(rawConfig)
                     }
                 },
                 enabled = !busy,
+                hapticFeedback = { null },
                 modifier = Modifier.fillMaxWidth(),
                 icon = {
                     Icon(
@@ -326,7 +330,7 @@ fun ConfigPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
                 .padding(18.dp)
         ) {
             Text(

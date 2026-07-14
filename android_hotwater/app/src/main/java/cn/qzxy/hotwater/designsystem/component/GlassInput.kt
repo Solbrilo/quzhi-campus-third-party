@@ -33,8 +33,9 @@ import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConcave
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 
 @Composable
 fun GlassInput(
@@ -71,7 +72,11 @@ fun GlassInput(
             modifier = Modifier
                 .heightIn(min = 52.dp)
                 .fillMaxWidth()
-                .glassConcave(cornerRadius = 16.dp, tokens)
+                .glassMaterial(
+                    material = GlassMaterial.Input,
+                    cornerRadius = 16.dp,
+                    tokens = tokens,
+                )
                 .then(
                     if (outlineColor != null) Modifier.drawBehind {
                         drawRoundRect(
