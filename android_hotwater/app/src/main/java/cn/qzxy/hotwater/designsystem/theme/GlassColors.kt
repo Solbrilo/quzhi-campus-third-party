@@ -2,11 +2,11 @@ package cn.qzxy.hotwater.designsystem.theme
 
 import androidx.compose.ui.graphics.Color
 
-/** 玻璃态下的强调色（与 mesh 色系协调） */
+/** Accent colors retained for non-themed callers. */
 object GlassAccent {
-    val primary = Color(0xFF7C9FF5)
-    val primaryDark = Color(0xFF8AADFF)
-    val success = Color(0xFF5EC4A7)
-    val warning = Color(0xFFFFBF6E)
-    val error = Color(0xFFFF8080)
+    val primary = Color(0xFF286873)
+    val primaryDark = Color(0xFF8FCAD1)
+    val success = Color(0xFF4DB897)
+    val warning = Color(0xFFE6A958)
+    val error = Color(0xFFE77C82)
 }

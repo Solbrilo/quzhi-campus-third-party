@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,12 +20,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,16 +34,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
+import cn.qzxy.hotwater.designsystem.component.GlassPressable
+import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
+import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
-import cn.qzxy.hotwater.designsystem.motion.rememberMotionEnabled
+import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
 import cn.qzxy.hotwater.ui.AboutPage
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -69,10 +79,12 @@ private fun StandaloneAboutPage(
     onFinish: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
+    val environment = LocalGlassEnvironment.current
     val scope = rememberCoroutineScope()
-    val motionEnabled = rememberMotionEnabled()
-    val exitDuration = if (motionEnabled) 220L else 80L
-    var visible by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    val slideDirection = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
+    val motionEnabled = environment.motionEnabled
+    val visibility = remember { MutableTransitionState(false) }
     var closing by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var installing by remember { mutableStateOf(false) }
@@ -81,11 +93,23 @@ private fun StandaloneAboutPage(
     var checkResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var installResult by remember { mutableStateOf<AppUpdateInstallResult?>(null) }
 
-    val checkForUpdate: () -> Unit = {
+    val checkForUpdate: (Boolean) -> Unit = { userInitiated ->
         scope.launch {
             checking = true
             installResult = null
-            checkResult = updateManager.checkForUpdate()
+            val result = updateManager.checkForUpdate()
+            checkResult = result
+            if (userInitiated) {
+                haptic.performGlassHapticFeedback(
+                    when (result) {
+                        is AppUpdateCheckResult.Failed,
+                        is AppUpdateCheckResult.InvalidRelease,
+                        -> HapticFeedbackType.Reject
+
+                        else -> HapticFeedbackType.Confirm
+                    },
+                )
+            }
             checking = false
         }
     }
@@ -95,9 +119,17 @@ private fun StandaloneAboutPage(
             installing = true
             downloadProgress = null
             try {
-                installResult = updateManager.downloadAndInstall(update) { progress ->
+                val result = updateManager.downloadAndInstall(update) { progress ->
                     downloadProgress = progress
                 }
+                installResult = result
+                haptic.performGlassHapticFeedback(
+                    when (result) {
+                        AppUpdateInstallResult.InstallationLaunched -> HapticFeedbackType.Confirm
+                        AppUpdateInstallResult.SourcePermissionRequired -> HapticFeedbackType.SegmentTick
+                        is AppUpdateInstallResult.Failed -> HapticFeedbackType.Reject
+                    },
+                )
             } finally {
                 installing = false
                 installJob = null
@@ -108,34 +140,41 @@ private fun StandaloneAboutPage(
         if (!closing) {
             closing = true
             installJob?.cancel()
-            if (visible) {
-                visible = false
-                scope.launch {
-                    delay(exitDuration)
-                    onFinish()
-                }
-            } else {
-                onFinish()
-            }
+            visibility.targetState = false
         }
     }
 
     LaunchedEffect(Unit) {
-        visible = true
-        checkForUpdate()
+        visibility.targetState = true
+        checkForUpdate(false)
+    }
+    LaunchedEffect(closing, visibility.isIdle, visibility.currentState) {
+        if (closing && visibility.isIdle && !visibility.currentState) {
+            onFinish()
+        }
     }
     BackHandler(onBack = closePage)
 
     AnimatedVisibility(
-        visible = visible,
+        visibleState = visibility,
         modifier = Modifier.fillMaxSize(),
         enter = if (motionEnabled) {
-            fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 5 }
+            fadeIn(tween(140)) + slideInHorizontally(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = 400f,
+                ),
+            ) { it * slideDirection / 5 }
         } else {
             fadeIn(tween(80))
         },
         exit = if (motionEnabled) {
-            fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 5 }
+            fadeOut(tween(140)) + slideOutHorizontally(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = 400f,
+                ),
+            ) { it * slideDirection / 5 }
         } else {
             fadeOut(tween(70))
         },
@@ -143,11 +182,17 @@ private fun StandaloneAboutPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .glassHazeSource(zIndex = 1f)
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = closePage) {
+                GlassPressable(
+                    onClick = closePage,
+                    material = GlassMaterial.Control,
+                    cornerRadius = 16.dp,
+                    modifier = Modifier.size(48.dp),
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                         contentDescription = "返回",
@@ -168,7 +213,7 @@ private fun StandaloneAboutPage(
                 checking = checking,
                 installing = installing,
                 downloadProgress = downloadProgress,
-                onCheckForUpdate = checkForUpdate,
+                onCheckForUpdate = { checkForUpdate(true) },
                 onInstallUpdate = installUpdate,
                 onCancelInstall = { installJob?.cancel() },
             )

@@ -12,6 +12,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -21,8 +25,9 @@ import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.BuildConfig
 import cn.qzxy.hotwater.designsystem.component.GlassButton
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 
 @Composable
 fun AboutPage(
@@ -47,7 +52,7 @@ fun AboutPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -73,7 +78,7 @@ fun AboutPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -136,6 +141,8 @@ private fun UpdateStatusText(
     installResult: AppUpdateInstallResult?,
 ) {
     val tokens = LocalGlassTokens.current
+    val isError = installResult is AppUpdateInstallResult.Failed ||
+        checkResult is AppUpdateCheckResult.Failed
     val (message, color) = when {
         installResult is AppUpdateInstallResult.InstallationLaunched ->
             "已打开系统安装确认，请完成更新。" to tokens.accentSuccess
@@ -152,5 +159,9 @@ private fun UpdateStatusText(
         text = message,
         color = color,
         fontSize = 13.sp,
+        modifier = Modifier.semantics {
+            liveRegion = if (isError) LiveRegionMode.Assertive else LiveRegionMode.Polite
+            stateDescription = message
+        },
     )
 }

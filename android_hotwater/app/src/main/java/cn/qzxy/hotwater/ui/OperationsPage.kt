@@ -2,18 +2,12 @@ package cn.qzxy.hotwater.ui
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
@@ -34,14 +27,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
@@ -52,15 +41,18 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.DashboardSnapshot
+import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.rememberMotionEnabled
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
-import cn.qzxy.hotwater.designsystem.theme.glassConcave
-import cn.qzxy.hotwater.designsystem.theme.glassConvex
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import kotlinx.coroutines.delay
 
 @Composable
@@ -160,7 +152,10 @@ private fun OperationStatus(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .glassConcave(cornerRadius = 18.dp, tokens = tokens)
+            .glassMaterial(
+                material = GlassMaterial.EmbeddedControl,
+                cornerRadius = 18.dp,
+            )
             .semantics {
                 liveRegion = LiveRegionMode.Polite
                 stateDescription = message
@@ -197,7 +192,10 @@ private fun BalanceCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassConvex(cornerRadius = 28.dp, tokens = tokens)
+            .glassMaterial(
+                material = GlassMaterial.Panel,
+                cornerRadius = 28.dp,
+            )
             .padding(12.dp)
     ) {
         Row(
@@ -306,55 +304,26 @@ private fun RefreshButton(
     enabled: Boolean,
 ) {
     val tokens = LocalGlassTokens.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val motionEnabled = rememberMotionEnabled()
-    val scale by animateFloatAsState(
-        targetValue = if (motionEnabled && isPressed && enabled) 0.94f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = if (isPressed) Spring.StiffnessHigh else Spring.StiffnessMedium,
-        ),
-        label = "refresh_button_scale",
-    )
-
-    Box(
+    GlassPressable(
+        onClick = onClick,
+        enabled = enabled,
+        role = Role.Button,
+        onClickLabel = "刷新余额",
+        material = GlassMaterial.Control,
+        cornerRadius = 14.dp,
         modifier = Modifier
             .size(48.dp)
-            .alpha(if (enabled) 1f else 0.5f)
             .semantics {
                 contentDescription = "刷新余额"
                 stateDescription = if (enabled) "可用" else "正在处理"
-            }
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                role = Role.Button,
-                onClickLabel = "刷新余额",
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center
+            },
     ) {
-        Box(
-            modifier = Modifier
-                .scale(scale)
-                .then(
-                    if (isPressed && enabled) Modifier.glassConcave(cornerRadius = 14.dp, tokens = tokens)
-                    else Modifier.glassConvex(cornerRadius = 14.dp, tokens = tokens)
-                )
-                .clip(RoundedCornerShape(14.dp))
-                .padding(8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Refresh,
-                contentDescription = null,
-                tint = tokens.textPrimary,
-                modifier = Modifier.size(18.dp),
-            )
-        }
+        Icon(
+            imageVector = Icons.Outlined.Refresh,
+            contentDescription = null,
+            tint = tokens.textPrimary,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
@@ -446,48 +415,28 @@ private fun ToggleButton(
     onToggle: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val motionEnabled = rememberMotionEnabled()
-    val scale by animateFloatAsState(
-        targetValue = if (motionEnabled && isPressed && enabled) 0.95f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = if (isPressed) Spring.StiffnessHigh else Spring.StiffnessMedium,
-        ),
-        label = "toggle_button_scale",
-    )
     val actionLabel = if (isCloseMode) "关闭热水" else "开启热水"
 
-    Box(
+    GlassPressable(
+        onClick = onToggle,
+        enabled = enabled,
+        role = Role.Switch,
+        onClickLabel = actionLabel,
+        material = GlassMaterial.Control,
+        cornerRadius = 115.dp,
+        hapticFeedback = { null },
         modifier = Modifier
             .size(230.dp)
-            .scale(scale)
-            .alpha(if (enabled) 1f else 0.64f)
-            .then(
-                if (isPressed && enabled) Modifier.glassConcave(cornerRadius = 115.dp, tokens = tokens)
-                else Modifier.glassConvex(cornerRadius = 115.dp, tokens = tokens)
-            )
-            .clip(CircleShape)
             .semantics {
                 contentDescription = actionLabel
+                toggleableState = ToggleableState(isCloseMode)
                 stateDescription = when {
                     busy && isCloseMode -> "正在关闭热水"
                     busy -> "正在开启热水"
                     isCloseMode -> "热水已开启"
                     else -> "热水未开启"
                 }
-            }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                role = Role.Button,
-                onClickLabel = actionLabel,
-            ) {
-                onToggle()
             },
-        contentAlignment = Alignment.Center
     ) {
         Text(
             text = if (isCloseMode) "关" else "开",
