@@ -29,8 +29,10 @@ android_hotwater/*.jks
 harmony_hotwater/.hvigor/
 harmony_hotwater/.idea/
 harmony_hotwater/.appanalyzer/
+harmony_hotwater/oh_modules/
 harmony_hotwater/entry/build/
 harmony_hotwater/entry/.preview
+harmony_hotwater/entry/.test/
 
 # ESP32 local/build artifacts
 esp32_hotwater/build/

@@ -81,8 +81,24 @@
       "value": "#8FB0FF"
     },
     {
+      "name": "accent_text",
+      "value": "#AFC4FF"
+    },
+    {
+      "name": "accent_button_background",
+      "value": "#AFC4FF"
+    },
+    {
+      "name": "accent_button_text",
+      "value": "#11213B"
+    },
+    {
       "name": "close_accent",
       "value": "#FFAE98"
+    },
+    {
+      "name": "error_text",
+      "value": "#FFB39C"
     },
     {
       "name": "input_background",

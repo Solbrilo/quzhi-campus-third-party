@@ -20,7 +20,6 @@ import cn.qzxy.hotwater.OperationHistory
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
-import java.util.Locale
 
 @Composable
 fun RecordsPage(history: List<OperationHistory>) {
@@ -42,7 +41,7 @@ fun RecordsPage(history: List<OperationHistory>) {
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "记录已结束的热水使用，金额按余额变化计算。",
+                    text = "记录已结束的热水使用，优先读取订单结算，并通过余额变化校验。",
                     color = tokens.textSecondary,
                     fontSize = 13.sp,
                 )
@@ -84,9 +83,7 @@ fun RecordsPage(history: List<OperationHistory>) {
 @Composable
 private fun ConsumptionRecordCard(record: OperationHistory) {
     val tokens = LocalGlassTokens.current
-    val amountLabel = record.consumptionYuan?.let { value ->
-        String.format(Locale.getDefault(), "¥ %.2f", value)
-    } ?: "待同步"
+    val amountLabel = record.getConsumptionAmountLabel() ?: "待同步"
 
     Column(
         modifier = Modifier

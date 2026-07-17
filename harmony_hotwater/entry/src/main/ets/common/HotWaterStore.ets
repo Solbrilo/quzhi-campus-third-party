@@ -1,6 +1,9 @@
 import preferences from '@ohos.data.preferences'
 import type common from '@ohos.app.ability.common'
-import { ConsumptionRecord, HotWaterConfig, UsageSession } from './HotWaterModels'
+import { ArkTSUtils } from '@kit.ArkTS'
+import { ConsumptionRecord, HotWaterConfig, PendingSettlement, UsageSession } from './HotWaterModels'
+
+const STORE_STATE_LOCK = ArkTSUtils.locks.AsyncLock.request('cn.qzxy.hotwater.store-state')
 
 export class HotWaterStore {
   private static readonly STORE_NAME: string = 'hotwater_store'
@@ -50,17 +53,21 @@ export class HotWaterStore {
   }
 
   async saveOrderNo(orderNo: string): Promise<void> {
-    const store = await this.getStore()
-    await store.put('orderNo', orderNo)
-    await store.put('orderClearedAt', 0)
-    await store.flush()
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const store = await this.getStore()
+      await store.put('orderNo', orderNo)
+      await store.put('orderClearedAt', 0)
+      await store.flush()
+    })
   }
 
   async clearOrderNo(): Promise<void> {
-    const store = await this.getStore()
-    await store.put('orderNo', '')
-    await store.put('orderClearedAt', Date.now())
-    await store.flush()
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const store = await this.getStore()
+      await store.put('orderNo', '')
+      await store.put('orderClearedAt', Date.now())
+      await store.flush()
+    })
   }
 
   async loadUsageSession(): Promise<UsageSession | null> {
@@ -71,11 +78,30 @@ export class HotWaterStore {
     }
     const session = new UsageSession()
     session.startedAtMillis = startedAtMillis
-    session.startBalanceYuan = Number(await store.get('usageStartBalanceYuan', 0))
+    session.startBalanceYuan = Number(await store.get('usageStartBalanceYuan', -1))
+    session.startBalanceIsBeforePreauthorization =
+      Boolean(await store.get('usageStartBalanceIsBeforePreauthorization', false))
+    session.provisionalOpening = Boolean(await store.get('usageSessionProvisionalOpening', false))
     return session
   }
 
-  async startUsageSessionIfAbsent(startBalanceYuan: number): Promise<UsageSession> {
+  async startUsageSessionIfAbsent(
+    startBalanceYuan: number,
+    startBalanceIsBeforePreauthorization: boolean,
+    provisionalOpening: boolean = false
+  ): Promise<UsageSession> {
+    return await STORE_STATE_LOCK.lockAsync(async () => await this.startUsageSessionIfAbsentUnlocked(
+      startBalanceYuan,
+      startBalanceIsBeforePreauthorization,
+      provisionalOpening
+    ))
+  }
+
+  private async startUsageSessionIfAbsentUnlocked(
+    startBalanceYuan: number,
+    startBalanceIsBeforePreauthorization: boolean,
+    provisionalOpening: boolean
+  ): Promise<UsageSession> {
     const existing = await this.loadUsageSession()
     if (existing) {
       return existing
@@ -83,29 +109,126 @@ export class HotWaterStore {
     const session = new UsageSession()
     session.startedAtMillis = Date.now()
     session.startBalanceYuan = startBalanceYuan
+    session.startBalanceIsBeforePreauthorization = startBalanceIsBeforePreauthorization
+    session.provisionalOpening = provisionalOpening
     const store = await this.getStore()
     await store.put('usageStartedAtMillis', session.startedAtMillis)
     await store.put('usageStartBalanceYuan', session.startBalanceYuan)
+    await store.put(
+      'usageStartBalanceIsBeforePreauthorization',
+      session.startBalanceIsBeforePreauthorization
+    )
+    await store.put('usageSessionProvisionalOpening', session.provisionalOpening)
+    await store.flush()
+    return session
+  }
+
+  async updateUsageSessionStartBalance(startBalanceYuan: number): Promise<UsageSession | null> {
+    return await STORE_STATE_LOCK.lockAsync(async () =>
+      await this.updateUsageSessionStartBalanceUnlocked(startBalanceYuan))
+  }
+
+  private async updateUsageSessionStartBalanceUnlocked(startBalanceYuan: number): Promise<UsageSession | null> {
+    const session = await this.loadUsageSession()
+    if (!session) {
+      return null
+    }
+    session.startBalanceYuan = startBalanceYuan
+    session.startBalanceIsBeforePreauthorization = true
+    const store = await this.getStore()
+    await store.put('usageStartBalanceYuan', session.startBalanceYuan)
+    await store.put('usageStartBalanceIsBeforePreauthorization', true)
     await store.flush()
     return session
   }
 
   async clearUsageSession(): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => await this.clearUsageSessionUnlocked())
+  }
+
+  private async clearUsageSessionUnlocked(): Promise<void> {
     const store = await this.getStore()
     await store.delete('usageStartedAtMillis')
     await store.delete('usageStartBalanceYuan')
+    await store.delete('usageStartBalanceIsBeforePreauthorization')
+    await store.delete('usageSessionProvisionalOpening')
     await store.flush()
   }
 
+  async confirmUsageSession(): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const session = await this.loadUsageSession()
+      if (!session || !session.provisionalOpening) {
+        return
+      }
+      const store = await this.getStore()
+      await store.put('usageSessionProvisionalOpening', false)
+      await store.flush()
+    })
+  }
+
+  async clearExpiredProvisionalUsageState(nowMillis: number, maxAgeMillis: number): Promise<boolean> {
+    return await STORE_STATE_LOCK.lockAsync(async () => {
+      const session = await this.loadUsageSession()
+      if (!session || !session.isExpiredProvisionalOpening(nowMillis, maxAgeMillis)) {
+        return false
+      }
+      const store = await this.getStore()
+      await store.put('orderNo', '')
+      await store.put('orderClearedAt', nowMillis)
+      await store.delete('usageStartedAtMillis')
+      await store.delete('usageStartBalanceYuan')
+      await store.delete('usageStartBalanceIsBeforePreauthorization')
+      await store.delete('usageSessionProvisionalOpening')
+      await store.flush()
+      return true
+    })
+  }
+
   async saveConsumptionRecord(record: ConsumptionRecord): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => await this.saveConsumptionRecordUnlocked(record))
+  }
+
+  private async saveConsumptionRecordUnlocked(record: ConsumptionRecord): Promise<void> {
     const records = await this.loadConsumptionRecords()
-    records.unshift(record)
+    let replaced = false
+    for (let index = 0; index < records.length; index++) {
+      if (records[index].id === record.id) {
+        if (ConsumptionRecord.canReplaceSettlement(records[index].settlementVerified, record.settlementVerified)) {
+          records[index] = record
+        }
+        replaced = true
+        break
+      }
+    }
+    if (!replaced) {
+      records.unshift(record)
+    }
     if (records.length > 20) {
       records.splice(20)
     }
-    const store = await this.getStore()
-    await store.put('consumptionRecords', JSON.stringify(records))
-    await store.flush()
+    await this.writeConsumptionRecords(records)
+  }
+
+  async updateConsumptionRecord(recordId: number, consumptionYuan: number): Promise<boolean> {
+    return await STORE_STATE_LOCK.lockAsync(async () =>
+      await this.updateConsumptionRecordUnlocked(recordId, consumptionYuan))
+  }
+
+  private async updateConsumptionRecordUnlocked(recordId: number, consumptionYuan: number): Promise<boolean> {
+    if (recordId <= 0 || !Number.isFinite(consumptionYuan) || consumptionYuan < 0) {
+      return false
+    }
+    const records = await this.loadConsumptionRecords()
+    for (let index = 0; index < records.length; index++) {
+      if (records[index].id === recordId) {
+        records[index].consumptionYuan = consumptionYuan
+        records[index].settlementVerified = true
+        await this.writeConsumptionRecords(records)
+        return true
+      }
+    }
+    return false
   }
 
   async loadConsumptionRecords(): Promise<ConsumptionRecord[]> {
@@ -120,9 +243,15 @@ export class HotWaterStore {
       parsed.forEach((item) => {
         const record = new ConsumptionRecord()
         record.id = Number(item['id'])
+        record.orderNo = String(item['orderNo'] ?? '')
         record.startedAtMillis = Number(item['startedAtMillis'])
         record.endedAtMillis = Number(item['endedAtMillis'])
-        record.consumptionYuan = Number(item['consumptionYuan'])
+        const parsedConsumptionYuan = Number(item['consumptionYuan'])
+        record.settlementVerified = Boolean(item['settlementVerified'])
+        record.consumptionYuan = Number.isFinite(parsedConsumptionYuan) &&
+          (record.settlementVerified || parsedConsumptionYuan > 0)
+          ? parsedConsumptionYuan
+          : -1
         record.usageDurationMillis = Number(item['usageDurationMillis'])
         if (record.id > 0) {
           records.push(record)
@@ -132,6 +261,301 @@ export class HotWaterStore {
     } catch (error) {
       return []
     }
+  }
+
+  async loadPendingSettlements(): Promise<PendingSettlement[]> {
+    const store = await this.getStore()
+    const rawValue = String(await store.get('pendingSettlements', ''))
+    if (rawValue.length === 0) {
+      return []
+    }
+    try {
+      const parsed = JSON.parse(rawValue) as Array<Record<string, Object>>
+      const pendingSettlements: PendingSettlement[] = []
+      parsed.forEach((item) => {
+        const pending = new PendingSettlement()
+        pending.orderNo = String(item['orderNo'] ?? '')
+        pending.recordId = Number(item['recordId'])
+        pending.startedAtMillis = Number(item['startedAtMillis'])
+        pending.endedAtMillis = Number(item['endedAtMillis'])
+        pending.startBalanceYuan = Number(item['startBalanceYuan'])
+        pending.activeBalanceYuan = Number(item['activeBalanceYuan'])
+        const parsedConfirmedConsumptionYuan = Number(item['confirmedConsumptionYuan'])
+        pending.confirmedConsumptionYuan = Number.isFinite(parsedConfirmedConsumptionYuan)
+          ? parsedConfirmedConsumptionYuan
+          : -1
+        pending.balanceFallbackEligible = Boolean(item['balanceFallbackEligible'])
+        if (pending.orderNo.length > 0 && pending.recordId > 0) {
+          pendingSettlements.push(pending)
+        }
+      })
+      return pendingSettlements
+    } catch (error) {
+      return []
+    }
+  }
+
+  async savePendingSettlement(pending: PendingSettlement): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => await this.savePendingSettlementUnlocked(pending))
+  }
+
+  private async savePendingSettlementUnlocked(pending: PendingSettlement): Promise<void> {
+    const pendingSettlements = await this.loadPendingSettlements()
+    pending.balanceFallbackEligible = true
+    let replaced = false
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      pendingSettlements[index].balanceFallbackEligible = false
+    }
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      if (pendingSettlements[index].recordId === pending.recordId ||
+        pendingSettlements[index].orderNo === pending.orderNo) {
+        pendingSettlements[index] = pending
+        replaced = true
+        break
+      }
+    }
+    if (!replaced) {
+      pendingSettlements.unshift(pending)
+    }
+    if (pendingSettlements.length > 20) {
+      pendingSettlements.splice(20)
+    }
+    await this.writePendingSettlements(pendingSettlements)
+  }
+
+  async savePendingSettlementContext(
+    record: ConsumptionRecord,
+    pending: PendingSettlement
+  ): Promise<ConsumptionRecord> {
+    return await STORE_STATE_LOCK.lockAsync(async () =>
+      await this.savePendingSettlementContextUnlocked(record, pending))
+  }
+
+  private async savePendingSettlementContextUnlocked(
+    record: ConsumptionRecord,
+    pending: PendingSettlement
+  ): Promise<ConsumptionRecord> {
+    const records = await this.loadConsumptionRecords()
+    const pendingSettlements = await this.loadPendingSettlements()
+    let persistedRecord = record
+    let existingPendingFound = false
+
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      const existingPending = pendingSettlements[index]
+      if (existingPending.orderNo !== pending.orderNo) {
+        continue
+      }
+      existingPendingFound = true
+      pending.recordId = existingPending.recordId
+      pending.startedAtMillis = existingPending.startedAtMillis
+      pending.endedAtMillis = existingPending.endedAtMillis
+      if (existingPending.startBalanceYuan >= 0) {
+        pending.startBalanceYuan = existingPending.startBalanceYuan
+      }
+      if (existingPending.activeBalanceYuan >= 0) {
+        pending.activeBalanceYuan = existingPending.activeBalanceYuan
+      }
+      if (existingPending.confirmedConsumptionYuan >= 0) {
+        pending.confirmedConsumptionYuan = existingPending.confirmedConsumptionYuan
+      }
+      for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
+        if (records[recordIndex].id === existingPending.recordId) {
+          persistedRecord = records[recordIndex]
+          break
+        }
+      }
+      if (persistedRecord.id !== existingPending.recordId) {
+        persistedRecord.id = existingPending.recordId
+        persistedRecord.startedAtMillis = existingPending.startedAtMillis
+        persistedRecord.endedAtMillis = existingPending.endedAtMillis
+        persistedRecord.usageDurationMillis = Math.max(
+          0,
+          existingPending.endedAtMillis - existingPending.startedAtMillis
+        )
+      }
+      break
+    }
+
+    for (let index = 0; index < records.length; index++) {
+      const existingRecord = records[index]
+      if (existingRecord.orderNo !== pending.orderNo) {
+        continue
+      }
+      if (!existingPendingFound || existingRecord.settlementVerified) {
+        persistedRecord = existingRecord
+      }
+      if (existingRecord.settlementVerified) {
+        break
+      }
+    }
+    persistedRecord.orderNo = pending.orderNo
+
+    const updatedRecords: ConsumptionRecord[] = []
+    let recordInserted = false
+    for (let index = 0; index < records.length; index++) {
+      const matchesOrder = pending.orderNo.length > 0 && records[index].orderNo === pending.orderNo
+      if (records[index].id === persistedRecord.id || matchesOrder) {
+        if (!recordInserted) {
+          updatedRecords.push(persistedRecord)
+          recordInserted = true
+        }
+      } else {
+        updatedRecords.push(records[index])
+      }
+    }
+    if (!recordInserted) {
+      updatedRecords.unshift(persistedRecord)
+    }
+    if (updatedRecords.length > 20) {
+      updatedRecords.splice(20)
+    }
+
+    pending.recordId = persistedRecord.id
+    pending.startedAtMillis = persistedRecord.startedAtMillis
+    pending.endedAtMillis = persistedRecord.endedAtMillis
+    pending.balanceFallbackEligible = true
+    const updatedPendingSettlements: PendingSettlement[] = []
+    let pendingInserted = false
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      pendingSettlements[index].balanceFallbackEligible = false
+      if (pendingSettlements[index].recordId === pending.recordId ||
+        pendingSettlements[index].orderNo === pending.orderNo) {
+        if (persistedRecord.settlementVerified &&
+          pendingSettlements[index].confirmedConsumptionYuan >= 0 && !pendingInserted) {
+          updatedPendingSettlements.push(pendingSettlements[index])
+          pendingInserted = true
+        } else if (!persistedRecord.settlementVerified && !pendingInserted) {
+          updatedPendingSettlements.push(pending)
+          pendingInserted = true
+        }
+      } else {
+        updatedPendingSettlements.push(pendingSettlements[index])
+      }
+    }
+    if (!persistedRecord.settlementVerified && !pendingInserted) {
+      updatedPendingSettlements.unshift(pending)
+    }
+    if (updatedPendingSettlements.length > 20) {
+      updatedPendingSettlements.splice(20)
+    }
+
+    const store = await this.getStore()
+    await store.put('consumptionRecords', JSON.stringify(updatedRecords))
+    if (updatedPendingSettlements.length === 0) {
+      await store.delete('pendingSettlements')
+    } else {
+      await store.put('pendingSettlements', JSON.stringify(updatedPendingSettlements))
+    }
+    await store.put('orderNo', '')
+    await store.put('orderClearedAt', Date.now())
+    await store.delete('usageStartedAtMillis')
+    await store.delete('usageStartBalanceYuan')
+    await store.delete('usageStartBalanceIsBeforePreauthorization')
+    await store.delete('usageSessionProvisionalOpening')
+    await store.flush()
+    return persistedRecord
+  }
+
+  async finalizePendingSettlement(
+    record: ConsumptionRecord,
+    orderNo: string,
+    keepPendingForBalance: boolean = false
+  ): Promise<ConsumptionRecord> {
+    return await STORE_STATE_LOCK.lockAsync(async () =>
+      await this.finalizePendingSettlementUnlocked(record, orderNo, keepPendingForBalance))
+  }
+
+  private async finalizePendingSettlementUnlocked(
+    record: ConsumptionRecord,
+    orderNo: string,
+    keepPendingForBalance: boolean
+  ): Promise<ConsumptionRecord> {
+    record.orderNo = orderNo
+    const records = await this.loadConsumptionRecords()
+    let persistedRecord = record
+    const updatedRecords: ConsumptionRecord[] = []
+    let recordInserted = false
+    for (let index = 0; index < records.length; index++) {
+      const existingRecord = records[index]
+      const matchesOrder = orderNo.length > 0 && existingRecord.orderNo === orderNo
+      if (existingRecord.id === record.id || matchesOrder) {
+        if (!recordInserted) {
+          persistedRecord = existingRecord.settlementVerified ? existingRecord : record
+          updatedRecords.push(persistedRecord)
+          recordInserted = true
+        }
+      } else {
+        updatedRecords.push(existingRecord)
+      }
+    }
+    if (!recordInserted) {
+      updatedRecords.unshift(record)
+      persistedRecord = record
+    }
+    if (updatedRecords.length > 20) {
+      updatedRecords.splice(20)
+    }
+
+    const pendingSettlements = await this.loadPendingSettlements()
+    const retainedPendingSettlements: PendingSettlement[] = []
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      const pending = pendingSettlements[index]
+      if (orderNo.length > 0 && pending.orderNo === orderNo && pending.recordId !== persistedRecord.id) {
+        pending.recordId = persistedRecord.id
+        pending.startedAtMillis = persistedRecord.startedAtMillis
+        pending.endedAtMillis = persistedRecord.endedAtMillis
+      }
+      const matchesOrder = orderNo.length === 0 || pending.orderNo === orderNo
+      const matchesSettlement = pending.recordId === persistedRecord.id && matchesOrder
+      if (matchesSettlement && persistedRecord.settlementVerified && keepPendingForBalance) {
+        pending.confirmedConsumptionYuan = persistedRecord.consumptionYuan
+        pending.balanceFallbackEligible = false
+        retainedPendingSettlements.push(pending)
+      } else if (!matchesSettlement || !persistedRecord.settlementVerified) {
+        retainedPendingSettlements.push(pending)
+      }
+    }
+
+    const store = await this.getStore()
+    await store.put('consumptionRecords', JSON.stringify(updatedRecords))
+    if (retainedPendingSettlements.length === 0) {
+      await store.delete('pendingSettlements')
+    } else {
+      await store.put('pendingSettlements', JSON.stringify(retainedPendingSettlements))
+    }
+    await store.flush()
+    return persistedRecord
+  }
+
+  async removePendingSettlement(recordId: number): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => await this.removePendingSettlementUnlocked(recordId))
+  }
+
+  private async removePendingSettlementUnlocked(recordId: number): Promise<void> {
+    const pendingSettlements = await this.loadPendingSettlements()
+    const retained: PendingSettlement[] = []
+    pendingSettlements.forEach((pending) => {
+      if (pending.recordId !== recordId) {
+        retained.push(pending)
+      }
+    })
+    await this.writePendingSettlements(retained)
+  }
+
+  private async writeConsumptionRecords(records: ConsumptionRecord[]): Promise<void> {
+    const store = await this.getStore()
+    await store.put('consumptionRecords', JSON.stringify(records))
+    await store.flush()
+  }
+
+  private async writePendingSettlements(pendingSettlements: PendingSettlement[]): Promise<void> {
+    const store = await this.getStore()
+    if (pendingSettlements.length === 0) {
+      await store.delete('pendingSettlements')
+    } else {
+      await store.put('pendingSettlements', JSON.stringify(pendingSettlements))
+    }
+    await store.flush()
   }
 
   async shouldIgnoreRecoveredOrder(): Promise<boolean> {

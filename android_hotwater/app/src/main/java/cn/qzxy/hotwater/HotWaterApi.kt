@@ -16,7 +16,19 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class HotWaterApi {
+interface HotWaterRemoteDataSource {
+    suspend fun userInfo(config: HotWaterConfig): JSONObject
+    suspend fun deviceInfo(config: HotWaterConfig): JSONObject
+    suspend fun balance(config: HotWaterConfig): JSONObject
+    suspend fun status(config: HotWaterConfig): JSONObject
+    suspend fun openHotWater(config: HotWaterConfig): JSONObject
+    suspend fun openResult(config: HotWaterConfig, orderNo: String?): JSONObject
+    suspend fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject
+    suspend fun closeResult(config: HotWaterConfig, orderNo: String): JSONObject
+    suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject
+}
+
+class HotWaterApi : HotWaterRemoteDataSource {
     companion object {
         private const val BASE_URL = "https://v3-api.china-qzxy.cn"
 
@@ -33,7 +45,7 @@ class HotWaterApi {
 
     private val client = sharedClient
 
-    suspend fun userInfo(config: HotWaterConfig): JSONObject {
+    override suspend fun userInfo(config: HotWaterConfig): JSONObject {
         return get(
             "/user/info",
             mapOf(
@@ -44,7 +56,7 @@ class HotWaterApi {
         )
     }
 
-    suspend fun deviceInfo(config: HotWaterConfig): JSONObject {
+    override suspend fun deviceInfo(config: HotWaterConfig): JSONObject {
         return get(
             "/device/info/mac",
             baseQuery(config) + mapOf(
@@ -55,7 +67,7 @@ class HotWaterApi {
         )
     }
 
-    suspend fun balance(config: HotWaterConfig): JSONObject {
+    override suspend fun balance(config: HotWaterConfig): JSONObject {
         return get(
             "/account/wallet/money",
             mapOf(
@@ -70,30 +82,30 @@ class HotWaterApi {
         )
     }
 
-    suspend fun status(config: HotWaterConfig): JSONObject {
+    override suspend fun status(config: HotWaterConfig): JSONObject {
         return postForm("/order/tcpDevice/query/rateOrder/using", buildForm(config))
     }
 
-    suspend fun openHotWater(config: HotWaterConfig): JSONObject {
+    override suspend fun openHotWater(config: HotWaterConfig): JSONObject {
         return postForm(
             "/order/ali/tcpDevice/downRate/rateOrder",
             buildForm(config) + ("orderAuthCode" to ""),
         )
     }
 
-    suspend fun openResult(config: HotWaterConfig, orderNo: String?): JSONObject {
+    override suspend fun openResult(config: HotWaterConfig, orderNo: String?): JSONObject {
         return postForm("/order/tcpDevice/query/downRateResult", buildForm(config, orderNo))
     }
 
-    suspend fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject {
+    override suspend fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/tcpDevice/closeOrder", buildForm(config, orderNo))
     }
 
-    suspend fun closeResult(config: HotWaterConfig, orderNo: String): JSONObject {
+    override suspend fun closeResult(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/tcpDevice/closeOrder/result/query", buildForm(config, orderNo))
     }
 
-    suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
+    override suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/consumeOrder/result/query", buildForm(config, orderNo))
     }
 

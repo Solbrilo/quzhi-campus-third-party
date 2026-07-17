@@ -1,40 +1,39 @@
 # Release Guide
 
-This repository is the single source and release repository for both clients. Only Android is
-actively published. HarmonyOS stays at `1.3.0` and ignores Android-only Releases.
+This repository is the single source and release repository for the Android and HarmonyOS clients.
+Both clients use the same formal Gitee Release and version tag.
 
-## Android
+## Shared Release
 
 - Update API: `https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases/latest`
 - Release tag: `vX.Y.Z`
-- Required asset: `hotwater-android-vX.Y.Z.apk`
-- Source milestone tag: `android-vX.Y.Z`
+- Release display name: `water`
+- Android asset: `hotwater-android-vX.Y.Z.apk`
+- HarmonyOS asset: `hotwater-harmony-vX.Y.Z.hap`
+
+Both clients require an exact `vX.Y.Z` tag and exact asset filename. A missing platform asset makes
+that client ignore the Release without presenting an invalid update.
+
+## Android
 
 The Android APK must keep application ID `cn.qzxy.hotwater`, the existing signing certificate,
-and APK Signature Scheme v2. Both tags point to the release commit. The formal Gitee Release uses
-`vX.Y.Z`; `android-vX.Y.Z` makes the source milestone explicit without splitting repositories.
+and APK Signature Scheme v2. The optional `android-vX.Y.Z` tag is retained only as a historical
+source milestone and must point to the same commit as the formal Release tag.
 
 ## HarmonyOS
 
-HarmonyOS has no active binary release. Its updater reads the same latest Release but accepts an
-update only when all of these conditions are true:
+The HarmonyOS HAP must keep bundle name `cn.qzxy.hotwater.hm`, use the configured HarmonyOS signing
+identity, and be uploaded with the exact shared Release version. Its updater validates both the
+Release tag and the HarmonyOS asset name before showing an update.
 
-- The Release tag is exactly `vX.Y.Z`.
-- The version is newer than the installed HarmonyOS version.
-- The Release contains `hotwater-harmony-vX.Y.Z.hap`.
+## v1.5.0 Checklist
 
-An Android Release contains only the APK, so the HarmonyOS client ignores it without showing the
-automatic update dialog. Do not upload a HarmonyOS HAP unless HarmonyOS publishing is explicitly
-resumed in a future change.
-
-## Android v1.4.1 Checklist
-
-1. Set Android to `versionCode 14` and `versionName 1.4.1`.
-2. Keep HarmonyOS at `versionCode 1003000` and `versionName 1.3.0`.
-3. Run unit tests, connected UI tests, release lint, and the release build.
-4. Verify package name, v2 signature certificate, byte count, and SHA-256.
-5. Commit the source and push `main` plus source milestone tag `android-v1.4.1`.
-6. Create Release `v1.4.1` named `water` in this repository.
-7. Upload `hotwater-android-v1.4.1.apk` and verify it through an anonymous download.
-8. Confirm `/releases/latest` returns `v1.4.1` with the exact Android APK asset.
-9. Confirm the same payload has no HarmonyOS HAP, so HarmonyOS ignores it.
+1. Set Android to `versionCode 18` and `versionName 1.5.0`.
+2. Set HarmonyOS to `versionCode 1005000` and `versionName 1.5.0`.
+3. Run Android unit tests and release lint, then build the signed release APK.
+4. Run HarmonyOS unit tests and build the signed release HAP.
+5. Verify package identifiers, signing certificates, byte counts, and SHA-256 hashes.
+6. Commit all source changes and push `main`.
+7. Create annotated tags `v1.5.0` and `android-v1.5.0` at the release commit, then push them.
+8. Create Gitee Release `v1.5.0` named `water` and upload both platform assets.
+9. Verify the anonymous Release API and both asset downloads.

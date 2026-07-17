@@ -6,6 +6,7 @@ import android.service.quicksettings.TileService
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import kotlinx.coroutines.CancellationException
 
 enum class WidgetHotWaterAction {
     OPEN,
@@ -45,6 +46,13 @@ class HotWaterWidgetActionWorker(
                 WidgetHotWaterAction.OPEN -> repository.open(config)
                 WidgetHotWaterAction.CLOSE -> repository.close(config)
             }.also { result ->
+                store.saveOperationResultHistory(
+                    type = when (action) {
+                        WidgetHotWaterAction.OPEN -> OperationHistory.OperationType.OPEN
+                        WidgetHotWaterAction.CLOSE -> OperationHistory.OperationType.CLOSE
+                    },
+                    result = result,
+                )
                 val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
                     title = if (deviceBusyByOther) {
@@ -66,6 +74,8 @@ class HotWaterWidgetActionWorker(
                 refreshTile(applicationContext)
             }
             Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             store.saveWidgetState(
                 title = when (action) {
