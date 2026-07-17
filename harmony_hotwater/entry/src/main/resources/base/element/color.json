@@ -14,7 +14,7 @@
     },
     {
       "name": "text_secondary",
-      "value": "#63708A"
+      "value": "#606D86"
     },
     {
       "name": "text_chip",
@@ -89,8 +89,24 @@
       "value": "#6F97FF"
     },
     {
+      "name": "accent_text",
+      "value": "#3A67B3"
+    },
+    {
+      "name": "accent_button_background",
+      "value": "#3A67B3"
+    },
+    {
+      "name": "accent_button_text",
+      "value": "#F7FAFF"
+    },
+    {
       "name": "close_accent",
       "value": "#FF9D84"
+    },
+    {
+      "name": "error_text",
+      "value": "#B84B36"
     },
     {
       "name": "input_background",

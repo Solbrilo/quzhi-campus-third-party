@@ -4,6 +4,7 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -91,6 +92,14 @@ class HotWaterTileService : TileService() {
                 val result = withContext(Dispatchers.IO) {
                     if (shouldClose) repository.close(config) else repository.open(config)
                 }
+                store.saveOperationResultHistory(
+                    type = if (shouldClose) {
+                        OperationHistory.OperationType.CLOSE
+                    } else {
+                        OperationHistory.OperationType.OPEN
+                    },
+                    result = result,
+                )
 
                 // 操作成功
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
@@ -120,6 +129,8 @@ class HotWaterTileService : TileService() {
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 // 操作失败，恢复状态
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)

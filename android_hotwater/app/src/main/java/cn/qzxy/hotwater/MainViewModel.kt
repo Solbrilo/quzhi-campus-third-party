@@ -87,7 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return false
         }
         val snapshot = _snapshot.value ?: return false
-        return snapshot.balanceLabel != "--" && snapshot.balanceYuan < LOW_BALANCE_WARNING_YUAN
+        return snapshot.balanceYuan?.let { it < LOW_BALANCE_WARNING_YUAN } == true
     }
 
     fun clearFeedbackEvent() {
@@ -168,17 +168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                // 保存成功历史
-                val operationSucceeded = result.outcome == OperationOutcome.SUCCESS
-                val history = OperationHistory(
-                    type = operationType,
-                    success = operationSucceeded,
-                    message = HotWaterUiText.firstMeaningfulLine(result.summary),
-                    consumptionYuan = result.consumptionYuan,
-                    usageDurationMillis = result.usageDurationMillis,
-                    usageStartedAtMillis = result.usageStartedAtMillis,
-                )
-                store.saveHistory(history)
+                store.saveOperationResultHistory(operationType, result)
                 _history.value = store.loadHistory()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -219,7 +209,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildPlaceholderSnapshot(config: HotWaterConfig): DashboardSnapshot {
         val cachedOrderNo = store.loadOrderNo()
         return DashboardSnapshot(
-            balanceYuan = 0.0,
+            balanceYuan = null,
             balanceLabel = "--",
             userLabel = config.telephone.takeIf { it.isNotBlank() }
                 ?.let { HotWaterConfig.maskMiddle(it, 3, 4) }

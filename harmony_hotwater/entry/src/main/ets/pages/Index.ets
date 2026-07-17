@@ -3,8 +3,10 @@ import picker from '@ohos.file.picker'
 import fs from '@ohos.file.fs'
 import window from '@ohos.window'
 import bundleManager from '@ohos.bundle.bundleManager'
-import router from '@ohos.router'
 import { Want } from '@kit.AbilityKit'
+import { SymbolGlyphModifier } from '@kit.ArkUI'
+import { BlurStrategy, DividerMode, HdsTabs } from '@hms.hds.hdsBaseComponent'
+import { hdsMaterial } from '@hms.hds.hdsMaterial'
 import { CaptureParser } from '../common/CaptureParser'
 import { ConsumptionRecord, DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
 import { HotWaterRepository } from '../common/HotWaterRepository'
@@ -54,8 +56,7 @@ struct Index {
   @State usageElapsedMillis: number = 0
   @State consumptionRecords: ConsumptionRecord[] = []
   private usageTimerGeneration: number = 0
-  @State aboutMenuVisible: boolean = false
-  @State currentVersionLabel: string = '1.4.1'
+  @State currentVersionLabel: string = '1.5.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -71,6 +72,7 @@ struct Index {
   @State ringAngle: number = 0
   @State refreshIconAngle: number = 0
   @StorageProp('statusBarHeight') statusBarHeight: number = 0
+  @StorageProp('bottomSafeHeight') bottomSafeHeight: number = 0
   @StorageProp('colorMode') colorMode: ColorMode = ColorMode.LIGHT
 
   aboutToAppear(): void {
@@ -276,6 +278,7 @@ struct Index {
     try {
       const result = await this.repository.check(config)
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
+      await this.loadConsumptionRecords()
       this.liveStatus = result.summary.split('\n')[0]
     } catch (error) {
       this.liveStatus = `刷新失败：${String(error)}`
@@ -305,13 +308,6 @@ struct Index {
       const result = this.hasCachedOrder ? await this.repository.close(config) : await this.repository.open(config)
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
       if (result.usageDurationMillis >= 0 && this.store) {
-        const record = new ConsumptionRecord()
-        record.id = Date.now()
-        record.endedAtMillis = Date.now()
-        record.usageDurationMillis = result.usageDurationMillis
-        record.startedAtMillis = record.endedAtMillis - result.usageDurationMillis
-        record.consumptionYuan = result.consumptionYuan
-        await this.store.saveConsumptionRecord(record)
         await this.loadConsumptionRecords()
       }
       this.liveStatus = result.summary.split('\n')[0]
@@ -461,13 +457,16 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '1.3.1'
+      this.currentVersionLabel = '1.5.0'
     }
   }
 
-  private openAbout(): void {
-    this.aboutMenuVisible = false
-    router.pushUrl({ url: 'pages/About' })
+  private async openAbout(): Promise<void> {
+    try {
+      await this.getUIContext().getRouter().pushUrl({ url: 'pages/About' })
+    } catch (error) {
+      this.liveStatus = '暂时无法打开关于页面。'
+    }
   }
 
   private async checkForUpdates(showDialogWhenAvailable: boolean = false): Promise<void> {
@@ -506,11 +505,13 @@ struct Index {
       Row() {
         Column({ space: 4 }) {
           Text('趣智校园热水')
-            .fontSize(30)
+            .fontSize(26)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.text_primary'))
-          Text('HarmonyOS 迁移版 · 导入抓包后可直接刷新余额和开关热水')
-            .fontSize(14)
+          Text(this.activePage === HomePage.OPERATIONS
+            ? '用水控制'
+            : (this.activePage === HomePage.RECORDS ? '消费记录' : '设备与账号'))
+            .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
         }
         .layoutWeight(1)
@@ -522,146 +523,19 @@ struct Index {
           .width(40)
           .height(40)
           .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.aboutMenuVisible = !this.aboutMenuVisible
-          })
+          .accessibilityText('更多')
+          .bindMenu([{
+            value: '关于',
+            action: () => {
+              this.openAbout()
+            }
+          }])
       }
       .width('100%')
       .alignItems(VerticalAlign.Top)
-
-      if (this.aboutMenuVisible) {
-        Row() {
-          Row().layoutWeight(1)
-          Text('关于')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.text_primary'))
-            .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-            .backgroundColor($r('app.color.card_background'))
-            .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
-            .borderRadius(14)
-            .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
-            .onClick(() => {
-              this.openAbout()
-            })
-        }
-        .width('100%')
-      }
     }
     .width('100%')
     .padding({ top: this.statusBarHeight > 0 ? this.statusBarHeight : 0 })
-  }
-
-  @Builder
-  private PageSwitcher(): void {
-    Stack() {
-      // 背景玻璃容器
-      Row()
-        .width('100%')
-        .height(48)
-        .borderRadius(28)
-        .linearGradient({
-          angle: 180,
-          colors: [
-            [$r('app.color.glass_panel_start'), 0.0],
-            [$r('app.color.glass_panel_middle'), 0.5],
-            [$r('app.color.glass_panel_end'), 1.0]
-          ]
-        })
-        .backgroundBlurStyle(BlurStyle.BACKGROUND_REGULAR)
-        .backdropBlur(28)
-        .border({
-          width: 0.5,
-          color: $r('app.color.glass_border'),
-          style: BorderStyle.Solid
-        })
-        .shadow({
-          radius: 16,
-          color: $r('app.color.glass_shadow_primary'),
-          offsetX: 0,
-          offsetY: 4
-        })
-        .shadow({
-          radius: 8,
-          color: $r('app.color.glass_shadow_secondary'),
-          offsetX: 0,
-          offsetY: 1
-        })
-
-      // 滑块 - 带光晕渐变
-      Row()
-        .width('30%')
-        .height(36)
-        .borderRadius(22)
-        .linearGradient({
-          angle: 135,
-          colors: [
-            [$r('app.color.accent_gradient_start'), 0.0],
-            [$r('app.color.accent_gradient_end'), 1.0]
-          ]
-        })
-        .shadow({
-          radius: 14,
-          color: $r('app.color.accent_shadow_primary'),
-          offsetX: 0,
-          offsetY: 4
-        })
-        .shadow({
-          radius: 4,
-          color: $r('app.color.accent_shadow_secondary'),
-          offsetX: 0,
-          offsetY: 1
-        })
-        .offset({
-          x: this.activePage === HomePage.OPERATIONS
-            ? '-33%'
-            : (this.activePage === HomePage.RECORDS ? '0%' : '33%')
-        })
-        .animation({
-          duration: 350,
-          curve: Curve.EaseInOut
-        })
-
-      Row({ space: 0 }) {
-        Text('操作页')
-          .fontSize(14)
-          .fontWeight(this.activePage === HomePage.OPERATIONS ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.activePage === HomePage.OPERATIONS ? Color.White : $r('app.color.switch_inactive_text'))
-          .width('33.33%')
-          .height(48)
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.switchPage(HomePage.OPERATIONS)
-          })
-
-        Text('记录页')
-          .fontSize(14)
-          .fontWeight(this.activePage === HomePage.RECORDS ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.activePage === HomePage.RECORDS ? Color.White : $r('app.color.switch_inactive_text'))
-          .width('33.33%')
-          .height(48)
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.loadConsumptionRecords()
-            this.switchPage(HomePage.RECORDS)
-          })
-
-        Text('配置页')
-          .fontSize(14)
-          .fontWeight(this.activePage === HomePage.CONFIG ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.activePage === HomePage.CONFIG ? Color.White : $r('app.color.switch_inactive_text'))
-          .width('33.33%')
-          .height(48)
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.switchPage(HomePage.CONFIG)
-          })
-      }
-      .width('100%')
-    }
-    .width('100%')
-    .height(52)
-    .backdropBlur(14)
   }
 
   @Builder
@@ -724,7 +598,7 @@ struct Index {
           Text(`开启时长 ${this.formatUsageDuration(this.usageElapsedMillis)}`)
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.accent'))
+            .fontColor($r('app.color.accent_text'))
             .width('100%')
         }
 
@@ -817,6 +691,7 @@ struct Index {
           }
 
           Button(this.hasCachedOrder ? '关' : '开')
+            .type(ButtonType.Circle)
             .width(204)
             .height(204)
             .borderRadius(102)
@@ -847,7 +722,7 @@ struct Index {
       .height(290)
     }
     .width('100%')
-    .padding({ bottom: 70 })
+    .padding({ bottom: 96 + this.bottomSafeHeight })
   }
 
   @Builder
@@ -858,7 +733,7 @@ struct Index {
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
-        Text('记录已结束的热水使用，金额按余额变化计算。')
+        Text('记录已结束的热水使用，优先读取订单结算，并通过余额变化校验。')
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'))
       }
@@ -896,10 +771,10 @@ struct Index {
               }
               .layoutWeight(1)
 
-              Text(record.consumptionYuan >= 0 ? `¥ ${record.consumptionYuan.toFixed(2)}` : '待同步')
+              Text(record.getConsumptionLabel())
                 .fontSize(18)
                 .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.close_accent'))
+                .fontColor($r('app.color.error_text'))
             }
             .width('100%')
 
@@ -926,7 +801,7 @@ struct Index {
       }
     }
     .width('100%')
-    .padding({ bottom: 70 })
+    .padding({ bottom: 96 + this.bottomSafeHeight })
   }
 
   @Builder
@@ -956,8 +831,8 @@ struct Index {
           Button('保存配置')
             .layoutWeight(1)
             .type(ButtonType.Capsule)
-            .backgroundColor($r('app.color.accent'))
-            .fontColor(Color.White)
+            .backgroundColor($r('app.color.accent_button_background'))
+            .fontColor($r('app.color.accent_button_text'))
             .enabled(!this.busy)
             .onClick(() => {
               this.saveConfig()
@@ -1086,90 +961,125 @@ struct Index {
       .margin({ left: 2, right: 2, top: 2, bottom: 2 })
     }
     .width('100%')
-    .padding({ bottom: 70 })
+    .padding({ bottom: 96 + this.bottomSafeHeight })
   }
 
   build() {
-    Stack() {
-      Circle()
-        .width(340)
-        .height(340)
-        .fill($r('app.color.decor_blue_large'))
-        .opacity(0.22)
-        .align(Alignment.TopEnd)
-        .offset({ x: 90, y: -100 })
+    Column({ space: 8 }) {
+      this.TopHeader()
 
-      Circle()
-        .width(200)
-        .height(200)
-        .fill($r('app.color.decor_blue_small'))
-        .opacity(0.16)
-        .align(Alignment.TopStart)
-        .offset({ x: -60, y: 80 })
-
-      Circle()
-        .width(280)
-        .height(280)
-        .fill($r('app.color.decor_peach_large'))
-        .opacity(0.15)
-        .align(Alignment.BottomEnd)
-        .offset({ x: 40, y: 80 })
-
-      Circle()
-        .width(160)
-        .height(160)
-        .fill($r('app.color.decor_peach_small'))
-        .opacity(0.12)
-        .align(Alignment.BottomStart)
-        .offset({ x: -30, y: -20 })
-
-      Column({ space: 18 }) {
-        this.TopHeader()
-
-        Stack({ alignContent: Alignment.Bottom }) {
+      HdsTabs({ index: this.activePage }) {
+        TabContent() {
           Scroll() {
-            Column({ space: 16 }) {
-              Column() {
-                if (this.activePage === HomePage.OPERATIONS) {
-                  this.OperationsPage()
-                } else if (this.activePage === HomePage.RECORDS) {
-                  this.RecordsPage()
-                } else {
-                  this.ConfigPage()
-                }
-              }
-              .width('100%')
-              .transition(
-                TransitionEffect.asymmetric(
-                  TransitionEffect.OPACITY
-                    .combine(TransitionEffect.translate({ x: -36 }))
-                    .animation({ duration: 360, curve: Curve.EaseInOut }),
-                  TransitionEffect.OPACITY
-                    .combine(TransitionEffect.translate({ x: 24 }))
-                    .animation({ duration: 240, curve: Curve.EaseInOut })
-                )
-              )
-            }
-            .width('100%')
-            .padding({ left: 2, right: 2 })
+            this.OperationsPage()
           }
           .scrollBar(BarState.Off)
           .width('100%')
           .height('100%')
-
-          Row() {
-            this.PageSwitcher()
-          }
-          .width('100%')
-          .padding({ left: 18, right: 18, bottom: 8 })
+          .edgeEffect(EdgeEffect.Spring)
         }
-        .layoutWeight(1)
-        .width('100%')
+        .tabBar(
+          BottomTabBarStyle.of({
+            normal: new SymbolGlyphModifier($r('sys.symbol.drop'))
+          }, '用水')
+            .layoutMode(LayoutMode.VERTICAL)
+            .verticalAlign(VerticalAlign.Center)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .iconStyle({
+              selectedColor: $r('app.color.accent_text'),
+              unselectedColor: $r('app.color.text_secondary')
+            })
+            .labelStyle({
+              selectedColor: $r('app.color.accent_text'),
+              unselectedColor: $r('app.color.text_secondary')
+            })
+        )
+
+        TabContent() {
+          Scroll() {
+            this.RecordsPage()
+          }
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .height('100%')
+          .edgeEffect(EdgeEffect.Spring)
+        }
+        .tabBar(
+          BottomTabBarStyle.of({
+            normal: new SymbolGlyphModifier($r('sys.symbol.list_square_bill'))
+          }, '记录')
+            .layoutMode(LayoutMode.VERTICAL)
+            .verticalAlign(VerticalAlign.Center)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .iconStyle({
+              selectedColor: $r('app.color.accent_text'),
+              unselectedColor: $r('app.color.text_secondary')
+            })
+            .labelStyle({
+              selectedColor: $r('app.color.accent_text'),
+              unselectedColor: $r('app.color.text_secondary')
+            })
+        )
+
+        TabContent() {
+          Scroll() {
+            this.ConfigPage()
+          }
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .height('100%')
+          .edgeEffect(EdgeEffect.Spring)
+        }
+        .tabBar(
+          BottomTabBarStyle.of({
+            normal: new SymbolGlyphModifier($r('sys.symbol.person_badge_gearshape'))
+          }, '配置')
+            .layoutMode(LayoutMode.VERTICAL)
+            .verticalAlign(VerticalAlign.Center)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .iconStyle({
+              selectedColor: $r('app.color.accent_text'),
+              unselectedColor: $r('app.color.text_secondary')
+            })
+            .labelStyle({
+              selectedColor: $r('app.color.accent_text'),
+              unselectedColor: $r('app.color.text_secondary')
+            })
+        )
       }
+      .barPosition(BarPosition.End)
+      .barMode(BarMode.Fixed)
+      .barHeight(64)
+      .barOverlap(true)
+      .divider({ mode: DividerMode.NONE })
+      .barBackgroundColor('#00FFFFFF')
+      .barBackgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
+      .blurStrategy(BlurStrategy.ENABLE)
+      .barFloatingStyle({
+        barSideMargin: 10,
+        barBottomMargin: this.bottomSafeHeight > 0 ? this.bottomSafeHeight + 6 : 8,
+        lightColor: $r('app.color.accent'),
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
+        },
+        thermoCtrl: true,
+        barOpacity: 0.92
+      })
+      .animationDuration(300)
+      .onChange((index: number) => {
+        this.activePage = index
+        if (index === HomePage.RECORDS) {
+          this.loadConsumptionRecords()
+        }
+      })
+      .layoutWeight(1)
       .width('100%')
       .height('100%')
-      .padding(20)
     }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16 })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .backgroundColor($r('app.color.app_background'))
   }

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.widget.Toast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -57,6 +58,7 @@ class HotWaterNotificationService : Service() {
             try {
                 val repository = HotWaterRepository(HotWaterApi(), store)
                 val result = withContext(Dispatchers.IO) { repository.close(config) }
+                store.saveOperationResultHistory(OperationHistory.OperationType.CLOSE, result)
                 HotWaterWidgetUi.updateAllWidgets(this@HotWaterNotificationService)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
@@ -65,6 +67,8 @@ class HotWaterNotificationService : Service() {
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
             }
             stopSelf()

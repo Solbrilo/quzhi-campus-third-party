@@ -54,6 +54,7 @@ export class DashboardSnapshot {
   orderNo: string = ''
   hasCachedOrder: boolean = false
   isDeviceBusyByOther: boolean = false
+  remoteOrderConfirmed: boolean = false
 }
 
 export class OperationResult {
@@ -67,15 +68,42 @@ export class OperationResult {
 
 export class UsageSession {
   startedAtMillis: number = 0
-  startBalanceYuan: number = 0
+  startBalanceYuan: number = -1
+  startBalanceIsBeforePreauthorization: boolean = false
+  provisionalOpening: boolean = false
+
+  isExpiredProvisionalOpening(nowMillis: number, maxAgeMillis: number): boolean {
+    if (!this.provisionalOpening || this.startedAtMillis <= 0 || maxAgeMillis < 0) {
+      return false
+    }
+    const ageMillis = nowMillis - this.startedAtMillis
+    return ageMillis >= maxAgeMillis
+  }
+}
+
+export class PendingSettlement {
+  orderNo: string = ''
+  recordId: number = 0
+  startedAtMillis: number = 0
+  endedAtMillis: number = 0
+  startBalanceYuan: number = -1
+  activeBalanceYuan: number = -1
+  confirmedConsumptionYuan: number = -1
+  balanceFallbackEligible: boolean = false
 }
 
 export class ConsumptionRecord {
   id: number = 0
+  orderNo: string = ''
   startedAtMillis: number = 0
   endedAtMillis: number = 0
-  consumptionYuan: number = 0
+  consumptionYuan: number = -1
   usageDurationMillis: number = 0
+  settlementVerified: boolean = false
+
+  static canReplaceSettlement(existingVerified: boolean, incomingVerified: boolean): boolean {
+    return !existingVerified || incomingVerified
+  }
 
   getStartedAtLabel(): string {
     const date = new Date(this.startedAtMillis)
@@ -88,6 +116,17 @@ export class ConsumptionRecord {
 
   getDurationLabel(): string {
     return ConsumptionRecord.formatDuration(this.usageDurationMillis)
+  }
+
+  getConsumptionLabel(): string {
+    if (this.consumptionYuan < 0) {
+      return '待同步'
+    }
+    const normalizedConsumptionYuan = Math.round(this.consumptionYuan * 1000) / 1000
+    if (normalizedConsumptionYuan > 0 && normalizedConsumptionYuan < 0.01) {
+      return '< ¥0.01'
+    }
+    return `¥ ${normalizedConsumptionYuan.toFixed(2)}`
   }
 
   static formatDuration(durationMillis: number): string {

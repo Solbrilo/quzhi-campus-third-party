@@ -1,5 +1,8 @@
 package cn.qzxy.hotwater
 
+import java.math.BigDecimal
+import java.math.RoundingMode
+
 data class OperationHistory(
     val id: Long = System.currentTimeMillis(),
     val type: OperationType,
@@ -9,6 +12,7 @@ data class OperationHistory(
     val consumptionYuan: Double? = null,
     val usageDurationMillis: Long? = null,
     val usageStartedAtMillis: Long? = null,
+    val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
 ) {
     enum class OperationType(val label: String) {
         OPEN("开热水"),
@@ -31,8 +35,12 @@ data class OperationHistory(
     }
 
     fun getConsumptionLabel(): String? {
-        return consumptionYuan?.let { "消费金额 ¥%.2f".format(it) }
+        return getConsumptionAmountLabel()?.let { "消费金额 $it" }
             ?: takeIf { type == OperationType.CLOSE }?.let { "消费金额 待同步" }
+    }
+
+    fun getConsumptionAmountLabel(): String? {
+        return consumptionYuan?.let(::formatConsumptionAmount)
     }
 
     fun getUsageDurationLabel(): String? {
@@ -55,4 +63,48 @@ data class OperationHistory(
             else -> "%02d:%02d".format(minutes, seconds)
         }
     }
+
+    companion object {
+        const val CURRENT_SCHEMA_VERSION = 2
+
+        internal fun formatConsumptionAmount(value: Double): String {
+            val milliYuan = HotWaterPayload.toMilliYuan(value) ?: return "待同步"
+            return if (milliYuan in 1L..9L) {
+                "< ¥0.01"
+            } else {
+                val yuan = BigDecimal.valueOf(milliYuan)
+                    .movePointLeft(3)
+                    .setScale(2, RoundingMode.HALF_UP)
+                "¥$yuan"
+            }
+        }
+
+        internal fun migrateConsumptionYuan(
+            sourceSchemaVersion: Int,
+            type: OperationType,
+            consumptionYuan: Double?,
+        ): Double? {
+            val isUnverifiedLegacyZero = sourceSchemaVersion < CURRENT_SCHEMA_VERSION &&
+                type == OperationType.CLOSE &&
+                consumptionYuan?.let(HotWaterPayload::toMilliYuan) == 0L
+            return consumptionYuan.takeUnless { isUnverifiedLegacyZero }
+        }
+    }
+}
+
+fun HotWaterConfigStore.saveOperationResultHistory(
+    type: OperationHistory.OperationType,
+    result: OperationResult,
+): OperationHistory {
+    val history = OperationHistory(
+        id = result.historyId ?: System.currentTimeMillis(),
+        type = type,
+        success = result.outcome == OperationOutcome.SUCCESS,
+        message = HotWaterUiText.firstMeaningfulLine(result.summary),
+        consumptionYuan = result.consumptionYuan,
+        usageDurationMillis = result.usageDurationMillis,
+        usageStartedAtMillis = result.usageStartedAtMillis,
+    )
+    saveHistory(history)
+    return history
 }

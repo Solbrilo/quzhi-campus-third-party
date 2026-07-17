@@ -7,7 +7,44 @@ import androidx.security.crypto.MasterKey
 import org.json.JSONArray
 import org.json.JSONObject
 
-class HotWaterConfigStore(context: Context) {
+data class UsageSession(
+    val startedAtMillis: Long,
+    val startBalanceYuan: Double?,
+    val startBalanceIsBeforePreauthorization: Boolean = false,
+)
+
+data class PendingSettlement(
+    val historyId: Long,
+    val orderNo: String,
+    val closedAtMillis: Long,
+    val usageStartedAtMillis: Long?,
+    val usageDurationMillis: Long?,
+    val startBalanceYuan: Double?,
+    val activeBalanceYuan: Double?,
+    val provisionalConsumptionYuan: Double?,
+    val finalConsumptionYuan: Double?,
+    val zeroConsumptionReported: Boolean,
+    val balanceFallbackAllowed: Boolean = true,
+)
+
+interface HotWaterSessionStore {
+    fun loadOrderNo(): String?
+    fun saveOrderNo(orderNo: String)
+    fun clearOrderNo()
+    fun loadUsageSession(): UsageSession?
+    fun startUsageSessionIfAbsent(
+        startBalanceYuan: Double?,
+        startBalanceIsBeforePreauthorization: Boolean = false,
+    ): UsageSession
+    fun clearUsageSession()
+    fun shouldIgnoreRecoveredOrder(windowMs: Long = 12_000L): Boolean
+    fun loadPendingSettlements(): List<PendingSettlement>
+    fun savePendingSettlement(settlement: PendingSettlement)
+    fun removePendingSettlement(orderNo: String)
+    fun updateHistorySettlement(settlement: PendingSettlement, consumptionYuan: Double)
+}
+
+class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
     private val prefs: SharedPreferences = run {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -27,11 +64,6 @@ class HotWaterConfigStore(context: Context) {
         val tone: String,
         val isBusy: Boolean,
         val updatedAtMillis: Long,
-    )
-
-    data class UsageSession(
-        val startedAtMillis: Long,
-        val startBalanceYuan: Double,
     )
 
     fun loadConfig(): HotWaterConfig {
@@ -62,58 +94,142 @@ class HotWaterConfigStore(context: Context) {
             .apply()
     }
 
-    fun loadOrderNo(): String? {
+    override fun loadOrderNo(): String? {
         return prefs.getString(KEY_ORDER_NO, null)?.takeIf { it.isNotBlank() }
     }
 
-    fun saveOrderNo(orderNo: String) {
+    override fun saveOrderNo(orderNo: String) {
         prefs.edit()
             .putString(KEY_ORDER_NO, orderNo)
             .putLong(KEY_ORDER_CLEARED_AT, 0L)
             .apply()
     }
 
-    fun clearOrderNo() {
+    override fun clearOrderNo() {
         prefs.edit()
             .remove(KEY_ORDER_NO)
             .putLong(KEY_ORDER_CLEARED_AT, System.currentTimeMillis())
             .apply()
     }
 
-    fun loadUsageSession(): UsageSession? {
+    override fun loadUsageSession(): UsageSession? {
         val startedAtMillis = prefs.getLong(KEY_USAGE_STARTED_AT, 0L)
         if (startedAtMillis <= 0L) return null
+        val startBalanceYuan = if (prefs.contains(KEY_USAGE_START_BALANCE_BITS)) {
+            Double.fromBits(prefs.getLong(KEY_USAGE_START_BALANCE_BITS, 0L))
+                .takeIf { it.isFinite() && it >= 0.0 }
+        } else {
+            null
+        }
         return UsageSession(
             startedAtMillis = startedAtMillis,
-            startBalanceYuan = Double.fromBits(prefs.getLong(KEY_USAGE_START_BALANCE_BITS, 0L)),
+            startBalanceYuan = startBalanceYuan,
+            startBalanceIsBeforePreauthorization = prefs.getBoolean(
+                KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION,
+                false,
+            ),
         )
     }
 
-    fun startUsageSessionIfAbsent(startBalanceYuan: Double): UsageSession {
+    override fun startUsageSessionIfAbsent(
+        startBalanceYuan: Double?,
+        startBalanceIsBeforePreauthorization: Boolean,
+    ): UsageSession {
         val existing = loadUsageSession()
-        if (existing != null) return existing
+        if (existing?.startBalanceYuan != null) return existing
+        if (existing != null && startBalanceYuan == null) return existing
 
         val session = UsageSession(
-            startedAtMillis = System.currentTimeMillis(),
+            startedAtMillis = existing?.startedAtMillis ?: System.currentTimeMillis(),
             startBalanceYuan = startBalanceYuan,
+            startBalanceIsBeforePreauthorization = startBalanceIsBeforePreauthorization,
         )
-        prefs.edit()
-            .putLong(KEY_USAGE_STARTED_AT, session.startedAtMillis)
-            .putLong(KEY_USAGE_START_BALANCE_BITS, session.startBalanceYuan.toBits())
-            .apply()
+        prefs.edit().apply {
+            putLong(KEY_USAGE_STARTED_AT, session.startedAtMillis)
+            if (startBalanceYuan == null) {
+                remove(KEY_USAGE_START_BALANCE_BITS)
+                remove(KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION)
+            } else {
+                putLong(KEY_USAGE_START_BALANCE_BITS, startBalanceYuan.toBits())
+                putBoolean(
+                    KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION,
+                    session.startBalanceIsBeforePreauthorization,
+                )
+            }
+        }.apply()
         return session
     }
 
-    fun clearUsageSession() {
+    override fun clearUsageSession() {
         prefs.edit()
             .remove(KEY_USAGE_STARTED_AT)
             .remove(KEY_USAGE_START_BALANCE_BITS)
+            .remove(KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION)
             .apply()
     }
 
-    fun shouldIgnoreRecoveredOrder(windowMs: Long = ORDER_RECOVERY_GRACE_MS): Boolean {
+    override fun shouldIgnoreRecoveredOrder(windowMs: Long): Boolean {
         val clearedAt = prefs.getLong(KEY_ORDER_CLEARED_AT, 0L)
         return clearedAt > 0L && System.currentTimeMillis() - clearedAt < windowMs
+    }
+
+    override fun loadPendingSettlements(): List<PendingSettlement> {
+        val json = prefs.getString(KEY_PENDING_SETTLEMENTS, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(json)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val orderNo = item.optString("orderNo").takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                PendingSettlement(
+                    historyId = item.optLong("historyId").takeIf { it > 0L }
+                        ?: return@mapNotNull null,
+                    orderNo = orderNo,
+                    closedAtMillis = item.optLong("closedAtMillis"),
+                    usageStartedAtMillis = item.optLongOrNull("usageStartedAtMillis"),
+                    usageDurationMillis = item.optLongOrNull("usageDurationMillis"),
+                    startBalanceYuan = item.optFiniteDoubleOrNull("startBalanceYuan"),
+                    activeBalanceYuan = item.optFiniteDoubleOrNull("activeBalanceYuan"),
+                    provisionalConsumptionYuan = item.optFiniteDoubleOrNull(
+                        "provisionalConsumptionYuan",
+                    ),
+                    finalConsumptionYuan = item.optFiniteDoubleOrNull("finalConsumptionYuan"),
+                    zeroConsumptionReported = item.optBoolean("zeroConsumptionReported", false),
+                    balanceFallbackAllowed = item.optBoolean("balanceFallbackAllowed", true),
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    @Synchronized
+    override fun savePendingSettlement(settlement: PendingSettlement) {
+        val existingSettlements = loadPendingSettlements()
+        val isExistingSettlement = existingSettlements.any { it.orderNo == settlement.orderNo }
+        val retainedSettlements = existingSettlements
+            .filterNot { it.orderNo == settlement.orderNo }
+            .map { existing ->
+                if (isExistingSettlement) existing else existing.copy(balanceFallbackAllowed = false)
+            }
+            .toMutableList()
+            .apply {
+                add(
+                    if (isExistingSettlement) {
+                        settlement
+                    } else {
+                        settlement.copy(balanceFallbackAllowed = true)
+                    },
+                )
+            }
+            .takeLast(MAX_PENDING_SETTLEMENTS)
+        writePendingSettlements(retainedSettlements)
+    }
+
+    @Synchronized
+    override fun removePendingSettlement(orderNo: String) {
+        val settlements = loadPendingSettlements().filterNot { it.orderNo == orderNo }
+        writePendingSettlements(settlements)
     }
 
     fun loadWidgetState(): WidgetState {
@@ -145,65 +261,156 @@ class HotWaterConfigStore(context: Context) {
             if (value == null) remove(key) else putInt(key, value)
         }
 
+    @Synchronized
     fun saveHistory(history: OperationHistory) {
         val historyList = loadHistory().toMutableList()
-        historyList.add(0, history) // 添加到开头
+        val existing = historyList.firstOrNull { it.id == history.id }
+        val mergedHistory = if (history.consumptionYuan == null && existing?.consumptionYuan != null) {
+            history.copy(consumptionYuan = existing.consumptionYuan)
+        } else {
+            history
+        }
+        historyList.removeAll { it.id == history.id }
+        historyList.add(0, mergedHistory) // 添加到开头
 
         // 只保留最近 20 条
-        if (historyList.size > MAX_HISTORY_SIZE) {
-            historyList.removeAt(historyList.size - 1)
-        }
-
-        val jsonArray = JSONArray()
-        historyList.forEach { item ->
-            val jsonObject = JSONObject().apply {
-                put("id", item.id)
-                put("type", item.type.name)
-                put("success", item.success)
-                put("message", item.message)
-                put("timestamp", item.timestamp)
-                put("consumptionYuan", item.consumptionYuan)
-                put("usageDurationMillis", item.usageDurationMillis)
-                put("usageStartedAtMillis", item.usageStartedAtMillis)
-            }
-            jsonArray.put(jsonObject)
-        }
-
-        prefs.edit()
-            .putString(KEY_HISTORY, jsonArray.toString())
-            .apply()
+        writeHistory(historyList.take(MAX_HISTORY_SIZE))
     }
 
+    @Synchronized
     fun loadHistory(): List<OperationHistory> {
         val historyJson = prefs.getString(KEY_HISTORY, null) ?: return emptyList()
 
         return try {
             val jsonArray = JSONArray(historyJson)
-            (0 until jsonArray.length()).mapNotNull { index ->
+            var migrated = false
+            val history = (0 until jsonArray.length()).mapNotNull { index ->
                 val jsonObject = jsonArray.getJSONObject(index)
+                val type = OperationHistory.OperationType.valueOf(jsonObject.getString("type"))
+                val sourceSchemaVersion = jsonObject.optInt("schemaVersion", 1)
+                val rawConsumption = jsonObject.optFiniteDoubleOrNull("consumptionYuan")
+                val consumption = OperationHistory.migrateConsumptionYuan(
+                    sourceSchemaVersion,
+                    type,
+                    rawConsumption,
+                )
+                if (rawConsumption != consumption) {
+                    migrated = true
+                }
+                if (sourceSchemaVersion < OperationHistory.CURRENT_SCHEMA_VERSION) {
+                    migrated = true
+                }
                 OperationHistory(
                     id = jsonObject.getLong("id"),
-                    type = OperationHistory.OperationType.valueOf(jsonObject.getString("type")),
+                    type = type,
                     success = jsonObject.getBoolean("success"),
                     message = jsonObject.getString("message"),
                     timestamp = jsonObject.getLong("timestamp"),
-                    consumptionYuan = jsonObject.takeIf { it.has("consumptionYuan") && !it.isNull("consumptionYuan") }
-                        ?.optDouble("consumptionYuan"),
-                    usageDurationMillis = jsonObject.takeIf { it.has("usageDurationMillis") && !it.isNull("usageDurationMillis") }
-                        ?.optLong("usageDurationMillis"),
-                    usageStartedAtMillis = jsonObject.takeIf { it.has("usageStartedAtMillis") && !it.isNull("usageStartedAtMillis") }
-                        ?.optLong("usageStartedAtMillis"),
+                    consumptionYuan = consumption,
+                    usageDurationMillis = jsonObject.optLongOrNull("usageDurationMillis"),
+                    usageStartedAtMillis = jsonObject.optLongOrNull("usageStartedAtMillis"),
                 )
             }
+            if (migrated) writeHistory(history)
+            history
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    @Synchronized
+    override fun updateHistorySettlement(
+        settlement: PendingSettlement,
+        consumptionYuan: Double,
+    ) {
+        val normalizedConsumption = HotWaterPayload.normalizeYuan(consumptionYuan)
+        val history = loadHistory().toMutableList()
+        var found = false
+        val updated = history.map { item ->
+            if (item.id == settlement.historyId) {
+                found = true
+                item.copy(consumptionYuan = normalizedConsumption)
+            } else {
+                item
+            }
+        }.toMutableList()
+        if (!found) {
+            updated.add(
+                0,
+                OperationHistory(
+                    id = settlement.historyId,
+                    type = OperationHistory.OperationType.CLOSE,
+                    success = true,
+                    message = "热水已关闭。",
+                    timestamp = settlement.closedAtMillis,
+                    consumptionYuan = normalizedConsumption,
+                    usageDurationMillis = settlement.usageDurationMillis,
+                    usageStartedAtMillis = settlement.usageStartedAtMillis,
+                ),
+            )
+        }
+        writeHistory(updated.take(MAX_HISTORY_SIZE))
     }
 
     fun clearHistory() {
         prefs.edit()
             .remove(KEY_HISTORY)
             .apply()
+    }
+
+    private fun writeHistory(history: List<OperationHistory>) {
+        val jsonArray = JSONArray()
+        history.forEach { item ->
+            jsonArray.put(JSONObject().apply {
+                put("schemaVersion", OperationHistory.CURRENT_SCHEMA_VERSION)
+                put("id", item.id)
+                put("type", item.type.name)
+                put("success", item.success)
+                put("message", item.message)
+                put("timestamp", item.timestamp)
+                putNullable("consumptionYuan", item.consumptionYuan)
+                putNullable("usageDurationMillis", item.usageDurationMillis)
+                putNullable("usageStartedAtMillis", item.usageStartedAtMillis)
+            })
+        }
+        prefs.edit().putString(KEY_HISTORY, jsonArray.toString()).apply()
+    }
+
+    private fun writePendingSettlements(settlements: List<PendingSettlement>) {
+        if (settlements.isEmpty()) {
+            prefs.edit().remove(KEY_PENDING_SETTLEMENTS).apply()
+            return
+        }
+        val array = JSONArray()
+        settlements.forEach { settlement ->
+            array.put(JSONObject().apply {
+                put("historyId", settlement.historyId)
+                put("orderNo", settlement.orderNo)
+                put("closedAtMillis", settlement.closedAtMillis)
+                putNullable("usageStartedAtMillis", settlement.usageStartedAtMillis)
+                putNullable("usageDurationMillis", settlement.usageDurationMillis)
+                putNullable("startBalanceYuan", settlement.startBalanceYuan)
+                putNullable("activeBalanceYuan", settlement.activeBalanceYuan)
+                putNullable("provisionalConsumptionYuan", settlement.provisionalConsumptionYuan)
+                putNullable("finalConsumptionYuan", settlement.finalConsumptionYuan)
+                put("zeroConsumptionReported", settlement.zeroConsumptionReported)
+                put("balanceFallbackAllowed", settlement.balanceFallbackAllowed)
+            })
+        }
+        prefs.edit().putString(KEY_PENDING_SETTLEMENTS, array.toString()).apply()
+    }
+
+    private fun JSONObject.putNullable(key: String, value: Any?) {
+        put(key, value ?: JSONObject.NULL)
+    }
+
+    private fun JSONObject.optLongOrNull(key: String): Long? {
+        return takeIf { has(key) && !isNull(key) }?.optLong(key)
+    }
+
+    private fun JSONObject.optFiniteDoubleOrNull(key: String): Double? {
+        if (!has(key) || isNull(key)) return null
+        return optDouble(key).takeIf { it.isFinite() }
     }
 
     companion object {
@@ -221,13 +428,17 @@ class HotWaterConfigStore(context: Context) {
         private const val KEY_ORDER_CLEARED_AT = "order_cleared_at"
         private const val KEY_USAGE_STARTED_AT = "usage_started_at"
         private const val KEY_USAGE_START_BALANCE_BITS = "usage_start_balance_bits"
+        private const val KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION =
+            "usage_start_balance_is_before_preauthorization"
         private const val KEY_WIDGET_TITLE = "widget_title"
         private const val KEY_WIDGET_MESSAGE = "widget_message"
         private const val KEY_WIDGET_TONE = "widget_tone"
         private const val KEY_WIDGET_BUSY = "widget_busy"
         private const val KEY_WIDGET_UPDATED_AT = "widget_updated_at"
         private const val KEY_HISTORY = "operation_history"
+        private const val KEY_PENDING_SETTLEMENTS = "pending_settlements"
         private const val ORDER_RECOVERY_GRACE_MS = 12_000L
         private const val MAX_HISTORY_SIZE = 20
+        private const val MAX_PENDING_SETTLEMENTS = 10
     }
 }
