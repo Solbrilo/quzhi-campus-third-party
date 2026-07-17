@@ -5,6 +5,7 @@ import window from '@ohos.window'
 import bundleManager from '@ohos.bundle.bundleManager'
 import { Want } from '@kit.AbilityKit'
 import { SymbolGlyphModifier } from '@kit.ArkUI'
+import { vibrator } from '@kit.SensorServiceKit'
 import { BlurStrategy, DividerMode, HdsTabs } from '@hms.hds.hdsBaseComponent'
 import { hdsMaterial } from '@hms.hds.hdsMaterial'
 import { CaptureParser } from '../common/CaptureParser'
@@ -25,6 +26,8 @@ enum HomePage {
 }
 
 interface FieldInputParams {
+  label: string
+  description: string
   text: string
   placeholder: string
   onChange: (value: string) => void
@@ -70,7 +73,10 @@ struct Index {
   @State configSummary: string = '还没完成配置。导入 .chls 后会自动填充关键字段。'
 
   @State ringAngle: number = 0
+  @State ringOpacity: number = 0.15
   @State refreshIconAngle: number = 0
+  private ringAnimationRunning: boolean = false
+  private ringBreathingUp: boolean = true
   @StorageProp('statusBarHeight') statusBarHeight: number = 0
   @StorageProp('bottomSafeHeight') bottomSafeHeight: number = 0
   @StorageProp('colorMode') colorMode: ColorMode = ColorMode.LIGHT
@@ -87,7 +93,7 @@ struct Index {
     this.consumePendingLaunchAction()
     this.setupImmersiveWindow()
     if (this.busy) {
-      this.runRingStep()
+      this.startRingAnimation()
     }
   }
 
@@ -260,6 +266,12 @@ struct Index {
     })
   }
 
+  private triggerHaptic(duration: number = 20): void {
+    vibrator.startVibration({ type: 'time', duration: duration }, { id: 0, usage: 'touch' })
+      .catch(() => {
+      })
+  }
+
   private async refreshBalance(showStatus: boolean = true): Promise<void> {
     if (!this.repository || !this.store) {
       return
@@ -303,7 +315,7 @@ struct Index {
     }
     this.busy = true
     this.liveStatus = this.hasCachedOrder ? '正在关闭热水…' : '正在开启热水…'
-    this.runRingStep()
+    this.startRingAnimation()
     try {
       const result = this.hasCachedOrder ? await this.repository.close(config) : await this.repository.open(config)
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
@@ -315,6 +327,8 @@ struct Index {
       this.liveStatus = `操作失败：${String(error)}`
     } finally {
       this.busy = false
+      this.ringAnimationRunning = false
+      this.ringOpacity = 0.15
     }
   }
 
@@ -356,18 +370,46 @@ struct Index {
     }
   }
 
-  private runRingStep(): void {
-    if (!this.busy) {
+  private startRingAnimation(): void {
+    if (!this.busy || this.ringAnimationRunning) {
+      return
+    }
+    this.ringAnimationRunning = true
+    this.ringBreathingUp = true
+    this.ringOpacity = 0.15
+    this.runRingRotation()
+    this.runRingBreath()
+  }
+
+  private runRingRotation(): void {
+    if (!this.busy || !this.ringAnimationRunning) {
       return
     }
     this.getUIContext()?.animateTo({
-      duration: 60,
-      curve: Curve.Linear,
+      duration: 1500,
+      curve: Curve.Ease,
       onFinish: () => {
-        this.runRingStep()
+        this.runRingRotation()
       }
     }, () => {
-      this.ringAngle += 18
+      this.ringAngle += 360
+    })
+  }
+
+  private runRingBreath(): void {
+    if (!this.busy || !this.ringAnimationRunning) {
+      return
+    }
+    const targetOpacity = this.ringBreathingUp ? 0.35 : 0.15
+    this.getUIContext()?.animateTo({
+      duration: 750,
+      curve: Curve.EaseInOut,
+      onFinish: () => {
+        this.ringBreathingUp = !this.ringBreathingUp
+        this.runRingBreath()
+      }
+    }, () => {
+      this.ringOpacity = targetOpacity
     })
   }
 
@@ -540,20 +582,35 @@ struct Index {
 
   @Builder
   private FieldInput(params: FieldInputParams): void {
-    TextInput({ text: params.text, placeholder: params.placeholder })
-      .fontSize(16)
-      .fontColor($r('app.color.text_primary'))
-      .placeholderColor($r('app.color.text_secondary'))
-      .backgroundColor($r('app.color.input_background'))
-      .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
-      .borderRadius(14)
-      .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-      .border({
-        width: 1,
-        color: $r('app.color.input_border'),
-        style: BorderStyle.Solid
-      })
-      .onChange(params.onChange)
+    Column({ space: 6 }) {
+      Row() {
+        Text(params.label)
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+          .layoutWeight(1)
+        Text(params.description)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .width('100%')
+
+      TextInput({ text: params.text, placeholder: params.placeholder })
+        .fontSize(16)
+        .fontColor($r('app.color.text_primary'))
+        .placeholderColor($r('app.color.text_secondary'))
+        .backgroundColor($r('app.color.input_background'))
+        .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
+        .borderRadius(14)
+        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+        .border({
+          width: 1,
+          color: $r('app.color.input_border'),
+          style: BorderStyle.Solid
+        })
+        .onChange(params.onChange)
+    }
+    .width('100%')
   }
 
   @Builder
@@ -581,6 +638,7 @@ struct Index {
               .fontColor(this.refreshingBalance ? '#00FFFFFF' : $r('app.color.button_soft_text'))
               .enabled(!this.refreshingBalance && !this.busy)
               .onClick(() => {
+                this.triggerHaptic()
                 this.refreshBalance(true)
               })
 
@@ -680,13 +738,14 @@ struct Index {
 
           if (this.busy) {
             Circle()
-              .width(226)
-              .height(226)
+              .width(260)
+              .height(260)
               .fill('rgba(0,0,0,0)')
               .stroke(this.hasCachedOrder ? $r('app.color.close_accent') : $r('app.color.accent'))
-              .strokeWidth(3)
-              .strokeDashArray([2, 12])
+              .strokeWidth(12)
+              .strokeDashArray([42, 36])
               .strokeLineCap(LineCapStyle.Round)
+              .opacity(this.ringOpacity)
               .rotate({ angle: this.ringAngle })
           }
 
@@ -712,6 +771,7 @@ struct Index {
               style: BorderStyle.Solid
             })
             .onClick(() => {
+              this.triggerHaptic(30)
               this.toggleHotWater()
             })
         }
@@ -808,14 +868,100 @@ struct Index {
   private ConfigPage(): void {
     Column({ space: 16 }) {
       Column({ space: 12 }) {
-        Text('导入与自动识别')
+        Row() {
+          Column({ space: 4 }) {
+            Text('账户配置')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_primary'))
+            Text('导入 .chls 后会自动填充；也可以手动补全以下字段。')
+              .fontSize(13)
+              .fontColor($r('app.color.text_secondary'))
+          }
+          .layoutWeight(1)
+
+          Text('必填')
+            .fontSize(12)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.accent_text'))
+            .backgroundColor($r('app.color.status_chip_background'))
+            .borderRadius(12)
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+        }
+        .width('100%')
+
+        Text('服务参数')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
 
-        Text('继续保留 .chls 导入能力。系统信息和本机 Wi-Fi MAC 由程序自动识别。')
-          .fontSize(13)
-          .fontColor($r('app.color.text_secondary'))
+        this.FieldInput({
+          label: '项目 ID',
+          description: 'projectId',
+          text: this.projectIdText,
+          placeholder: 'projectId',
+          onChange: (value: string) => {
+            this.projectIdText = value
+          }
+        })
+        this.FieldInput({
+          label: '用户 ID',
+          description: 'userId',
+          text: this.userIdText,
+          placeholder: 'userId',
+          onChange: (value: string) => {
+            this.userIdText = value
+          }
+        })
+        this.FieldInput({
+          label: '账户 ID',
+          description: 'accountId',
+          text: this.accountIdText,
+          placeholder: 'accountId',
+          onChange: (value: string) => {
+            this.accountIdText = value
+          }
+        })
+        this.FieldInput({
+          label: '登录凭据',
+          description: 'loginCode',
+          text: this.loginCodeText,
+          placeholder: 'loginCode',
+          onChange: (value: string) => {
+            this.loginCodeText = value
+          }
+        })
+        this.FieldInput({
+          label: '手机号',
+          description: 'telephone',
+          text: this.telephoneText,
+          placeholder: 'telephone',
+          onChange: (value: string) => {
+            this.telephoneText = value
+          }
+        })
+        this.FieldInput({
+          label: '设备序列号',
+          description: 'snCode',
+          text: this.snCodeText,
+          placeholder: 'snCode',
+          onChange: (value: string) => {
+            this.snCodeText = value
+          }
+        })
+
+        Column({ space: 4 }) {
+          Text('配置状态')
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+          Text(this.configSummary)
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .width('100%')
+        .padding(14)
+        .borderRadius(16)
+        .backgroundColor($r('app.color.input_background'))
 
         Row({ space: 12 }) {
           Button('导入 .chls')
@@ -825,6 +971,7 @@ struct Index {
             .fontColor($r('app.color.button_soft_text'))
             .enabled(!this.busy)
             .onClick(() => {
+              this.triggerHaptic()
               this.importCaptureFile()
             })
 
@@ -835,6 +982,7 @@ struct Index {
             .fontColor($r('app.color.accent_button_text'))
             .enabled(!this.busy)
             .onClick(() => {
+              this.triggerHaptic(25)
               this.saveConfig()
             })
         }
@@ -857,9 +1005,15 @@ struct Index {
       .margin({ left: 2, right: 2, top: 2, bottom: 2 })
 
       Column({ space: 8 }) {
+        Text('设备信息')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
         Text('系统信息')
           .fontSize(12)
           .fontColor($r('app.color.text_secondary'))
+          .margin({ top: 4 })
         Text(this.systemInfoLabel)
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
@@ -872,76 +1026,6 @@ struct Index {
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
-      }
-      .padding(18)
-      .borderRadius(24)
-      .backgroundColor($r('app.color.card_background'))
-      .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
-      .border({
-        width: 1,
-        color: $r('app.color.card_border'),
-        style: BorderStyle.Solid
-      })
-      .shadow({
-        radius: 16,
-        color: $r('app.color.card_shadow'),
-        offsetX: 0,
-        offsetY: 2
-      })
-      .margin({ left: 2, right: 2, top: 2, bottom: 2 })
-
-      Column({ space: 12 }) {
-        Text('关键字段')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
-
-        this.FieldInput({
-          text: this.projectIdText,
-          placeholder: 'projectId',
-          onChange: (value: string) => {
-            this.projectIdText = value
-          }
-        })
-        this.FieldInput({
-          text: this.userIdText,
-          placeholder: 'userId',
-          onChange: (value: string) => {
-            this.userIdText = value
-          }
-        })
-        this.FieldInput({
-          text: this.accountIdText,
-          placeholder: 'accountId',
-          onChange: (value: string) => {
-            this.accountIdText = value
-          }
-        })
-        this.FieldInput({
-          text: this.loginCodeText,
-          placeholder: 'loginCode',
-          onChange: (value: string) => {
-            this.loginCodeText = value
-          }
-        })
-        this.FieldInput({
-          text: this.telephoneText,
-          placeholder: 'telephone',
-          onChange: (value: string) => {
-            this.telephoneText = value
-          }
-        })
-        this.FieldInput({
-          text: this.snCodeText,
-          placeholder: 'snCode',
-          onChange: (value: string) => {
-            this.snCodeText = value
-          }
-        })
-
-        Text(this.configSummary)
-          .fontSize(13)
-          .fontColor($r('app.color.text_secondary'))
       }
       .padding(18)
       .borderRadius(24)
@@ -1052,8 +1136,8 @@ struct Index {
       .barHeight(64)
       .barOverlap(true)
       .divider({ mode: DividerMode.NONE })
-      .barBackgroundColor('#00FFFFFF')
-      .barBackgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
+      .barBackgroundColor($r('app.color.card_background'))
+      .barBackgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
       .blurStrategy(BlurStrategy.ENABLE)
       .barFloatingStyle({
         barSideMargin: 10,
@@ -1064,10 +1148,13 @@ struct Index {
           materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
         },
         thermoCtrl: true,
-        barOpacity: 0.92
+        barOpacity: 0.96
       })
       .animationDuration(300)
       .onChange((index: number) => {
+        if (index !== this.activePage) {
+          this.triggerHaptic()
+        }
         this.activePage = index
         if (index === HomePage.RECORDS) {
           this.loadConsumptionRecords()
