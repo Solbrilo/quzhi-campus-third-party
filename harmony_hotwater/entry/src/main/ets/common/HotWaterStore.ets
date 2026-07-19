@@ -8,6 +8,8 @@ const STORE_STATE_LOCK = ArkTSUtils.locks.AsyncLock.request('cn.qzxy.hotwater.st
 export class HotWaterStore {
   private static readonly STORE_NAME: string = 'hotwater_store'
   private static readonly ORDER_RECOVERY_GRACE_MS: number = 12000
+  private static readonly MAX_CONSUMPTION_RECORDS: number = 1200
+  private static readonly MAX_PENDING_SETTLEMENTS: number = 20
   private context: common.Context
 
   constructor(context: common.Context) {
@@ -204,9 +206,6 @@ export class HotWaterStore {
     if (!replaced) {
       records.unshift(record)
     }
-    if (records.length > 20) {
-      records.splice(20)
-    }
     await this.writeConsumptionRecords(records)
   }
 
@@ -244,20 +243,25 @@ export class HotWaterStore {
         const record = new ConsumptionRecord()
         record.id = Number(item['id'])
         record.orderNo = String(item['orderNo'] ?? '')
-        record.startedAtMillis = Number(item['startedAtMillis'])
-        record.endedAtMillis = Number(item['endedAtMillis'])
+        const parsedStartedAtMillis = Number(item['startedAtMillis'])
+        const parsedEndedAtMillis = Number(item['endedAtMillis'])
+        record.startedAtMillis = Number.isFinite(parsedStartedAtMillis) ? parsedStartedAtMillis : 0
+        record.endedAtMillis = Number.isFinite(parsedEndedAtMillis) ? parsedEndedAtMillis : 0
         const parsedConsumptionYuan = Number(item['consumptionYuan'])
         record.settlementVerified = Boolean(item['settlementVerified'])
         record.consumptionYuan = Number.isFinite(parsedConsumptionYuan) &&
           (record.settlementVerified || parsedConsumptionYuan > 0)
           ? parsedConsumptionYuan
           : -1
-        record.usageDurationMillis = Number(item['usageDurationMillis'])
-        if (record.id > 0) {
+        const parsedUsageDurationMillis = Number(item['usageDurationMillis'])
+        record.usageDurationMillis = Number.isFinite(parsedUsageDurationMillis)
+          ? Math.max(0, parsedUsageDurationMillis)
+          : 0
+        if (Number.isFinite(record.id) && record.id > 0) {
           records.push(record)
         }
       })
-      return records
+      return HotWaterStore.normalizeConsumptionRecords(records)
     } catch (error) {
       return []
     }
@@ -289,7 +293,7 @@ export class HotWaterStore {
           pendingSettlements.push(pending)
         }
       })
-      return pendingSettlements
+      return HotWaterStore.limitPendingSettlements(pendingSettlements)
     } catch (error) {
       return []
     }
@@ -317,8 +321,8 @@ export class HotWaterStore {
     if (!replaced) {
       pendingSettlements.unshift(pending)
     }
-    if (pendingSettlements.length > 20) {
-      pendingSettlements.splice(20)
+    if (pendingSettlements.length > HotWaterStore.MAX_PENDING_SETTLEMENTS) {
+      pendingSettlements.splice(HotWaterStore.MAX_PENDING_SETTLEMENTS)
     }
     await this.writePendingSettlements(pendingSettlements)
   }
@@ -406,10 +410,6 @@ export class HotWaterStore {
     if (!recordInserted) {
       updatedRecords.unshift(persistedRecord)
     }
-    if (updatedRecords.length > 20) {
-      updatedRecords.splice(20)
-    }
-
     pending.recordId = persistedRecord.id
     pending.startedAtMillis = persistedRecord.startedAtMillis
     pending.endedAtMillis = persistedRecord.endedAtMillis
@@ -435,12 +435,13 @@ export class HotWaterStore {
     if (!persistedRecord.settlementVerified && !pendingInserted) {
       updatedPendingSettlements.unshift(pending)
     }
-    if (updatedPendingSettlements.length > 20) {
-      updatedPendingSettlements.splice(20)
+    if (updatedPendingSettlements.length > HotWaterStore.MAX_PENDING_SETTLEMENTS) {
+      updatedPendingSettlements.splice(HotWaterStore.MAX_PENDING_SETTLEMENTS)
     }
 
     const store = await this.getStore()
-    await store.put('consumptionRecords', JSON.stringify(updatedRecords))
+    const normalizedRecords = HotWaterStore.normalizeConsumptionRecords(updatedRecords)
+    await store.put('consumptionRecords', JSON.stringify(normalizedRecords))
     if (updatedPendingSettlements.length === 0) {
       await store.delete('pendingSettlements')
     } else {
@@ -492,10 +493,6 @@ export class HotWaterStore {
       updatedRecords.unshift(record)
       persistedRecord = record
     }
-    if (updatedRecords.length > 20) {
-      updatedRecords.splice(20)
-    }
-
     const pendingSettlements = await this.loadPendingSettlements()
     const retainedPendingSettlements: PendingSettlement[] = []
     for (let index = 0; index < pendingSettlements.length; index++) {
@@ -517,11 +514,13 @@ export class HotWaterStore {
     }
 
     const store = await this.getStore()
-    await store.put('consumptionRecords', JSON.stringify(updatedRecords))
-    if (retainedPendingSettlements.length === 0) {
+    const normalizedRecords = HotWaterStore.normalizeConsumptionRecords(updatedRecords)
+    const limitedPendingSettlements = HotWaterStore.limitPendingSettlements(retainedPendingSettlements)
+    await store.put('consumptionRecords', JSON.stringify(normalizedRecords))
+    if (limitedPendingSettlements.length === 0) {
       await store.delete('pendingSettlements')
     } else {
-      await store.put('pendingSettlements', JSON.stringify(retainedPendingSettlements))
+      await store.put('pendingSettlements', JSON.stringify(limitedPendingSettlements))
     }
     await store.flush()
     return persistedRecord
@@ -544,18 +543,57 @@ export class HotWaterStore {
 
   private async writeConsumptionRecords(records: ConsumptionRecord[]): Promise<void> {
     const store = await this.getStore()
-    await store.put('consumptionRecords', JSON.stringify(records))
+    const normalizedRecords = HotWaterStore.normalizeConsumptionRecords(records)
+    await store.put('consumptionRecords', JSON.stringify(normalizedRecords))
     await store.flush()
   }
 
   private async writePendingSettlements(pendingSettlements: PendingSettlement[]): Promise<void> {
     const store = await this.getStore()
-    if (pendingSettlements.length === 0) {
+    const limitedPendingSettlements = HotWaterStore.limitPendingSettlements(pendingSettlements)
+    if (limitedPendingSettlements.length === 0) {
       await store.delete('pendingSettlements')
     } else {
-      await store.put('pendingSettlements', JSON.stringify(pendingSettlements))
+      await store.put('pendingSettlements', JSON.stringify(limitedPendingSettlements))
     }
     await store.flush()
+  }
+
+  static normalizeConsumptionRecords(records: ConsumptionRecord[]): ConsumptionRecord[] {
+    const normalizedRecords = records.slice()
+    normalizedRecords.sort(HotWaterStore.compareConsumptionRecordsDescending)
+    if (normalizedRecords.length > HotWaterStore.MAX_CONSUMPTION_RECORDS) {
+      normalizedRecords.splice(HotWaterStore.MAX_CONSUMPTION_RECORDS)
+    }
+    return normalizedRecords
+  }
+
+  private static compareConsumptionRecordsDescending(
+    left: ConsumptionRecord,
+    right: ConsumptionRecord
+  ): number {
+    const leftEndedAtMillis = HotWaterStore.sortableNumber(left.endedAtMillis)
+    const rightEndedAtMillis = HotWaterStore.sortableNumber(right.endedAtMillis)
+    if (leftEndedAtMillis !== rightEndedAtMillis) {
+      return rightEndedAtMillis > leftEndedAtMillis ? 1 : -1
+    }
+    const leftId = HotWaterStore.sortableNumber(left.id)
+    const rightId = HotWaterStore.sortableNumber(right.id)
+    if (leftId === rightId) {
+      return 0
+    }
+    return rightId > leftId ? 1 : -1
+  }
+
+  private static limitPendingSettlements(pendingSettlements: PendingSettlement[]): PendingSettlement[] {
+    if (pendingSettlements.length <= HotWaterStore.MAX_PENDING_SETTLEMENTS) {
+      return pendingSettlements
+    }
+    return pendingSettlements.slice(0, HotWaterStore.MAX_PENDING_SETTLEMENTS)
+  }
+
+  private static sortableNumber(value: number): number {
+    return Number.isFinite(value) ? value : 0
   }
 
   async shouldIgnoreRecoveredOrder(): Promise<boolean> {

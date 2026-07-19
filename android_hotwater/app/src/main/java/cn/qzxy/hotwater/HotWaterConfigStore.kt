@@ -273,8 +273,8 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         historyList.removeAll { it.id == history.id }
         historyList.add(0, mergedHistory) // 添加到开头
 
-        // 只保留最近 20 条
-        writeHistory(historyList.take(MAX_HISTORY_SIZE))
+        // Keep settled bills independently from short-lived diagnostic operations.
+        writeHistory(historyList)
     }
 
     @Synchronized
@@ -311,8 +311,9 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
                     usageStartedAtMillis = jsonObject.optLongOrNull("usageStartedAtMillis"),
                 )
             }
-            if (migrated) writeHistory(history)
-            history
+            val retainedHistory = retainHistory(history)
+            if (migrated || retainedHistory != history) writeHistory(retainedHistory)
+            retainedHistory
         } catch (e: Exception) {
             emptyList()
         }
@@ -349,7 +350,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
                 ),
             )
         }
-        writeHistory(updated.take(MAX_HISTORY_SIZE))
+        writeHistory(updated)
     }
 
     fun clearHistory() {
@@ -359,8 +360,9 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
     }
 
     private fun writeHistory(history: List<OperationHistory>) {
+        val retainedHistory = retainHistory(history)
         val jsonArray = JSONArray()
-        history.forEach { item ->
+        retainedHistory.forEach { item ->
             jsonArray.put(JSONObject().apply {
                 put("schemaVersion", OperationHistory.CURRENT_SCHEMA_VERSION)
                 put("id", item.id)
@@ -374,6 +376,33 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
             })
         }
         prefs.edit().putString(KEY_HISTORY, jsonArray.toString()).apply()
+    }
+
+    private fun retainHistory(history: List<OperationHistory>): List<OperationHistory> {
+        val newestFirst = history
+            .sortedWith(
+                compareByDescending<OperationHistory> { it.timestamp }
+                    .thenByDescending { it.id },
+            )
+            .distinctBy(OperationHistory::id)
+        val billHistory = newestFirst
+            .asSequence()
+            .filter(::isBillHistory)
+            .take(MAX_BILL_HISTORY_SIZE)
+            .toList()
+        val diagnosticHistory = newestFirst
+            .asSequence()
+            .filterNot(::isBillHistory)
+            .take(MAX_DIAGNOSTIC_HISTORY_SIZE)
+            .toList()
+        return (billHistory + diagnosticHistory).sortedWith(
+            compareByDescending<OperationHistory> { it.timestamp }
+                .thenByDescending { it.id },
+        )
+    }
+
+    private fun isBillHistory(history: OperationHistory): Boolean {
+        return history.type == OperationHistory.OperationType.CLOSE && history.success
     }
 
     private fun writePendingSettlements(settlements: List<PendingSettlement>) {
@@ -438,7 +467,8 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         private const val KEY_HISTORY = "operation_history"
         private const val KEY_PENDING_SETTLEMENTS = "pending_settlements"
         private const val ORDER_RECOVERY_GRACE_MS = 12_000L
-        private const val MAX_HISTORY_SIZE = 20
+        private const val MAX_BILL_HISTORY_SIZE = 1_200
+        private const val MAX_DIAGNOSTIC_HISTORY_SIZE = 60
         private const val MAX_PENDING_SETTLEMENTS = 10
     }
 }

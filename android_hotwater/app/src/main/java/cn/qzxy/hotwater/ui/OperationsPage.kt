@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,10 +34,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
@@ -59,7 +56,6 @@ import kotlinx.coroutines.delay
 fun OperationsPage(
     snapshot: DashboardSnapshot?,
     busy: Boolean,
-    statusMessage: String,
     onToggle: () -> Unit,
     onRefreshBalance: () -> Unit,
 ) {
@@ -118,66 +114,10 @@ fun OperationsPage(
             }
         }
 
-        // 当前操作状态
-        item {
-            OperationStatus(
-                statusMessage = statusMessage,
-                snapshot = snapshot,
-                busy = busy,
-            )
-        }
-
         // 底部间距
         item {
             Spacer(modifier = Modifier.height(bottomDockClearance()))
         }
-    }
-}
-
-@Composable
-private fun OperationStatus(
-    statusMessage: String,
-    snapshot: DashboardSnapshot?,
-    busy: Boolean,
-) {
-    val tokens = LocalGlassTokens.current
-    val message = statusMessage.ifBlank {
-        when {
-            snapshot?.isDeviceBusyByOther == true -> "已有他人正在使用这台设备，请稍后刷新或重试。"
-            snapshot?.hasCachedOrder == true -> "点击主按钮可关闭热水。"
-            else -> "点击主按钮可开启热水。"
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(
-                material = GlassMaterial.EmbeddedControl,
-                cornerRadius = 18.dp,
-            )
-            .semantics {
-                liveRegion = LiveRegionMode.Polite
-                stateDescription = message
-            }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (busy) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                color = tokens.accentPrimary,
-                strokeWidth = 2.dp,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-        }
-        Text(
-            text = message,
-            color = if (busy) tokens.textPrimary else tokens.textSecondary,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 

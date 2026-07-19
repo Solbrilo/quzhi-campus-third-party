@@ -2,9 +2,11 @@ package cn.qzxy.hotwater
 
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.service.quicksettings.TileService
 import android.widget.Toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -16,17 +18,25 @@ import kotlinx.coroutines.withContext
 
 class HotWaterNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    @Volatile
+    private var closing = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_SHOW -> showNotification()
+            ACTION_SHOW -> syncNotificationState()
             ACTION_DISMISS -> stopSelf()
             ACTION_CLOSE -> closeAndDismiss()
-            else -> showNotification()
+            else -> syncNotificationState()
         }
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Keep the foreground service visible after the activity is removed from Recents.
+        syncNotificationState()
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
@@ -35,9 +45,23 @@ class HotWaterNotificationService : Service() {
         super.onDestroy()
     }
 
-    private fun showNotification() {
+    private fun syncNotificationState() {
+        val store = HotWaterConfigStore(this)
+        if (store.loadOrderNo().isNullOrBlank()) {
+            stopSelf()
+            return
+        }
+        val usageStartedAtMillis = store.loadUsageSession()?.startedAtMillis
+            ?: store.startUsageSessionIfAbsent(startBalanceYuan = null).startedAtMillis
+        showNotification(usageStartedAtMillis)
+    }
+
+    private fun showNotification(usageStartedAtMillis: Long) {
         NotificationHelper.ensureChannel(this)
-        startForeground(NOTIFICATION_ID, NotificationHelper.buildActiveNotification(this))
+        startForeground(
+            NOTIFICATION_ID,
+            NotificationHelper.buildActiveNotification(this, usageStartedAtMillis),
+        )
     }
 
     private fun cancelNotification() {
@@ -46,6 +70,7 @@ class HotWaterNotificationService : Service() {
     }
 
     private fun closeAndDismiss() {
+        if (closing) return
         val store = HotWaterConfigStore(this)
         val config = RuntimeDeviceInfoResolver.enrichConfig(this, store.loadConfig())
 
@@ -54,12 +79,17 @@ class HotWaterNotificationService : Service() {
             return
         }
 
+        closing = true
         scope.launch {
             try {
                 val repository = HotWaterRepository(HotWaterApi(), store)
                 val result = withContext(Dispatchers.IO) { repository.close(config) }
                 store.saveOperationResultHistory(OperationHistory.OperationType.CLOSE, result)
                 HotWaterWidgetUi.updateAllWidgets(this@HotWaterNotificationService)
+                TileService.requestListeningState(
+                    this@HotWaterNotificationService,
+                    ComponentName(this@HotWaterNotificationService, HotWaterTileService::class.java),
+                )
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@HotWaterNotificationService,
@@ -70,8 +100,19 @@ class HotWaterNotificationService : Service() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                Toast.makeText(
+                    this@HotWaterNotificationService,
+                    "关闭热水失败，请重试",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } finally {
+                closing = false
+                if (store.loadOrderNo().isNullOrBlank()) {
+                    stopSelf()
+                } else {
+                    syncNotificationState()
+                }
             }
-            stopSelf()
         }
     }
 
