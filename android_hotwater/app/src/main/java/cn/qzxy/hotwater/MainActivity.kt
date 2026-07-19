@@ -33,13 +33,23 @@ class MainActivity : ComponentActivity() {
     private var notificationPermissionRequested = false
     private var pendingOpenRequested = false
     private var pendingOpenAction: (() -> Unit)? = null
+    private var hasEnteredForeground = false
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             val action = pendingOpenAction
             val shouldOpen = pendingOpenRequested
             pendingOpenAction = null
             pendingOpenRequested = false
+            if (!granted && shouldOpen) {
+                Toast.makeText(
+                    this,
+                    "未授予通知权限，热水可继续开启，但无法显示实况窗。请在系统通知设置中开启后重试。",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } else if (granted && shouldOpen) {
+                notifyLiveUpdateFallbackIfNeeded()
+            }
             action?.invoke()
             if (action == null && shouldOpen) viewModel.toggleWhenIdle()
         }
@@ -117,11 +127,21 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (hasEnteredForeground) {
+            viewModel.refreshBalance(announce = false)
+        } else {
+            hasEnteredForeground = true
+        }
+    }
+
     private fun requestNotificationPermissionThen(action: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
                 pendingOpenRequested = false
                 pendingOpenAction = null
+                notifyLiveUpdateFallbackIfNeeded()
                 action()
             } else if (!notificationPermissionRequested) {
                 notificationPermissionRequested = true
@@ -131,13 +151,29 @@ class MainActivity : ComponentActivity() {
             } else {
                 pendingOpenRequested = false
                 pendingOpenAction = null
+                Toast.makeText(
+                    this,
+                    "通知权限未开启，热水可继续开启，但无法显示实况窗。请在系统通知设置中开启后重试。",
+                    Toast.LENGTH_LONG,
+                ).show()
                 action()
             }
         } else {
             pendingOpenRequested = false
             pendingOpenAction = null
+            notifyLiveUpdateFallbackIfNeeded()
             action()
         }
+    }
+
+    private fun notifyLiveUpdateFallbackIfNeeded() {
+        val message = when {
+            Build.VERSION.SDK_INT < 36 -> "当前 Android 版本不支持实况窗，已使用常驻计时通知。"
+            !NotificationHelper.canPostPromotedNotifications(this) ->
+                "系统未允许实况通知提升，已使用常驻计时通知。请在系统通知设置中开启实况通知。"
+            else -> null
+        } ?: return
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun openAlipayForRecharge() {

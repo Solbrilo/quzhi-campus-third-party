@@ -12,6 +12,22 @@ import { CaptureParser } from '../common/CaptureParser'
 import { ConsumptionRecord, DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
 import { HotWaterRepository } from '../common/HotWaterRepository'
 import { HotWaterStore } from '../common/HotWaterStore'
+import {
+  BillEntry,
+  BillGrouping,
+  BillGroup,
+  BillScope,
+  BillSummary,
+  buildBillEntries,
+  filterBillEntries,
+  formatBillAmount,
+  formatBillDuration,
+  getBillMonths as getBillMonthsForYear,
+  getBillYears as getAvailableBillYears,
+  groupBillEntries,
+  summarizeBillEntries,
+  toggleBillGroupCollapsed
+} from '../common/BillPresentation'
 import { LaunchActionBridge } from '../common/LaunchActionBridge'
 import { RuntimeDeviceInfoResolver } from '../common/RuntimeDeviceInfoResolver'
 import { GiteeUpdateRepository, UpdateCheckState } from '../common/AppUpdate'
@@ -58,8 +74,15 @@ struct Index {
   @State usageStartedAtMillis: number = 0
   @State usageElapsedMillis: number = 0
   @State consumptionRecords: ConsumptionRecord[] = []
+  @State billScope: BillScope = BillScope.MONTH
+  @State billSelectedYear: number = 0
+  @State billSelectedMonth: number = 0
+  @State billGrouping: BillGrouping = BillGrouping.MONTH
+  @State collapsedBillKeys: string[] = []
   private usageTimerGeneration: number = 0
-  @State currentVersionLabel: string = '1.5.0'
+  private billCollapseInitialized: boolean = false
+  private consumingLaunchAction: boolean = false
+  @State currentVersionLabel: string = '1.6.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -129,10 +152,10 @@ struct Index {
     this.applySnapshot(this.placeholderSnapshot(config))
     await this.loadConsumptionRecords()
 
-    if (config.isComplete()) {
+    const launchActionHandled = await this.consumePendingLaunchAction()
+    if (config.isComplete() && !launchActionHandled) {
       await this.refreshBalance(false)
     }
-    await this.consumePendingLaunchAction()
     this.checkForUpdates(true)
   }
 
@@ -186,6 +209,149 @@ struct Index {
       return
     }
     this.consumptionRecords = await this.store.loadConsumptionRecords()
+    this.initializeBillCollapseDefaults()
+  }
+
+  private initializeBillCollapseDefaults(): void {
+    if (this.billCollapseInitialized || this.consumptionRecords.length === 0) {
+      return
+    }
+    this.billCollapseInitialized = true
+    this.resetBillCollapseDefaults()
+  }
+
+  private resetBillCollapseDefaults(): void {
+    const groups = this.getBillGroups()
+    const collapsedKeys: string[] = []
+    for (let index = 1; index < groups.length; index++) {
+      collapsedKeys.push(groups[index].key)
+    }
+    this.collapsedBillKeys = collapsedKeys
+  }
+
+  private getCurrentBillEntries(): BillEntry[] {
+    return buildBillEntries(this.consumptionRecords)
+  }
+
+  private getBillYears(): number[] {
+    return getAvailableBillYears(this.getCurrentBillEntries())
+  }
+
+  private getActiveBillYear(): number {
+    const years = this.getBillYears()
+    if (years.indexOf(this.billSelectedYear) >= 0) {
+      return this.billSelectedYear
+    }
+    if (years.length > 0) {
+      return years[0]
+    }
+    return new Date().getFullYear()
+  }
+
+  private getActiveBillMonth(): number {
+    if (this.billSelectedMonth >= 1 && this.billSelectedMonth <= 12) {
+      return this.billSelectedMonth
+    }
+    const months = getBillMonthsForYear(this.getCurrentBillEntries(), this.getActiveBillYear())
+    if (months.length > 0) {
+      return months[0]
+    }
+    return new Date().getMonth() + 1
+  }
+
+  private getFilteredBillEntries(): BillEntry[] {
+    return filterBillEntries(
+      this.getCurrentBillEntries(),
+      this.billScope,
+      this.getActiveBillYear(),
+      this.getActiveBillMonth()
+    )
+  }
+
+  private getBillSummary(): BillSummary {
+    return summarizeBillEntries(this.getFilteredBillEntries())
+  }
+
+  private getBillGroups(): BillGroup[] {
+    return groupBillEntries(
+      this.getFilteredBillEntries(),
+      this.billGrouping,
+      this.collapsedBillKeys
+    )
+  }
+
+  private getBillYearOptions(): SelectOption[] {
+    const options: SelectOption[] = []
+    const years = this.getBillYears()
+    for (let index = 0; index < years.length; index++) {
+      options.push({ value: years[index].toString() + '年' })
+    }
+    return options
+  }
+
+  private getBillMonthOptions(): SelectOption[] {
+    const options: SelectOption[] = []
+    for (let month = 1; month <= 12; month++) {
+      options.push({ value: month.toString() + '月' })
+    }
+    return options
+  }
+
+  private getBillYearIndex(): number {
+    return Math.max(0, this.getBillYears().indexOf(this.getActiveBillYear()))
+  }
+
+  private getBillMonthIndex(): number {
+    return this.getActiveBillMonth() - 1
+  }
+
+  private setBillScope(scope: BillScope): void {
+    if (this.billScope === scope) {
+      return
+    }
+    this.billScope = scope
+    this.resetBillCollapseDefaults()
+  }
+
+  private setBillGrouping(grouping: BillGrouping): void {
+    if (this.billGrouping === grouping) {
+      return
+    }
+    this.billGrouping = grouping
+    this.resetBillCollapseDefaults()
+  }
+
+  private toggleBillGroup(groupKey: string): void {
+    const updateCollapsedState = (): void => {
+      this.collapsedBillKeys = toggleBillGroupCollapsed(this.collapsedBillKeys, groupKey)
+    }
+    const uiContext = this.getUIContext()
+    if (!uiContext) {
+      updateCollapsedState()
+      return
+    }
+    uiContext.animateTo({
+      duration: 260,
+      curve: Curve.EaseInOut
+    }, updateCollapsedState)
+  }
+
+  private setBillYear(year: number): void {
+    this.billSelectedYear = year
+    this.billSelectedMonth = 0
+    this.resetBillCollapseDefaults()
+  }
+
+  private setBillMonth(month: number): void {
+    this.billSelectedMonth = month
+    this.resetBillCollapseDefaults()
+  }
+
+  private setBillYearByIndex(index: number): void {
+    const years = this.getBillYears()
+    if (index >= 0 && index < years.length) {
+      this.setBillYear(years[index])
+    }
   }
 
   private syncUsageTimer(): void {
@@ -266,7 +432,7 @@ struct Index {
     })
   }
 
-  private triggerHaptic(duration: number = 20): void {
+  private triggerHaptic(duration: number = 35): void {
     vibrator.startVibration({ type: 'time', duration: duration }, { id: 0, usage: 'touch' })
       .catch(() => {
       })
@@ -313,11 +479,12 @@ struct Index {
       this.showLowBalanceDialog()
       return
     }
+    const closingHotWater = this.hasCachedOrder
     this.busy = true
-    this.liveStatus = this.hasCachedOrder ? '正在关闭热水…' : '正在开启热水…'
+    this.liveStatus = closingHotWater ? '正在关闭热水…' : '正在开启热水…'
     this.startRingAnimation()
     try {
-      const result = this.hasCachedOrder ? await this.repository.close(config) : await this.repository.open(config)
+      const result = closingHotWater ? await this.repository.close(config) : await this.repository.open(config)
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
       if (result.usageDurationMillis >= 0 && this.store) {
         await this.loadConsumptionRecords()
@@ -454,11 +621,26 @@ struct Index {
     }
   }
 
-  private async consumePendingLaunchAction(): Promise<void> {
-    const action = LaunchActionBridge.consumePendingAction()
-    if (action.length === 0) {
-      return
+  private async consumePendingLaunchAction(): Promise<boolean> {
+    if (this.consumingLaunchAction) {
+      return false
     }
+    this.consumingLaunchAction = true
+    let handled = false
+    try {
+      let action = LaunchActionBridge.consumePendingAction()
+      while (action.length > 0) {
+        handled = true
+        await this.handleLaunchAction(action)
+        action = LaunchActionBridge.consumePendingAction()
+      }
+    } finally {
+      this.consumingLaunchAction = false
+    }
+    return handled
+  }
+
+  private async handleLaunchAction(action: string): Promise<void> {
     if (action === 'config') {
       this.switchPage(HomePage.CONFIG)
       return
@@ -499,7 +681,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '1.5.0'
+      this.currentVersionLabel = '1.6.0'
     }
   }
 
@@ -552,7 +734,7 @@ struct Index {
             .fontColor($r('app.color.text_primary'))
           Text(this.activePage === HomePage.OPERATIONS
             ? '用水控制'
-            : (this.activePage === HomePage.RECORDS ? '消费记录' : '设备与账号'))
+            : (this.activePage === HomePage.RECORDS ? '账单' : '设备与账号'))
             .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
         }
@@ -771,7 +953,7 @@ struct Index {
               style: BorderStyle.Solid
             })
             .onClick(() => {
-              this.triggerHaptic(30)
+              this.triggerHaptic(55)
               this.toggleHotWater()
             })
         }
@@ -789,79 +971,325 @@ struct Index {
   private RecordsPage(): void {
     Column({ space: 14 }) {
       Column({ space: 4 }) {
-        Text('消费记录')
+        Text('账单')
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
-        Text('记录已结束的热水使用，优先读取订单结算，并通过余额变化校验。')
+        Text('按结算时间查看月度或年度用水汇总。')
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'))
       }
       .width('100%')
 
-      if (this.consumptionRecords.length === 0) {
+      if (this.getCurrentBillEntries().length === 0) {
         Column() {
-          Text('暂无消费记录')
+          Text('暂无账单')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.text_primary'))
-          Text('关闭一次热水后，消费金额和开启时长会显示在这里。')
+          Text('关闭一次热水后，消费金额和用水时长会显示在这里。')
             .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 8 })
         }
         .width('100%')
         .padding(20)
-        .borderRadius(24)
+        .borderRadius(16)
         .backgroundColor($r('app.color.card_background'))
         .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
         .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
       } else {
-        ForEach(this.consumptionRecords, (record: ConsumptionRecord) => {
-          Column({ space: 10 }) {
-            Row() {
-              Column({ space: 4 }) {
-                Text('热水消费')
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor($r('app.color.text_primary'))
-                Text(`开始于 ${record.getStartedAtLabel()}`)
-                  .fontSize(12)
-                  .fontColor($r('app.color.text_secondary'))
-              }
-              .layoutWeight(1)
-
-              Text(record.getConsumptionLabel())
-                .fontSize(18)
-                .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.error_text'))
-            }
-            .width('100%')
-
-            Row() {
-              Text('开启时长')
-                .fontSize(13)
-                .fontColor($r('app.color.text_secondary'))
-                .layoutWeight(1)
-              Text(record.getDurationLabel())
-                .fontSize(13)
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.text_primary'))
-            }
-            .width('100%')
-          }
-          .width('100%')
-          .padding(18)
-          .borderRadius(24)
-          .backgroundColor($r('app.color.card_background'))
-          .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
-          .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
-          .shadow({ radius: 12, color: $r('app.color.card_shadow'), offsetX: 0, offsetY: 2 })
-        }, (record: ConsumptionRecord) => record.id.toString())
+        this.BillFilterPanel()
+        this.BillSummaryPanel()
+        if (this.getFilteredBillEntries().length === 0) {
+          this.EmptyBillPeriodState()
+        } else {
+          ForEach(this.getBillGroups(), (group: BillGroup) => {
+            this.BillGroupCard(group)
+          }, (group: BillGroup) => group.key)
+        }
       }
     }
     .width('100%')
     .padding({ bottom: 96 + this.bottomSafeHeight })
+  }
+
+  @Builder
+  private BillFilterPanel(): void {
+    Column({ space: 12 }) {
+      Text('账期筛选')
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+
+      Row({ space: 8 }) {
+        Button('年度')
+          .layoutWeight(1)
+          .type(ButtonType.Capsule)
+          .fontSize(13)
+          .fontColor(this.billScope === BillScope.YEAR ? $r('app.color.accent_button_text') : $r('app.color.button_soft_text'))
+          .backgroundColor(this.billScope === BillScope.YEAR ? $r('app.color.accent_button_background') : $r('app.color.button_soft_background'))
+          .onClick(() => {
+            this.setBillScope(BillScope.YEAR)
+          })
+        Button('月度')
+          .layoutWeight(1)
+          .type(ButtonType.Capsule)
+          .fontSize(13)
+          .fontColor(this.billScope === BillScope.MONTH ? $r('app.color.accent_button_text') : $r('app.color.button_soft_text'))
+          .backgroundColor(this.billScope === BillScope.MONTH ? $r('app.color.accent_button_background') : $r('app.color.button_soft_background'))
+          .onClick(() => {
+            this.setBillScope(BillScope.MONTH)
+          })
+      }
+      .width('100%')
+
+      Row({ space: 8 }) {
+        Select(this.getBillYearOptions())
+          .selected(this.getBillYearIndex())
+          .value(this.getActiveBillYear().toString() + '年')
+          .fontColor($r('app.color.text_primary'))
+          .backgroundColor($r('app.color.input_background'))
+          .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
+          .borderRadius(12)
+          .layoutWeight(1)
+          .onSelect((index: number) => {
+            this.setBillYearByIndex(index)
+          })
+        if (this.billScope === BillScope.MONTH) {
+          Select(this.getBillMonthOptions())
+            .selected(this.getBillMonthIndex())
+            .value(this.getActiveBillMonth().toString() + '月')
+            .fontColor($r('app.color.text_primary'))
+            .backgroundColor($r('app.color.input_background'))
+            .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
+            .borderRadius(12)
+            .layoutWeight(1)
+            .onSelect((index: number) => {
+              this.setBillMonth(index + 1)
+            })
+        }
+      }
+      .width('100%')
+
+      Text('折叠方式')
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+      Row({ space: 8 }) {
+        Button('按年')
+          .layoutWeight(1)
+          .type(ButtonType.Capsule)
+          .fontSize(13)
+          .fontColor(this.billGrouping === BillGrouping.YEAR ? $r('app.color.accent_button_text') : $r('app.color.button_soft_text'))
+          .backgroundColor(this.billGrouping === BillGrouping.YEAR ? $r('app.color.accent_button_background') : $r('app.color.button_soft_background'))
+          .onClick(() => {
+            this.setBillGrouping(BillGrouping.YEAR)
+          })
+        Button('按月')
+          .layoutWeight(1)
+          .type(ButtonType.Capsule)
+          .fontSize(13)
+          .fontColor(this.billGrouping === BillGrouping.MONTH ? $r('app.color.accent_button_text') : $r('app.color.button_soft_text'))
+          .backgroundColor(this.billGrouping === BillGrouping.MONTH ? $r('app.color.accent_button_background') : $r('app.color.button_soft_background'))
+          .onClick(() => {
+            this.setBillGrouping(BillGrouping.MONTH)
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .padding(16)
+    .borderRadius(16)
+    .backgroundColor($r('app.color.card_background'))
+    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+    .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+  }
+
+  @Builder
+  private BillSummaryPanel(): void {
+    Column({ space: 12 }) {
+      Text(this.billScope === BillScope.YEAR
+        ? `${this.getActiveBillYear()} 年度汇总`
+        : `${this.getActiveBillYear()}年${this.getActiveBillMonth()}月汇总`)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+
+      Row({ space: 12 }) {
+        Column({ space: 3 }) {
+          Text('金额合计')
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+          Text(formatBillAmount(this.getBillSummary().totalMilliYuan))
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.error_text'))
+        }
+        .layoutWeight(1)
+        Column({ space: 3 }) {
+          Text('用水时长')
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+          Text(formatBillDuration(this.getBillSummary().totalDurationMillis))
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+        }
+        .layoutWeight(1)
+      }
+      .width('100%')
+
+      Text(`${this.getBillSummary().recordCount} 笔用水，已结算 ${this.getBillSummary().settledCount} 笔`)
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+      if (this.getBillSummary().pendingCount > 0) {
+        Text(`${this.getBillSummary().pendingCount} 笔金额待同步，未计入金额合计`)
+          .fontSize(12)
+          .fontColor($r('app.color.close_accent'))
+      }
+    }
+    .width('100%')
+    .padding(16)
+    .borderRadius(16)
+    .backgroundColor($r('app.color.card_background'))
+    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+    .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+  }
+
+  @Builder
+  private EmptyBillPeriodState(): void {
+    Column({ space: 6 }) {
+      Text('该账期暂无用水记录')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+      Text('可切换年份或月份查看其他账期。')
+        .fontSize(13)
+        .fontColor($r('app.color.text_secondary'))
+    }
+    .width('100%')
+    .padding(20)
+    .borderRadius(16)
+    .backgroundColor($r('app.color.card_background'))
+    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+    .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+  }
+
+  @Builder
+  private BillGroupCard(group: BillGroup): void {
+    Column({ space: 0 }) {
+      Button({ type: ButtonType.Normal }) {
+        Row() {
+          Column({ space: 3 }) {
+            Text(group.label)
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+            Text(`${group.summary.recordCount} 笔 · ${formatBillAmount(group.summary.totalMilliYuan)}`)
+              .fontSize(12)
+              .fontColor($r('app.color.text_secondary'))
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Text('⌄')
+            .fontSize(24)
+            .fontColor($r('app.color.text_secondary'))
+            .rotate({ angle: this.collapsedBillKeys.indexOf(group.key) >= 0 ? -90 : 0 })
+            .animation({ duration: 260, curve: Curve.EaseInOut })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+      }
+      .width('100%')
+      .padding(0)
+      .borderRadius(0)
+      .backgroundColor(Color.Transparent)
+      .stateEffect(true)
+      .onClick(() => {
+        this.toggleBillGroup(group.key)
+      })
+
+      if (this.collapsedBillKeys.indexOf(group.key) < 0) {
+        Column({ space: 0 }) {
+          Divider()
+            .width('100%')
+            .color($r('app.color.card_border'))
+            .strokeWidth(1)
+            .margin({ left: 16, right: 16 })
+          ForEach(group.entries, (entry: BillEntry, index: number) => {
+            if (index > 0) {
+              Divider()
+                .width('100%')
+                .color($r('app.color.card_border'))
+                .strokeWidth(1)
+                .margin({ left: 16, right: 16 })
+            }
+            this.BillRecordCard(entry)
+          }, (entry: BillEntry) => entry.record.id.toString())
+        }
+        .width('100%')
+        .clip(true)
+        .transition(
+            TransitionEffect.asymmetric(
+            TransitionEffect.OPACITY
+              .combine(TransitionEffect.translate({ x: 0, y: -6 }))
+              .animation({ duration: 240, curve: Curve.EaseOut }),
+            TransitionEffect.OPACITY
+              .combine(TransitionEffect.translate({ x: 0, y: -4 }))
+              .animation({ duration: 180, curve: Curve.EaseIn })
+            )
+          )
+      }
+    }
+    .width('100%')
+    .clip(true)
+    .borderRadius(16)
+    .backgroundColor($r('app.color.card_background'))
+    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+    .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+    .shadow({
+      radius: 10,
+      color: $r('app.color.card_shadow'),
+      offsetX: 0,
+      offsetY: 3
+    })
+  }
+
+  @Builder
+  private BillRecordCard(entry: BillEntry): void {
+    Column({ space: 6 }) {
+      Row() {
+        Column({ space: 3 }) {
+          Text('热水消费')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_primary'))
+          Text(`开始于 ${entry.record.getStartedAtLabel()}`)
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Text(entry.record.consumptionYuan >= 0 ? entry.record.getConsumptionLabel() : '待同步')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(entry.record.consumptionYuan >= 0 ? $r('app.color.error_text') : $r('app.color.close_accent'))
+      }
+      .width('100%')
+      Row() {
+        Text('用水时长')
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .layoutWeight(1)
+        Text(entry.record.getDurationLabel())
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
   }
 
   @Builder
@@ -982,7 +1410,7 @@ struct Index {
             .fontColor($r('app.color.accent_button_text'))
             .enabled(!this.busy)
             .onClick(() => {
-              this.triggerHaptic(25)
+              this.triggerHaptic(40)
               this.saveConfig()
             })
         }
@@ -1091,7 +1519,7 @@ struct Index {
         .tabBar(
           BottomTabBarStyle.of({
             normal: new SymbolGlyphModifier($r('sys.symbol.list_square_bill'))
-          }, '记录')
+          }, '账单')
             .layoutMode(LayoutMode.VERTICAL)
             .verticalAlign(VerticalAlign.Center)
             .padding({ left: 8, right: 8, top: 4, bottom: 4 })

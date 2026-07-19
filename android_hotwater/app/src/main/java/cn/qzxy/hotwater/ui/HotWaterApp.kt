@@ -145,7 +145,6 @@ fun HotWaterApp(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
-    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
     val performToggleHaptic: (Boolean) -> Unit = { turningOn ->
         haptic.performGlassHapticFeedback(
@@ -405,7 +404,6 @@ fun HotWaterApp(
                         AppScreen.OPERATIONS -> OperationsPage(
                             snapshot = snapshot,
                             busy = busy,
-                            statusMessage = statusMessage,
                             onToggle = {
                                 if (viewModel.shouldShowLowBalanceOpenWarning()) {
                                     showLowBalanceDialog = true
@@ -441,7 +439,7 @@ fun HotWaterApp(
         }
 
         BottomDock(
-            labels = listOf("操作", "记录", "配置"),
+            labels = listOf("用水", "账单", "配置"),
             selectedIndex = currentScreen.tabIndex,
             onSelected = { index, source ->
                 val nextScreen = AppScreen.entries[index]
