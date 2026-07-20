@@ -35,6 +35,14 @@ export class HotWaterConfig {
     }
     return value.substring(0, left) + middle + value.substring(value.length - right)
   }
+
+  static hasSameRuntimeIdentity(left: HotWaterConfig, right: HotWaterConfig): boolean {
+    return left.projectId === right.projectId &&
+      left.userId === right.userId &&
+      left.accountId === right.accountId &&
+      left.telephone === right.telephone &&
+      left.snCode === right.snCode
+  }
 }
 
 export class RuntimeDeviceInfo {

@@ -5,10 +5,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -31,7 +29,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.sp
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
@@ -48,6 +48,8 @@ fun GlassInput(
     focusRequester: FocusRequester? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailingContent: (@Composable () -> Unit)? = null,
 ) {
     val tokens = LocalGlassTokens.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -70,7 +72,7 @@ fun GlassInput(
 
         Box(
             modifier = Modifier
-                .heightIn(min = 52.dp)
+                .height(52.dp)
                 .fillMaxWidth()
                 .glassMaterial(
                     material = GlassMaterial.Input,
@@ -88,7 +90,7 @@ fun GlassInput(
                         )
                     } else Modifier
                 )
-                .padding(horizontal = 16.dp),
+                .padding(start = 16.dp, end = if (trailingContent == null) 16.dp else 8.dp),
             contentAlignment = Alignment.Center
         ) {
             BasicTextField(
@@ -100,9 +102,12 @@ fun GlassInput(
                 cursorBrush = SolidColor(tokens.accentPrimary),
                 keyboardOptions = keyboardOptions,
                 keyboardActions = keyboardActions,
+                visualTransformation = visualTransformation,
                 decorationBox = { inner ->
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         if (value.isEmpty()) {
@@ -113,7 +118,8 @@ fun GlassInput(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 52.dp)
+                    .then(if (trailingContent == null) Modifier else Modifier.padding(end = 48.dp))
+                    .height(52.dp)
                     .then(
                         if (focusRequester != null) Modifier.focusRequester(focusRequester)
                         else Modifier
@@ -123,6 +129,16 @@ fun GlassInput(
                         errorMessage?.let { error(it) }
                     },
             )
+            if (trailingContent != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .size(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    trailingContent()
+                }
+            }
         }
 
         if (errorMessage != null) {

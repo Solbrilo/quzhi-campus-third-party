@@ -4,12 +4,17 @@ import fs from '@ohos.file.fs'
 import window from '@ohos.window'
 import bundleManager from '@ohos.bundle.bundleManager'
 import { Want } from '@kit.AbilityKit'
+import { buffer } from '@kit.ArkTS'
 import { SymbolGlyphModifier } from '@kit.ArkUI'
 import { vibrator } from '@kit.SensorServiceKit'
 import { BlurStrategy, DividerMode, HdsTabs } from '@hms.hds.hdsBaseComponent'
 import { hdsMaterial } from '@hms.hds.hdsMaterial'
-import { CaptureParser } from '../common/CaptureParser'
-import { ConsumptionRecord, DashboardSnapshot, HotWaterConfig, RuntimeDeviceInfo } from '../common/HotWaterModels'
+import {
+  ConsumptionRecord,
+  DashboardSnapshot,
+  HotWaterConfig,
+  RuntimeDeviceInfo
+} from '../common/HotWaterModels'
 import { HotWaterRepository } from '../common/HotWaterRepository'
 import { HotWaterStore } from '../common/HotWaterStore'
 import {
@@ -29,11 +34,15 @@ import {
   toggleBillGroupCollapsed
 } from '../common/BillPresentation'
 import { LaunchActionBridge } from '../common/LaunchActionBridge'
+import { ConfigFlowBridge } from '../common/ConfigFlowBridge'
+import { HotWaterConfigTransfer } from '../common/HotWaterConfigTransfer'
 import { RuntimeDeviceInfoResolver } from '../common/RuntimeDeviceInfoResolver'
 import { GiteeUpdateRepository, UpdateCheckState } from '../common/AppUpdate'
 
 const LOW_BALANCE_WARNING_YUAN: number = 5
-const ALIPAY_RECHARGE_URI: string = 'alipays://platformapi/startapp?appId=20000001'
+const ALIPAY_RECHARGE_URI: string =
+  'alipays://platformapi/startapp?appId=2018090661238647&page=pages%2Findex%2Findex'
+const MAX_CONFIG_FILE_BYTES: number = 128 * 1024
 
 enum HomePage {
   OPERATIONS = 0,
@@ -46,6 +55,7 @@ interface FieldInputParams {
   description: string
   text: string
   placeholder: string
+  inputType?: InputType
   onChange: (value: string) => void
 }
 
@@ -62,7 +72,7 @@ struct Index {
   @State activePage: number = HomePage.OPERATIONS
   @State busy: boolean = false
   @State refreshingBalance: boolean = false
-  @State liveStatus: string = '先导入 .chls 或补全配置。'
+  @State liveStatus: string = '登录趣智校园以自动填充账号字段，再补充设备码。'
 
   @State balanceYuan: number = 0
   @State balanceLabel: string = '--'
@@ -82,7 +92,7 @@ struct Index {
   private usageTimerGeneration: number = 0
   private billCollapseInitialized: boolean = false
   private consumingLaunchAction: boolean = false
-  @State currentVersionLabel: string = '1.6.0'
+  @State currentVersionLabel: string = '2.0.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -93,7 +103,12 @@ struct Index {
   @State loginCodeText: string = ''
   @State telephoneText: string = ''
   @State snCodeText: string = ''
-  @State configSummary: string = '还没完成配置。导入 .chls 后会自动填充关键字段。'
+  @State configReloading: boolean = false
+  @State configTransferBusy: boolean = false
+  private snCodeFormDirty: boolean = false
+  private snCodeEditGeneration: number = 0
+  private configReloadGeneration: number = 0
+  @State configSummary: string = '登录趣智校园会自动填充账号字段；首次使用仍需补充 snCode。'
 
   @State ringAngle: number = 0
   @State ringOpacity: number = 0.15
@@ -114,6 +129,15 @@ struct Index {
 
   onPageShow(): void {
     this.consumePendingLaunchAction()
+    const pendingSnCode = ConfigFlowBridge.consumePendingSnCode()
+    if (pendingSnCode.length > 0) {
+      this.snCodeText = pendingSnCode
+      this.snCodeFormDirty = true
+      this.snCodeEditGeneration++
+    }
+    if (ConfigFlowBridge.consumeLoginConfigChanged()) {
+      this.reloadConfigAfterLogin()
+    }
     this.setupImmersiveWindow()
     if (this.busy) {
       this.startRingAnimation()
@@ -148,6 +172,7 @@ struct Index {
     const config = RuntimeDeviceInfoResolver.enrichConfig(await this.store.loadConfig())
     await this.store.saveConfig(config)
     this.applyConfigToForm(config)
+    this.snCodeFormDirty = false
     this.applyConfigSummary(config)
     this.applySnapshot(this.placeholderSnapshot(config))
     await this.loadConsumptionRecords()
@@ -188,7 +213,7 @@ struct Index {
     if (config.isComplete()) {
       this.configSummary = `配置已完成\n账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}\nsnCode: ${config.snCode}`
     } else {
-      this.configSummary = '还没完成配置。导入 .chls 后会自动填充关键字段。'
+      this.configSummary = '登录趣智校园会自动填充账号字段；首次使用仍需补充 snCode。'
     }
   }
 
@@ -354,6 +379,165 @@ struct Index {
     }
   }
 
+  private async reloadConfigAfterLogin(): Promise<void> {
+    if (!this.store) {
+      return
+    }
+    const reloadGeneration = ++this.configReloadGeneration
+    this.configReloading = true
+    const pendingSnCode = this.snCodeText
+    const pendingSnCodeDirty = this.snCodeFormDirty
+    const pendingSnCodeGeneration = this.snCodeEditGeneration
+    try {
+      const config = RuntimeDeviceInfoResolver.enrichConfig(await this.store.loadConfig())
+      if (reloadGeneration !== this.configReloadGeneration) {
+        return
+      }
+      const snCodeWasEditedDuringReload = this.snCodeEditGeneration !== pendingSnCodeGeneration
+      const snCodeToKeep = snCodeWasEditedDuringReload ? this.snCodeText : pendingSnCode
+      const snCodeDirty = snCodeWasEditedDuringReload || pendingSnCodeDirty
+      this.applyConfigToForm(config)
+      this.snCodeText = ConfigFlowBridge.resolveSnCodeAfterLogin(
+        snCodeToKeep,
+        snCodeDirty,
+        config.snCode
+      )
+      this.snCodeFormDirty = ConfigFlowBridge.hasPendingSnCodeAfterLogin(
+        snCodeToKeep,
+        snCodeDirty,
+        config.snCode
+      )
+      config.snCode = this.snCodeText
+      if (this.snCodeFormDirty) {
+        this.configSummary = `设备码已回填，点击“保存配置”完成绑定。\n` +
+          `账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}\nsnCode: ${config.snCode || '-'}`
+      } else {
+        this.applyConfigSummary(config)
+      }
+
+      const snapshot = this.placeholderSnapshot(config)
+      const cachedOrderNo = await this.store.loadOrderNo()
+      if (reloadGeneration !== this.configReloadGeneration) {
+        return
+      }
+      if (cachedOrderNo.length > 0) {
+        snapshot.orderNo = cachedOrderNo
+        snapshot.hasCachedOrder = true
+        snapshot.statusLabel = '已缓存活动订单，正在同步最新状态。'
+      }
+      this.applySnapshot(snapshot)
+      if (config.isComplete() && !this.snCodeFormDirty) {
+        await this.refreshBalance(false, true)
+      }
+    } catch (error) {
+      if (reloadGeneration === this.configReloadGeneration) {
+        this.liveStatus = '登录配置已保存，但暂时无法刷新配置表单，请稍后重试。'
+      }
+    } finally {
+      if (reloadGeneration === this.configReloadGeneration) {
+        this.configReloading = false
+      }
+    }
+  }
+
+  private async importConfigFile(): Promise<void> {
+    if (!this.hostContext || !this.store || this.configTransferBusy) {
+      return
+    }
+    this.configTransferBusy = true
+    try {
+      const options = new picker.DocumentSelectOptions()
+      options.fileSuffixFilters = ['JSON 配置文件|.json']
+      options.maxSelectNumber = 1
+      const documentPicker = new picker.DocumentViewPicker(this.hostContext)
+      const uris = await documentPicker.select(options)
+      if (!uris || uris.length === 0) {
+        return
+      }
+      const parsedConfig = RuntimeDeviceInfoResolver.enrichConfig(
+        HotWaterConfigTransfer.parse(this.readConfigTextFromUri(uris[0]))
+      )
+      await this.store.saveConfig(parsedConfig)
+      this.applyConfigToForm(parsedConfig)
+      this.snCodeFormDirty = false
+      this.applyConfigSummary(parsedConfig)
+      this.applySnapshot(this.placeholderSnapshot(parsedConfig))
+      this.liveStatus = '配置已导入。'
+    } catch (error) {
+      this.liveStatus = `导入配置失败：${String(error)}`
+    } finally {
+      this.configTransferBusy = false
+    }
+  }
+
+  private async exportConfigFile(): Promise<void> {
+    if (!this.hostContext || !this.store || this.configTransferBusy) {
+      return
+    }
+    this.configTransferBusy = true
+    try {
+      const config = await this.store.loadConfig()
+      const validationError = HotWaterConfigTransfer.validate(config)
+      if (validationError.length > 0) {
+        this.liveStatus = `配置不完整，暂时无法导出：${validationError}`
+        return
+      }
+      const options = new picker.DocumentSaveOptions()
+      options.newFileNames = [HotWaterConfigTransfer.generateFileName()]
+      const documentPicker = new picker.DocumentViewPicker(this.hostContext)
+      const uris = await documentPicker.save(options)
+      if (!uris || uris.length === 0) {
+        return
+      }
+      this.writeConfigTextToUri(
+        uris[0],
+        HotWaterConfigTransfer.serialize(config, Date.now(), this.currentVersionLabel)
+      )
+      this.liveStatus = '配置已导出。'
+    } catch (error) {
+      this.liveStatus = `导出配置失败：${String(error)}`
+    } finally {
+      this.configTransferBusy = false
+    }
+  }
+
+  private readConfigTextFromUri(uri: string): string {
+    const file = fs.openSync(uri, fs.OpenMode.READ_ONLY)
+    const bytesBuffer = new ArrayBuffer(16 * 1024)
+    const chunks: Uint8Array[] = []
+    let totalSize = 0
+    try {
+      while (true) {
+        const readSize = fs.readSync(file.fd, bytesBuffer)
+        if (readSize <= 0) {
+          break
+        }
+        totalSize += readSize
+        if (totalSize > MAX_CONFIG_FILE_BYTES) {
+          throw new Error('配置文件过大，最多支持 128 KB')
+        }
+        const chunk = new Uint8Array(readSize)
+        chunk.set(new Uint8Array(bytesBuffer, 0, readSize))
+        chunks.push(chunk)
+      }
+      return buffer.concat(chunks, totalSize).toString('utf-8')
+    } finally {
+      fs.closeSync(file.fd)
+    }
+  }
+
+  private writeConfigTextToUri(uri: string, value: string): void {
+    const file = fs.openSync(
+      uri,
+      fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC
+    )
+    try {
+      fs.writeSync(file.fd, value)
+    } finally {
+      fs.closeSync(file.fd)
+    }
+  }
+
   private syncUsageTimer(): void {
     const generation = ++this.usageTimerGeneration
     if (!this.hasCachedOrder || !this.store) {
@@ -393,7 +577,7 @@ struct Index {
     return ConsumptionRecord.formatDuration(durationMillis)
   }
 
-  private async collectConfig(): Promise<HotWaterConfig> {
+  private async collectConfig(includeSnCodeDraft: boolean = false): Promise<HotWaterConfig> {
     const loaded = this.store ? await this.store.loadConfig() : new HotWaterConfig()
     const config = new HotWaterConfig()
     config.projectId = Number(this.projectIdText || '0')
@@ -401,7 +585,9 @@ struct Index {
     config.accountId = Number(this.accountIdText || '0')
     config.loginCode = this.loginCodeText.trim()
     config.telephone = this.telephoneText.trim()
-    config.snCode = this.snCodeText.trim().replace(/:/g, '').toUpperCase()
+    config.snCode = includeSnCodeDraft
+      ? this.snCodeText.trim().replace(/:/g, '').toUpperCase()
+      : loaded.snCode
     config.macAddress = loaded.macAddress
     config.phoneSystem = loaded.phoneSystem
     config.version = loaded.version
@@ -409,11 +595,12 @@ struct Index {
   }
 
   private async saveConfig(): Promise<void> {
-    if (!this.store) {
+    if (!this.store || this.configReloading) {
       return
     }
-    const config = await this.collectConfig()
+    const config = await this.collectConfig(true)
     await this.store.saveConfig(config)
+    this.snCodeFormDirty = false
     this.applyConfigSummary(config)
     this.liveStatus = '配置已保存。'
     this.switchPage(HomePage.OPERATIONS)
@@ -438,14 +625,17 @@ struct Index {
       })
   }
 
-  private async refreshBalance(showStatus: boolean = true): Promise<void> {
-    if (!this.repository || !this.store) {
+  private async refreshBalance(
+    showStatus: boolean = true,
+    allowDuringConfigReload: boolean = false
+  ): Promise<void> {
+    if (!this.repository || !this.store || (this.configReloading && !allowDuringConfigReload)) {
       return
     }
     const config = await this.collectConfig()
     if (!config.isComplete()) {
       this.switchPage(HomePage.CONFIG)
-      this.liveStatus = '配置还不完整，先导入 .chls 或补全字段。'
+      this.liveStatus = '配置还不完整，请登录趣智校园或补全字段。'
       return
     }
     this.refreshingBalance = true
@@ -466,13 +656,13 @@ struct Index {
   }
 
   private async toggleHotWater(skipLowBalanceWarning: boolean = false): Promise<void> {
-    if (!this.repository) {
+    if (!this.repository || this.configReloading) {
       return
     }
     const config = await this.collectConfig()
     if (!config.isComplete()) {
       this.switchPage(HomePage.CONFIG)
-      this.liveStatus = '配置还不完整，先导入 .chls 或补全字段。'
+      this.liveStatus = '配置还不完整，请登录趣智校园或补全字段。'
       return
     }
     if (!skipLowBalanceWarning && this.shouldShowLowBalanceOpenWarning()) {
@@ -595,32 +785,6 @@ struct Index {
     })
   }
 
-  private async importCaptureFile(): Promise<void> {
-    if (!this.hostContext || !this.store) {
-      return
-    }
-    try {
-      const options = new picker.DocumentSelectOptions()
-      options.fileSuffixFilters = ['.chls']
-      options.maxSelectNumber = 1
-      const documentPicker = new picker.DocumentViewPicker(this.hostContext)
-      const uris = await documentPicker.select(options)
-      if (!uris || uris.length === 0) {
-        return
-      }
-      const captureText = this.readTextFromUri(uris[0])
-      const parsedConfig = RuntimeDeviceInfoResolver.enrichConfig(CaptureParser.parse(captureText))
-      await this.store.saveConfig(parsedConfig)
-      this.applyConfigToForm(parsedConfig)
-      this.applyConfigSummary(parsedConfig)
-      this.switchPage(HomePage.OPERATIONS)
-      this.liveStatus = '已导入 .chls，正在同步关键数据…'
-      await this.refreshBalance(false)
-    } catch (error) {
-      this.liveStatus = `导入失败：${JSON.stringify(error)}`
-    }
-  }
-
   private async consumePendingLaunchAction(): Promise<boolean> {
     if (this.consumingLaunchAction) {
       return false
@@ -658,20 +822,6 @@ struct Index {
     }
   }
 
-  private readTextFromUri(uri: string): string {
-    const file = fs.openSync(uri, fs.OpenMode.READ_ONLY)
-    const size = 1024 * 128
-    const buffer = new ArrayBuffer(size)
-    const readSize = fs.readSync(file.fd, buffer)
-    fs.closeSync(file.fd)
-    const bytes = new Uint8Array(buffer)
-    let text = ''
-    for (let index = 0; index < readSize; index++) {
-      text += String.fromCharCode(bytes[index])
-    }
-    return text
-  }
-
   private async loadCurrentVersion(): Promise<void> {
     try {
       const bundleInfo = await bundleManager.getBundleInfoForSelf(
@@ -681,7 +831,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '1.6.0'
+      this.currentVersionLabel = '2.0.0'
     }
   }
 
@@ -778,6 +928,7 @@ struct Index {
       .width('100%')
 
       TextInput({ text: params.text, placeholder: params.placeholder })
+        .type(params.inputType ?? InputType.Normal)
         .fontSize(16)
         .fontColor($r('app.color.text_primary'))
         .placeholderColor($r('app.color.text_secondary'))
@@ -793,6 +944,28 @@ struct Index {
         .onChange(params.onChange)
     }
     .width('100%')
+  }
+
+  private async openLogin(): Promise<void> {
+    if (this.configReloading) {
+      return
+    }
+    try {
+      await this.getUIContext().getRouter().pushUrl({ url: 'pages/Login' })
+    } catch (error) {
+      this.liveStatus = '暂时无法打开登录页面。'
+    }
+  }
+
+  private async openScanner(): Promise<void> {
+    if (this.configReloading) {
+      return
+    }
+    try {
+      await this.getUIContext().getRouter().pushUrl({ url: 'pages/Scanner' })
+    } catch (error) {
+      this.liveStatus = '暂时无法打开扫码页面。'
+    }
   }
 
   @Builder
@@ -812,25 +985,43 @@ struct Index {
             .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
 
-          Stack() {
-            Button('刷新')
+          Column({ space: 8 }) {
+            Stack() {
+              Button('刷新')
+                .type(ButtonType.Capsule)
+                .width('100%')
+                .height(36)
+                .fontSize(13)
+                .backgroundColor($r('app.color.button_soft_background'))
+                .fontColor(this.refreshingBalance ? '#00FFFFFF' : $r('app.color.button_soft_text'))
+                .enabled(!this.refreshingBalance && !this.busy && !this.configReloading)
+                .onClick(() => {
+                  this.triggerHaptic()
+                  this.refreshBalance(true)
+                })
+
+              if (this.refreshingBalance) {
+                LoadingProgress()
+                  .width(24)
+                  .height(24)
+                  .color($r('app.color.accent'))
+              }
+            }
+
+            Button('充值')
               .type(ButtonType.Capsule)
+              .width('100%')
+              .height(36)
               .fontSize(13)
-              .backgroundColor($r('app.color.button_soft_background'))
-              .fontColor(this.refreshingBalance ? '#00FFFFFF' : $r('app.color.button_soft_text'))
-              .enabled(!this.refreshingBalance && !this.busy)
+              .backgroundColor($r('app.color.accent_button_background'))
+              .fontColor($r('app.color.accent_button_text'))
+              .enabled(!this.busy && !this.configReloading)
               .onClick(() => {
                 this.triggerHaptic()
-                this.refreshBalance(true)
+                this.openAlipayForRecharge()
               })
-
-            if (this.refreshingBalance) {
-              LoadingProgress()
-                .width(24)
-                .height(24)
-                .color($r('app.color.accent'))
-            }
           }
+          .width(72)
         }
         .width('100%')
 
@@ -940,7 +1131,7 @@ struct Index {
             .fontWeight(FontWeight.Bold)
             .backgroundColor(this.hasCachedOrder ? $r('app.color.power_button_close_background') : $r('app.color.power_button_open_background'))
             .fontColor($r('app.color.power_button_text'))
-            .enabled(!this.busy && !this.refreshingBalance)
+            .enabled(!this.busy && !this.refreshingBalance && !this.configReloading)
             .shadow({
               radius: 24,
               color: this.hasCachedOrder ? $r('app.color.power_close_shadow') : $r('app.color.power_open_shadow'),
@@ -1302,7 +1493,7 @@ struct Index {
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .fontColor($r('app.color.text_primary'))
-            Text('导入 .chls 后会自动填充；也可以手动补全以下字段。')
+            Text('登录趣智校园可自动填充账号字段；也可手动补全以下字段。')
               .fontSize(13)
               .fontColor($r('app.color.text_secondary'))
           }
@@ -1318,10 +1509,20 @@ struct Index {
         }
         .width('100%')
 
-        Text('服务参数')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
+        Text('登录后自动填入项目、用户、账户和登录凭据；密码只用于本次请求。')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+
+        Button('登录趣智校园')
+          .type(ButtonType.Capsule)
+          .width('100%')
+          .backgroundColor($r('app.color.accent_button_background'))
+          .fontColor($r('app.color.accent_button_text'))
+          .enabled(!this.busy && !this.configReloading)
+          .onClick(() => {
+            this.triggerHaptic()
+            this.openLogin()
+          })
 
         this.FieldInput({
           label: '项目 ID',
@@ -1368,15 +1569,35 @@ struct Index {
             this.telephoneText = value
           }
         })
-        this.FieldInput({
-          label: '设备序列号',
-          description: 'snCode',
-          text: this.snCodeText,
-          placeholder: 'snCode',
-          onChange: (value: string) => {
-            this.snCodeText = value
+        Row({ space: 10 }) {
+          Column() {
+            this.FieldInput({
+              label: '设备序列号',
+              description: 'snCode',
+              text: this.snCodeText,
+              placeholder: 'snCode',
+              onChange: (value: string) => {
+                this.snCodeText = value
+                this.snCodeFormDirty = true
+                this.snCodeEditGeneration++
+              }
+            })
           }
-        })
+          .layoutWeight(1)
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.qrcode'))
+              .fontSize(23)
+              .fontColor([$r('app.color.text_primary')])
+          }
+          .width(52)
+          .height(52)
+          .backgroundColor($r('app.color.input_background'))
+          .enabled(!this.busy && !this.configReloading)
+          .accessibilityText('扫描设备二维码')
+          .onClick(() => this.openScanner())
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Bottom)
 
         Column({ space: 4 }) {
           Text('配置状态')
@@ -1391,30 +1612,41 @@ struct Index {
         .borderRadius(16)
         .backgroundColor($r('app.color.input_background'))
 
+        Button('保存配置')
+          .type(ButtonType.Capsule)
+          .width('100%')
+          .backgroundColor($r('app.color.accent_button_background'))
+          .fontColor($r('app.color.accent_button_text'))
+          .enabled(!this.busy && !this.configReloading && !this.configTransferBusy)
+          .onClick(() => {
+            this.triggerHaptic(40)
+             this.saveConfig()
+           })
         Row({ space: 12 }) {
-          Button('导入 .chls')
+          Button('导出配置')
             .layoutWeight(1)
             .type(ButtonType.Capsule)
             .backgroundColor($r('app.color.button_soft_background'))
             .fontColor($r('app.color.button_soft_text'))
-            .enabled(!this.busy)
+            .enabled(!this.busy && !this.configReloading && !this.configTransferBusy)
             .onClick(() => {
               this.triggerHaptic()
-              this.importCaptureFile()
+              this.exportConfigFile()
             })
 
-          Button('保存配置')
+          Button('导入配置')
             .layoutWeight(1)
             .type(ButtonType.Capsule)
-            .backgroundColor($r('app.color.accent_button_background'))
-            .fontColor($r('app.color.accent_button_text'))
-            .enabled(!this.busy)
+            .backgroundColor($r('app.color.button_soft_background'))
+            .fontColor($r('app.color.button_soft_text'))
+            .enabled(!this.busy && !this.configReloading && !this.configTransferBusy)
             .onClick(() => {
-              this.triggerHaptic(40)
-              this.saveConfig()
+              this.triggerHaptic()
+              this.importConfigFile()
             })
         }
-      }
+        .width('100%')
+       }
       .padding(18)
       .borderRadius(24)
       .backgroundColor($r('app.color.card_background'))

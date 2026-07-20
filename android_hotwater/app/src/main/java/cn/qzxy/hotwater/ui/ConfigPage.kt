@@ -17,12 +17,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +58,7 @@ import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -70,6 +73,10 @@ fun ConfigPage(
     onSave: (HotWaterConfig) -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    onOpenLogin: () -> Unit,
+    onScanSnCode: () -> Unit,
+    scannedSnCode: String?,
+    onScannedSnCodeConsumed: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
     val scrollState = rememberScrollState()
@@ -90,6 +97,12 @@ fun ConfigPage(
     var telephone by rememberSaveable(config.telephone) { mutableStateOf(config.telephone) }
     var snCode by rememberSaveable(config.snCode) { mutableStateOf(config.snCode) }
     var showValidationErrors by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(scannedSnCode) {
+        val scanned = scannedSnCode ?: return@LaunchedEffect
+        snCode = scanned.trim().replace(":", "").uppercase(Locale.ROOT)
+        onScannedSnCodeConsumed()
+    }
 
     fun numericError(value: String, key: String): String? {
         if (!showValidationErrors) return null
@@ -138,9 +151,17 @@ fun ConfigPage(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "从抓包工具中获取以下参数并手动填入，保存后即可使用。",
+                text = "登录趣智校园自动填入账号字段，也可以手动补全或扫码绑定设备。",
                 color = tokens.textSecondary,
                 fontSize = 13.sp
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+            GlassButton(
+                text = "登录趣智校园",
+                onClick = onOpenLogin,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -231,6 +252,24 @@ fun ConfigPage(
                     imeAction = ImeAction.Done,
                 ),
                 keyboardActions = doneActions,
+                trailingContent = {
+                    GlassPressable(
+                        onClick = onScanSnCode,
+                        enabled = !busy,
+                        material = GlassMaterial.EmbeddedControl,
+                        cornerRadius = 18.dp,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .semantics { contentDescription = "扫描设备二维码" },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.QrCodeScanner,
+                            contentDescription = null,
+                            tint = tokens.textPrimary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                },
             )
 
             // 配置状态
@@ -252,7 +291,7 @@ fun ConfigPage(
                         accountId = accountId.trim().toIntOrNull(),
                         loginCode = loginCode.trim(),
                         telephone = telephone.trim(),
-                        snCode = snCode.trim().replace(":", "").uppercase(),
+                        snCode = snCode.trim().replace(":", "").uppercase(Locale.ROOT),
                         macAddress = config.macAddress,
                         phoneSystem = config.phoneSystem,
                         version = config.version,

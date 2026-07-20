@@ -118,6 +118,10 @@ fun HotWaterApp(
     onImportConfig: () -> Unit,
     onOpenAlipayRecharge: () -> Unit,
     onRequestNotificationPermission: ((() -> Unit) -> Unit),
+    onOpenLogin: () -> Unit,
+    onScanSnCode: () -> Unit,
+    scannedSnCode: String?,
+    onScannedSnCodeConsumed: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
     val environment = LocalGlassEnvironment.current
@@ -420,6 +424,7 @@ fun HotWaterApp(
                                 }
                             },
                             onRefreshBalance = { viewModel.refreshBalance() },
+                            onOpenRecharge = onOpenAlipayRecharge,
                         )
                         AppScreen.RECORDS -> RecordsPage(history = history)
                         AppScreen.CONFIG -> ConfigPage(
@@ -432,6 +437,10 @@ fun HotWaterApp(
                             onSave = { viewModel.saveConfig(it) },
                             onExport = onExportConfig,
                             onImport = onImportConfig,
+                            onOpenLogin = onOpenLogin,
+                            onScanSnCode = onScanSnCode,
+                            scannedSnCode = scannedSnCode,
+                            onScannedSnCodeConsumed = onScannedSnCodeConsumed,
                         )
                     }
                 }

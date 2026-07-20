@@ -26,7 +26,7 @@ object HotWaterConfigManager {
             put("phoneSystem", config.phoneSystem)
             put("version", config.version)
             put("exportedAt", System.currentTimeMillis())
-            put("appVersion", "1.0.3")
+            put("appVersion", BuildConfig.VERSION_NAME)
         }
     }
 
@@ -48,17 +48,9 @@ object HotWaterConfigManager {
     }
 
     /**
-     * 生成导出文件名（以手机号命名）
+     * 生成不含账号信息或特殊字符的导出文件名。
      */
-    fun generateExportFileName(config: HotWaterConfig): String {
-        val telephone = config.telephone.takeIf { it.isNotBlank() } ?: "unknown"
-        val maskedTelephone = if (telephone.length > 7) {
-            "${telephone.take(3)}****${telephone.takeLast(4)}"
-        } else {
-            telephone
-        }
-        return "hotwater_config_${maskedTelephone}$CONFIG_FILE_EXTENSION"
-    }
+    fun generateExportFileName(): String = "hotwater_config$CONFIG_FILE_EXTENSION"
 
     /**
      * 从 URI 读取配置

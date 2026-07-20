@@ -46,3 +46,11 @@ data class HotWaterConfig(
         }
     }
 }
+
+internal fun HotWaterConfig.hasDifferentIdentityFrom(other: HotWaterConfig): Boolean {
+    return projectId != other.projectId ||
+        userId != other.userId ||
+        accountId != other.accountId ||
+        telephone != other.telephone ||
+        snCode != other.snCode
+}

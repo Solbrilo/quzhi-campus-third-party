@@ -23,11 +23,13 @@ import cn.qzxy.hotwater.designsystem.theme.GlassTheme
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.ThemeModePreferences
 import cn.qzxy.hotwater.designsystem.theme.sanitizeGlassIntensity
-import cn.qzxy.hotwater.ui.HotWaterApp
+import cn.qzxy.hotwater.ui.HotWaterRoot
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var updateManager: AppUpdateManager
+    private lateinit var onboardingPreferences: OnboardingPreferences
+    private var onboardingRequired by mutableStateOf(true)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var glassIntensity by mutableFloatStateOf(DEFAULT_GLASS_INTENSITY)
     private var notificationPermissionRequested = false
@@ -73,6 +75,8 @@ class MainActivity : ComponentActivity() {
         pendingOpenRequested = savedInstanceState?.getBoolean(STATE_PENDING_OPEN) ?: false
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
+        onboardingPreferences = OnboardingPreferences(applicationContext)
+        onboardingRequired = onboardingPreferences.shouldShowForCurrentVersion()
         themeMode = ThemeModePreferences.read(this)
         glassIntensity = if (savedInstanceState?.containsKey(STATE_GLASS_INTENSITY) == true) {
             sanitizeGlassIntensity(savedInstanceState.getFloat(STATE_GLASS_INTENSITY))
@@ -85,9 +89,14 @@ class MainActivity : ComponentActivity() {
                 themeMode = themeMode,
                 glassIntensity = glassIntensity,
             ) {
-                HotWaterApp(
+                HotWaterRoot(
                     viewModel = viewModel,
                     updateManager = updateManager,
+                    onboardingRequired = onboardingRequired,
+                    onOnboardingCompleted = {
+                        onboardingPreferences.markCurrentVersionCompleted()
+                        onboardingRequired = false
+                    },
                     themeMode = themeMode,
                     onThemeModeChange = { nextMode ->
                         if (themeMode != nextMode) {
@@ -179,7 +188,7 @@ class MainActivity : ComponentActivity() {
     private fun openAlipayForRecharge() {
         val intent = Intent(
             Intent.ACTION_VIEW,
-            Uri.parse("alipays://platformapi/startapp?appId=20000001"),
+            buildAlipayRechargeUri(),
         ).apply {
             setPackage(ALIPAY_PACKAGE_NAME)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -187,8 +196,26 @@ class MainActivity : ComponentActivity() {
         try {
             startActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "未能打开支付宝，请手动通过支付宝进行充值。", Toast.LENGTH_SHORT).show()
+            showAlipayUnavailableMessage()
+        } catch (_: SecurityException) {
+            showAlipayUnavailableMessage()
         }
+    }
+
+    private fun buildAlipayRechargeUri(): Uri = Uri.Builder()
+        .scheme("alipays")
+        .authority("platformapi")
+        .appendPath("startapp")
+        .appendQueryParameter("appId", QZXY_ALIPAY_MINI_APP_ID)
+        .appendQueryParameter("page", QZXY_ALIPAY_RECHARGE_PAGE)
+        .build()
+
+    private fun showAlipayUnavailableMessage() {
+        Toast.makeText(
+            this,
+            "未能打开支付宝，请确认已安装支付宝后重试。",
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     private fun exportConfig() {
@@ -202,7 +229,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val fileName = HotWaterConfigManager.generateExportFileName(config)
+        val fileName = HotWaterConfigManager.generateExportFileName()
         exportConfigLauncher.launch(fileName)
     }
 
@@ -246,5 +273,7 @@ class MainActivity : ComponentActivity() {
         private const val STATE_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val STATE_GLASS_INTENSITY = "glass_intensity"
         private const val ALIPAY_PACKAGE_NAME = "com.eg.android.AlipayGphone"
+        private const val QZXY_ALIPAY_MINI_APP_ID = "2018090661238647"
+        private const val QZXY_ALIPAY_RECHARGE_PAGE = "pages/index/index"
     }
 }
