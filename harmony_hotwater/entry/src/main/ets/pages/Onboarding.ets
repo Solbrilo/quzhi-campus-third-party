@@ -6,6 +6,7 @@ import window from '@ohos.window'
 import { DeviceScanner } from '../components/DeviceScanner'
 import { HotWaterStore } from '../common/HotWaterStore'
 import { OnboardingQuoteMotion } from '../common/OnboardingQuoteMotion'
+import { OnboardingResumeGate, OnboardingResumeTarget } from '../common/OnboardingResumeGate'
 import { OnboardingStore } from '../common/OnboardingStore'
 import { QrCodeParser } from '../common/QrCodeParser'
 import { QzxyLoginClient, QZXY_LOGIN_CLIENT_VERSION } from '../common/QzxyLoginClient'
@@ -33,6 +34,8 @@ struct Onboarding {
   private loginClient: QzxyLoginClient = new QzxyLoginClient()
   private currentVersionCode: number = 0
   private currentInstallTime: number = 0
+  private resumeTarget: OnboardingResumeTarget = OnboardingResumeTarget.LOGIN
+  private initialStateLoadGeneration: number = 0
   private flowGeneration: number = 0
   private quoteAnimationGeneration: number = 0
   private quoteTimers: number[] = []
@@ -54,6 +57,7 @@ struct Onboarding {
   @State busy: boolean = false
   @State binding: boolean = false
   @State finishing: boolean = false
+  @State initialStateLoaded: boolean = false
   @State loginStatus: string = ''
   @State finishStatus: string = ''
   @State manualSnCode: string = ''
@@ -70,6 +74,8 @@ struct Onboarding {
 
   aboutToAppear(): void {
     this.pageVisible = true
+    this.initialStateLoaded = false
+    this.resumeTarget = OnboardingResumeTarget.LOGIN
     this.flowGeneration++
     const context = this.getUIContext().getHostContext() as common.Context
     this.store = new HotWaterStore(context)
@@ -81,6 +87,7 @@ struct Onboarding {
 
   aboutToDisappear(): void {
     this.pageVisible = false
+    this.initialStateLoadGeneration++
     this.flowGeneration++
     this.resumeQuoteOnShow = false
     this.password = ''
@@ -148,23 +155,57 @@ struct Onboarding {
   }
 
   private async loadInitialState(): Promise<void> {
+    const loadGeneration = ++this.initialStateLoadGeneration
     try {
       const identity = await this.readCurrentBuildIdentity()
+      if (loadGeneration !== this.initialStateLoadGeneration) {
+        return
+      }
       this.currentVersionCode = identity.versionCode
       this.currentInstallTime = identity.installTime
     } catch (error) {
+      if (loadGeneration !== this.initialStateLoadGeneration) {
+        return
+      }
       this.currentVersionCode = 0
+      this.currentInstallTime = 0
     }
     if (!this.store) {
+      this.initialStateLoaded = true
       return
     }
     try {
       const config = await this.store.loadConfig()
-      if (this.pageVisible) {
-        this.telephone = config.telephone
+      if (loadGeneration !== this.initialStateLoadGeneration) {
+        return
       }
+      this.resumeTarget = OnboardingResumeGate.resolve(config)
+      this.telephone = config.telephone
     } catch (error) {
+      if (loadGeneration === this.initialStateLoadGeneration) {
+        this.resumeTarget = OnboardingResumeTarget.LOGIN
+      }
+    } finally {
+      if (loadGeneration === this.initialStateLoadGeneration) {
+        this.initialStateLoaded = true
+      }
     }
+  }
+
+  private startOnboarding(): void {
+    if (!this.initialStateLoaded || this.busy || this.finishing || !this.pageVisible ||
+      this.stage !== OnboardingStage.QUOTE) {
+      return
+    }
+    if (this.resumeTarget === OnboardingResumeTarget.COMPLETE) {
+      this.finishOnboarding()
+      return
+    }
+    if (this.resumeTarget === OnboardingResumeTarget.SCANNER) {
+      this.goToStage(OnboardingStage.SCANNER)
+      return
+    }
+    this.goToStage(OnboardingStage.LOGIN)
   }
 
   private async readCurrentBuildIdentity(): Promise<BuildIdentity> {
@@ -617,7 +658,8 @@ struct Onboarding {
         .backgroundColor($r('app.color.accent_button_background'))
         .fontColor($r('app.color.accent_button_text'))
         .margin({ top: 12 })
-        .onClick(() => this.goToStage(OnboardingStage.LOGIN))
+        .enabled(this.initialStateLoaded && !this.busy && !this.finishing)
+        .onClick(() => this.startOnboarding())
     }
     .width('100%')
     .height('100%')

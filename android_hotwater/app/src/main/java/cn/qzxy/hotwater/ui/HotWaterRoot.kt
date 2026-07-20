@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.qzxy.hotwater.AppUpdateManager
+import cn.qzxy.hotwater.HotWaterConfig
 import cn.qzxy.hotwater.MainViewModel
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
@@ -32,6 +33,26 @@ private enum class RootScreen {
     ONBOARDING_LOGIN,
     ONBOARDING_SCANNER,
     ONBOARDING_COMPLETE,
+}
+
+internal enum class OnboardingResumeDestination {
+    MAIN,
+    SCANNER,
+    LOGIN,
+}
+
+internal fun resolveOnboardingResumeDestination(
+    config: HotWaterConfig,
+): OnboardingResumeDestination {
+    return when {
+        config.isComplete() -> OnboardingResumeDestination.MAIN
+        config.projectId != null &&
+            config.userId != null &&
+            config.accountId != null &&
+            config.loginCode.isNotBlank() &&
+            config.telephone.isNotBlank() -> OnboardingResumeDestination.SCANNER
+        else -> OnboardingResumeDestination.LOGIN
+    }
 }
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -190,8 +211,20 @@ fun HotWaterRoot(
 
                 RootScreen.ONBOARDING_QUOTE -> OnboardingQuotePage(
                     onNext = {
-                        viewModel.clearQzxyLoginState()
-                        rootScreen = RootScreen.ONBOARDING_LOGIN
+                        when (resolveOnboardingResumeDestination(config)) {
+                            OnboardingResumeDestination.MAIN -> {
+                                onOnboardingCompleted()
+                                rootScreen = RootScreen.MAIN
+                            }
+                            OnboardingResumeDestination.SCANNER -> {
+                                viewModel.clearSnCodeSaveState()
+                                rootScreen = RootScreen.ONBOARDING_SCANNER
+                            }
+                            OnboardingResumeDestination.LOGIN -> {
+                                viewModel.clearQzxyLoginState()
+                                rootScreen = RootScreen.ONBOARDING_LOGIN
+                            }
+                        }
                     },
                 )
 

@@ -14,7 +14,7 @@ struct About {
   private feedbackClient: FeedbackClient = new FeedbackClient()
   private feedbackRequestGeneration: number = 0
 
-  @State currentVersionLabel: string = '2.0.0'
+  @State currentVersionLabel: string = '2.0.1'
   @State checkingUpdate: boolean = false
   @State updateCheckState: UpdateCheckState = UpdateCheckState.IDLE
   @State updateStatusLabel: string = '通过 Gitee Release 检查新版本。'
@@ -51,7 +51,7 @@ struct About {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '2.0.0'
+      this.currentVersionLabel = '2.0.1'
     }
   }
 
