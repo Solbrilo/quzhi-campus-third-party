@@ -26,14 +26,14 @@ The HarmonyOS HAP must keep bundle name `cn.qzxy.hotwater.hm`, use the configure
 identity, and be uploaded with the exact shared Release version. Its updater validates both the
 Release tag and the HarmonyOS asset name before showing an update.
 
-## v1.6.0 Checklist
+## v2.0.0 Checklist
 
-1. Set Android to `versionCode 19` and `versionName 1.6.0`.
-2. Set HarmonyOS to `versionCode 1006000` and `versionName 1.6.0`.
+1. Set Android to `versionCode 20` and `versionName 2.0.0`.
+2. Set HarmonyOS to `versionCode 2000000` and `versionName 2.0.0`.
 3. Run Android unit tests and release lint, then build the signed release APK.
 4. Run HarmonyOS unit tests and build the signed release HAP.
 5. Verify package identifiers, signing certificates, byte counts, and SHA-256 hashes.
 6. Commit all source changes and push `main`.
-7. Create annotated tags `v1.6.0` and `android-v1.6.0` at the release commit, then push them.
-8. Create Gitee Release `v1.6.0` named `water` and upload both platform assets.
+7. Create annotated tags `v2.0.0` and `android-v2.0.0` at the release commit, then push them.
+8. Create Gitee Release `v2.0.0` named `water` and upload both platform assets.
 9. Verify the anonymous Release API and both asset downloads.

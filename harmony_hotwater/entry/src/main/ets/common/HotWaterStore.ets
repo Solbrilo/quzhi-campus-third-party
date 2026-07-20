@@ -1,7 +1,12 @@
 import preferences from '@ohos.data.preferences'
 import type common from '@ohos.app.ability.common'
 import { ArkTSUtils } from '@kit.ArkTS'
-import { ConsumptionRecord, HotWaterConfig, PendingSettlement, UsageSession } from './HotWaterModels'
+import {
+  ConsumptionRecord,
+  HotWaterConfig,
+  PendingSettlement,
+  UsageSession
+} from './HotWaterModels'
 
 const STORE_STATE_LOCK = ArkTSUtils.locks.AsyncLock.request('cn.qzxy.hotwater.store-state')
 
@@ -36,17 +41,56 @@ export class HotWaterStore {
   }
 
   async saveConfig(config: HotWaterConfig): Promise<void> {
-    const store = await this.getStore()
-    await store.put('projectId', config.projectId)
-    await store.put('userId', config.userId)
-    await store.put('accountId', config.accountId)
-    await store.put('loginCode', config.loginCode)
-    await store.put('telephone', config.telephone)
-    await store.put('snCode', config.snCode)
-    await store.put('macAddress', config.macAddress)
-    await store.put('phoneSystem', config.phoneSystem)
-    await store.put('version', config.version)
-    await store.flush()
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const store = await this.getStore()
+      const identityChanged = await this.hasConfigIdentityChanged(store, config)
+      await store.put('projectId', config.projectId)
+      await store.put('userId', config.userId)
+      await store.put('accountId', config.accountId)
+      await store.put('loginCode', config.loginCode)
+      await store.put('telephone', config.telephone)
+      await store.put('snCode', config.snCode)
+      await store.put('macAddress', config.macAddress)
+      await store.put('phoneSystem', config.phoneSystem)
+      await store.put('version', config.version)
+      if (identityChanged) {
+        await this.clearAccountRuntimeStateUnlocked(store)
+      }
+      await store.flush()
+    })
+  }
+
+  private async hasConfigIdentityChanged(
+    store: preferences.Preferences,
+    config: HotWaterConfig
+  ): Promise<boolean> {
+    const stored = new HotWaterConfig()
+    stored.projectId = Number(await store.get('projectId', 0))
+    stored.userId = Number(await store.get('userId', 0))
+    stored.accountId = Number(await store.get('accountId', 0))
+    stored.telephone = String(await store.get('telephone', ''))
+    stored.snCode = String(await store.get('snCode', ''))
+    return !HotWaterConfig.hasSameRuntimeIdentity(stored, config)
+  }
+
+  async applyQzxyLogin(config: HotWaterConfig): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const store = await this.getStore()
+      const identityChanged = await this.hasConfigIdentityChanged(store, config)
+      await store.put('projectId', config.projectId)
+      await store.put('userId', config.userId)
+      await store.put('accountId', config.accountId)
+      await store.put('loginCode', config.loginCode)
+      await store.put('telephone', config.telephone)
+      await store.put('snCode', config.snCode)
+      await store.put('macAddress', config.macAddress)
+      await store.put('phoneSystem', config.phoneSystem)
+      await store.put('version', config.version)
+      if (identityChanged) {
+        await this.clearAccountRuntimeStateUnlocked(store)
+      }
+      await store.flush()
+    })
   }
 
   async loadOrderNo(): Promise<string> {
@@ -155,6 +199,16 @@ export class HotWaterStore {
     await store.delete('usageStartBalanceIsBeforePreauthorization')
     await store.delete('usageSessionProvisionalOpening')
     await store.flush()
+  }
+
+  private async clearAccountRuntimeStateUnlocked(store: preferences.Preferences): Promise<void> {
+    await store.put('orderNo', '')
+    await store.put('orderClearedAt', Date.now())
+    await store.delete('usageStartedAtMillis')
+    await store.delete('usageStartBalanceYuan')
+    await store.delete('usageStartBalanceIsBeforePreauthorization')
+    await store.delete('usageSessionProvisionalOpening')
+    await store.delete('pendingSettlements')
   }
 
   async confirmUsageSession(): Promise<void> {

@@ -1,7 +1,9 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { bundleManager } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { display, window } from '@kit.ArkUI';
 import { LaunchActionBridge } from '../common/LaunchActionBridge';
+import { OnboardingStore } from '../common/OnboardingStore';
 
 const DOMAIN = 0x0000;
 
@@ -19,13 +21,7 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
-    windowStage.loadContent('pages/Index', (err) => {
-      if (err.code) {
-        hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
-        return;
-      }
-      hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
-    });
+    this.loadInitialPage(windowStage);
 
     this.setupImmersiveWindow(windowStage);
   }
@@ -45,6 +41,28 @@ export default class EntryAbility extends UIAbility {
 
   onBackground(): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+  }
+
+  private async loadInitialPage(windowStage: window.WindowStage): Promise<void> {
+    let initialPage = 'pages/Onboarding';
+    try {
+      const bundleInfo = await bundleManager.getBundleInfoForSelf(
+        bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT
+      );
+      const onboardingStore = new OnboardingStore(this.context);
+      if (!await onboardingStore.shouldShow(bundleInfo.versionCode, bundleInfo.installTime)) {
+        initialPage = 'pages/Index';
+      }
+    } catch (error) {
+      hilog.warn(DOMAIN, 'testTag', 'Unable to determine onboarding state, opening onboarding page.');
+    }
+    windowStage.loadContent(initialPage, (err) => {
+      if (err.code) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
+        return;
+      }
+      hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
+    });
   }
 
   private async setupImmersiveWindow(windowStage: window.WindowStage): Promise<void> {

@@ -105,6 +105,18 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
             .apply()
     }
 
+    /** Clears state that belongs to an old account or device before applying a new login. */
+    fun clearActiveUsageState() {
+        prefs.edit()
+            .remove(KEY_ORDER_NO)
+            .putLong(KEY_ORDER_CLEARED_AT, System.currentTimeMillis())
+            .remove(KEY_USAGE_STARTED_AT)
+            .remove(KEY_USAGE_START_BALANCE_BITS)
+            .remove(KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION)
+            .remove(KEY_PENDING_SETTLEMENTS)
+            .apply()
+    }
+
     override fun clearOrderNo() {
         prefs.edit()
             .remove(KEY_ORDER_NO)

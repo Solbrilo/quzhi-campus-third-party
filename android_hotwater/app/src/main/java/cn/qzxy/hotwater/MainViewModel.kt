@@ -4,11 +4,14 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 data class FeedbackEvent(
     val type: FeedbackType,
@@ -22,9 +25,29 @@ data class FeedbackEvent(
     }
 }
 
+data class QzxyLoginState(
+    val loading: Boolean = false,
+    val success: Boolean = false,
+    val message: String = "",
+)
+
+data class SnCodeSaveState(
+    val loading: Boolean = false,
+    val success: Boolean = false,
+    val snCode: String = "",
+    val message: String = "",
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private enum class BusyOwner {
+        OPERATION,
+        QZXY_LOGIN,
+        SN_CODE_SAVE,
+    }
+
     private val store = HotWaterConfigStore(application)
     private val repository = HotWaterRepository(HotWaterApi(), store)
+    private val qzxyLoginApi: QzxyLoginRemoteDataSource = QzxyLoginApi()
 
     private val _snapshot = MutableStateFlow<DashboardSnapshot?>(null)
     val snapshot: StateFlow<DashboardSnapshot?> = _snapshot.asStateFlow()
@@ -43,7 +66,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _feedbackEvent = MutableStateFlow<FeedbackEvent?>(null)
     val feedbackEvent: StateFlow<FeedbackEvent?> = _feedbackEvent.asStateFlow()
+
+    private val _qzxyLoginState = MutableStateFlow(QzxyLoginState())
+    val qzxyLoginState: StateFlow<QzxyLoginState> = _qzxyLoginState.asStateFlow()
+
+    private val _snCodeSaveState = MutableStateFlow(SnCodeSaveState())
+    val snCodeSaveState: StateFlow<SnCodeSaveState> = _snCodeSaveState.asStateFlow()
     private var initialized = false
+    private var qzxyLoginJob: Job? = null
+    private var qzxyLoginGeneration: Long = 0L
+    private var operationJob: Job? = null
+    private var operationGeneration: Long = 0L
+    private var snCodeSaveJob: Job? = null
+    private var snCodeSaveGeneration: Long = 0L
+    private var busyOwner: BusyOwner? = null
 
     fun initialize() {
         if (initialized) return
@@ -95,7 +131,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveConfig(rawConfig: HotWaterConfig) {
+        val previous = persistRuntimeInfoIfNeeded(store.loadConfig())
         val prepared = persistRuntimeInfoIfNeeded(rawConfig)
+        if (previous.hasDifferentIdentityFrom(prepared)) {
+            ++operationGeneration
+            operationJob?.cancel()
+            if (busyOwner == BusyOwner.OPERATION) releaseBusy(BusyOwner.OPERATION)
+            store.clearActiveUsageState()
+        }
         store.saveConfig(prepared)
         _config.value = prepared
         _snapshot.value = buildPlaceholderSnapshot(prepared)
@@ -113,6 +156,199 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (prepared.isComplete()) {
             refreshBalance(announce = false)
         }
+    }
+
+    fun saveSnCode(snCode: String) {
+        val normalized = snCode.trim().replace(":", "").uppercase(Locale.ROOT)
+        if (normalized.isBlank()) {
+            _snCodeSaveState.value = SnCodeSaveState(message = "设备码不能为空")
+            return
+        }
+        val previousOperation = operationJob
+        val previousSave = snCodeSaveJob
+        val generation = ++operationGeneration
+        val saveGeneration = ++snCodeSaveGeneration
+        if (_qzxyLoginState.value.loading) {
+            ++qzxyLoginGeneration
+            qzxyLoginJob?.cancel()
+            qzxyLoginJob = null
+            _qzxyLoginState.value = QzxyLoginState()
+        }
+        previousOperation?.cancel()
+        previousSave?.cancel()
+        acquireBusy(BusyOwner.SN_CODE_SAVE)
+        _snCodeSaveState.value = SnCodeSaveState(loading = true, snCode = normalized)
+        val saveJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            var shouldRefresh = false
+            var persisted = false
+            try {
+                previousOperation?.join()
+                previousSave?.join()
+                if (generation != operationGeneration || saveGeneration != snCodeSaveGeneration) {
+                    return@launch
+                }
+                val existing = persistRuntimeInfoIfNeeded(store.loadConfig())
+                val changed = existing.snCode != normalized
+                if (changed) {
+                    store.clearActiveUsageState()
+                }
+                val prepared = existing.copy(snCode = normalized)
+                store.saveConfig(prepared)
+                _config.value = prepared
+                _snapshot.value = buildPlaceholderSnapshot(prepared)
+                syncNotificationState()
+                syncWidgetStatus("设备码已绑定", "设备二维码已保存。")
+                _statusMessage.value = "设备码已绑定"
+                _feedbackEvent.value = FeedbackEvent(
+                    type = FeedbackEvent.FeedbackType.SUCCESS,
+                    message = "设备码已绑定",
+                )
+                shouldRefresh = prepared.isComplete()
+                persisted = true
+                _snCodeSaveState.value = SnCodeSaveState(
+                    success = true,
+                    snCode = normalized,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (generation == operationGeneration && saveGeneration == snCodeSaveGeneration) {
+                    val message = HotWaterUiText.summarizeError(error)
+                    _statusMessage.value = message
+                    _feedbackEvent.value = FeedbackEvent(
+                        type = FeedbackEvent.FeedbackType.ERROR,
+                        message = message,
+                    )
+                    _snCodeSaveState.value = SnCodeSaveState(
+                        snCode = normalized,
+                        message = message,
+                    )
+                }
+                return@launch
+            } finally {
+                if (generation == operationGeneration && saveGeneration == snCodeSaveGeneration) {
+                    releaseBusy(BusyOwner.SN_CODE_SAVE)
+                    if (operationJob === previousOperation) operationJob = null
+                    snCodeSaveJob = null
+                }
+            }
+            if (
+                persisted &&
+                generation == operationGeneration &&
+                saveGeneration == snCodeSaveGeneration &&
+                shouldRefresh
+            ) {
+                refreshBalance(announce = false)
+            }
+        }
+        snCodeSaveJob = saveJob
+        saveJob.start()
+    }
+
+    fun clearSnCodeSaveState() {
+        if (!_snCodeSaveState.value.loading) {
+            _snCodeSaveState.value = SnCodeSaveState()
+        }
+    }
+
+    fun clearQzxyLoginState() {
+        _qzxyLoginState.value = QzxyLoginState()
+    }
+
+    fun cancelQzxyLogin() {
+        qzxyLoginGeneration++
+        qzxyLoginJob?.cancel()
+        qzxyLoginJob = null
+        releaseBusy(BusyOwner.QZXY_LOGIN)
+        _qzxyLoginState.value = QzxyLoginState()
+    }
+
+    fun loginToQzxy(telephone: String, password: String) {
+        if (_qzxyLoginState.value.loading) return
+        if (telephone.isBlank() || password.isBlank()) {
+            _qzxyLoginState.value = QzxyLoginState(message = "请输入趣智校园手机号和密码")
+            reportFeedback(FeedbackEvent.FeedbackType.WARNING, "请输入趣智校园手机号和密码")
+            return
+        }
+
+        val previousOperation = operationJob
+        val previousSave = snCodeSaveJob
+        ++operationGeneration
+        ++snCodeSaveGeneration
+        previousOperation?.cancel()
+        previousSave?.cancel()
+        _snCodeSaveState.value = SnCodeSaveState()
+        val generation = ++qzxyLoginGeneration
+        acquireBusy(BusyOwner.QZXY_LOGIN)
+        _qzxyLoginState.value = QzxyLoginState(loading = true)
+        _statusMessage.value = "正在登录趣智校园并获取账号配置..."
+        val loginJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            var shouldRefresh = false
+            try {
+                previousOperation?.join()
+                previousSave?.join()
+                if (generation != qzxyLoginGeneration) return@launch
+                if (operationJob === previousOperation) operationJob = null
+                if (snCodeSaveJob === previousSave) snCodeSaveJob = null
+                val result = qzxyLoginApi.login(
+                    QzxyLoginCredentials(
+                        telephone = telephone,
+                        password = password,
+                        phoneSystem = "android",
+                        version = QZXY_LOGIN_CLIENT_VERSION,
+                    ),
+                )
+                if (generation != qzxyLoginGeneration) return@launch
+                val existing = persistRuntimeInfoIfNeeded(store.loadConfig())
+                val prepared = persistRuntimeInfoIfNeeded(result.mergeInto(existing))
+                if (existing.hasDifferentIdentityFrom(prepared)) {
+                    store.clearActiveUsageState()
+                }
+                store.saveConfig(prepared)
+                _config.value = prepared
+                _snapshot.value = buildPlaceholderSnapshot(prepared)
+                syncNotificationState()
+
+                if (prepared.snCode.isBlank()) {
+                    val message = "登录成功，账号字段已自动填充；还需填写或选择该账号的 snCode。"
+                    _statusMessage.value = message
+                    syncWidgetStatus("等待补充设备码", message)
+                    _feedbackEvent.value = FeedbackEvent(FeedbackEvent.FeedbackType.WARNING, message)
+                    _qzxyLoginState.value = QzxyLoginState(success = true, message = message)
+                } else {
+                    _statusMessage.value = "趣智校园登录成功，账号和设备配置已保存。"
+                    syncWidgetStatus("登录配置已保存", "正在刷新账户信息...")
+                    _feedbackEvent.value = FeedbackEvent(
+                        FeedbackEvent.FeedbackType.SUCCESS,
+                        "趣智校园登录成功，已自动填充配置",
+                    )
+                    _qzxyLoginState.value = QzxyLoginState(
+                        success = true,
+                        message = "趣智校园登录成功，已自动填充配置",
+                    )
+                    shouldRefresh = true
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (generation != qzxyLoginGeneration) return@launch
+                val message = HotWaterUiText.summarizeError(error)
+                _statusMessage.value = message
+                _feedbackEvent.value = FeedbackEvent(FeedbackEvent.FeedbackType.ERROR, message)
+                _qzxyLoginState.value = QzxyLoginState(message = message)
+            } finally {
+                if (generation == qzxyLoginGeneration) {
+                    releaseBusy(BusyOwner.QZXY_LOGIN)
+                    if (_qzxyLoginState.value.loading) {
+                        _qzxyLoginState.value = _qzxyLoginState.value.copy(loading = false)
+                    }
+                    qzxyLoginJob = null
+                }
+            }
+            if (generation == qzxyLoginGeneration && shouldRefresh) refreshBalance(announce = false)
+        }
+        qzxyLoginJob = loginJob
+        loginJob.start()
     }
 
     fun toggleWhenIdle() {
@@ -146,12 +382,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        _busy.value = true
+        acquireBusy(BusyOwner.OPERATION)
         _statusMessage.value = busyMessage
 
-        viewModelScope.launch {
+        val generation = ++operationGeneration
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 val result = block(preparedConfig)
+                if (generation != operationGeneration) return@launch
                 _snapshot.value = result.snapshot ?: buildPlaceholderSnapshot(preparedConfig)
                 val summary = HotWaterUiText.firstMeaningfulLine(result.summary)
                 _statusMessage.value = summary
@@ -173,6 +411,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                if (generation != operationGeneration) return@launch
                 _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
                 val message = HotWaterUiText.summarizeError(error)
                 _statusMessage.value = message
@@ -193,8 +432,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = message,
                 )
             } finally {
-                _busy.value = false
+                if (generation == operationGeneration) {
+                    releaseBusy(BusyOwner.OPERATION)
+                    operationJob = null
+                }
             }
+        }
+        operationJob = job
+        job.start()
+    }
+
+    private fun acquireBusy(owner: BusyOwner) {
+        busyOwner = owner
+        _busy.value = true
+    }
+
+    private fun releaseBusy(owner: BusyOwner) {
+        if (busyOwner == owner) {
+            busyOwner = null
+            _busy.value = false
         }
     }
 

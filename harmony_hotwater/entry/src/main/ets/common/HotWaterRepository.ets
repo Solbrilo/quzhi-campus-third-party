@@ -758,7 +758,7 @@ export class HotWaterRepository {
 
   private ensureConfig(config: HotWaterConfig): void {
     if (!config.isComplete()) {
-      throw new Error('配置还不完整，请先导入 .chls 或补全字段。')
+      throw new Error('配置还不完整，请先登录趣智校园或补全字段。')
     }
   }
 

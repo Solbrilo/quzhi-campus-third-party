@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -58,6 +59,7 @@ fun OperationsPage(
     busy: Boolean,
     onToggle: () -> Unit,
     onRefreshBalance: () -> Unit,
+    onOpenRecharge: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
 
@@ -71,6 +73,7 @@ fun OperationsPage(
                 snapshot = snapshot,
                 busy = busy,
                 onRefreshBalance = onRefreshBalance,
+                onOpenRecharge = onOpenRecharge,
             )
         }
 
@@ -126,6 +129,7 @@ private fun BalanceCard(
     snapshot: DashboardSnapshot?,
     busy: Boolean,
     onRefreshBalance: () -> Unit,
+    onOpenRecharge: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
 
@@ -141,28 +145,34 @@ private fun BalanceCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top,
         ) {
-            Text(
-                text = "可用余额",
-                color = tokens.textSecondary,
-                fontSize = 11.sp
-            )
-            RefreshButton(
-                onClick = onRefreshBalance,
-                enabled = !busy,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "可用余额",
+                    color = tokens.textSecondary,
+                    fontSize = 11.sp,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (snapshot?.balanceLabel == "--") "¥ --" else "¥ ${snapshot?.balanceLabel ?: "--"}",
+                    color = tokens.textPrimary,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                UsageTimer(startedAtMillis = snapshot?.usageStartedAtMillis)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                RechargeButton(onClick = onOpenRecharge)
+                RefreshButton(
+                    onClick = onRefreshBalance,
+                    enabled = !busy,
+                )
+            }
         }
-
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = if (snapshot?.balanceLabel == "--") "¥ --" else "¥ ${snapshot?.balanceLabel ?: "--"}",
-            color = tokens.textPrimary,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        UsageTimer(startedAtMillis = snapshot?.usageStartedAtMillis)
 
         Spacer(modifier = Modifier.height(6.dp))
         Box(
@@ -263,6 +273,28 @@ private fun RefreshButton(
             contentDescription = null,
             tint = tokens.textPrimary,
             modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun RechargeButton(onClick: () -> Unit) {
+    val tokens = LocalGlassTokens.current
+    GlassPressable(
+        onClick = onClick,
+        role = Role.Button,
+        onClickLabel = "前往支付宝充值",
+        material = GlassMaterial.Control,
+        cornerRadius = 14.dp,
+        modifier = Modifier
+            .size(48.dp)
+            .semantics { contentDescription = "充值" },
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.AccountBalanceWallet,
+            contentDescription = null,
+            tint = tokens.accentPrimary,
+            modifier = Modifier.size(20.dp),
         )
     }
 }

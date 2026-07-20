@@ -31,6 +31,10 @@
     {
       "name": "widget_display_name",
       "value": "热水控制"
+    },
+    {
+      "name": "camera_permission_reason",
+      "value": "用于扫描学校提供的热水器二维码"
     }
   ]
 }
