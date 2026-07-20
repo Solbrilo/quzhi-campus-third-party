@@ -7,6 +7,7 @@ import { OnboardingVersionGate } from '../main/ets/common/OnboardingVersionGate'
 import { ConfigFlowBridge } from '../main/ets/common/ConfigFlowBridge';
 import { CaptureParser } from '../main/ets/common/CaptureParser';
 import { OnboardingQuoteMotion } from '../main/ets/common/OnboardingQuoteMotion';
+import { OnboardingResumeGate, OnboardingResumeTarget } from '../main/ets/common/OnboardingResumeGate';
 import { HotWaterConfigTransfer } from '../main/ets/common/HotWaterConfigTransfer';
 import { ScannerSessionCoordinator } from '../main/ets/common/ScannerSessionCoordinator';
 
@@ -81,6 +82,22 @@ export default function localUnitTest() {
       expect(OnboardingVersionGate.shouldShow(1006000, -1, 1006000, 123)).assertTrue();
       expect(OnboardingVersionGate.shouldShow(1006000, 123, 1006000, 0)).assertFalse();
     });
+    it('resumesPersistedConfigurationAtTheFurthestCompletedStep', 0, () => {
+      const config = new HotWaterConfig();
+      config.projectId = 11;
+      config.userId = 22;
+      config.accountId = 33;
+      config.loginCode = 'login-code';
+      config.telephone = '13800138000';
+      config.snCode = 'C47F0EDA85D8';
+      expect(OnboardingResumeGate.resolve(config)).assertEqual(OnboardingResumeTarget.COMPLETE);
+
+      config.snCode = '';
+      expect(OnboardingResumeGate.resolve(config)).assertEqual(OnboardingResumeTarget.SCANNER);
+
+      config.loginCode = '';
+      expect(OnboardingResumeGate.resolve(config)).assertEqual(OnboardingResumeTarget.LOGIN);
+    });
     it('revealsWelcomeQuoteOneSentenceAtATime', 0, () => {
       expect(OnboardingQuoteMotion.SENTENCE_DURATION_MILLIS).assertEqual(1200);
       expect(OnboardingQuoteMotion.firstSentenceCompleteAtMillis()).assertEqual(1380);
@@ -114,7 +131,7 @@ export default function localUnitTest() {
       expect(imported.loginCode).assertEqual('login-code');
       expect(imported.telephone).assertEqual('13800138000');
       expect(imported.snCode).assertEqual('C47F0EDA85D8');
-      expect(exported).assertContain('"appVersion":"2.0.0"');
+      expect(exported).assertContain('"appVersion":"2.0.1"');
       expect(HotWaterConfigTransfer.generateFileName()).assertEqual('hotwater_config.json');
     });
     it('rejectsIncompleteImportedConfiguration', 0, () => {

@@ -92,7 +92,7 @@ struct Index {
   private usageTimerGeneration: number = 0
   private billCollapseInitialized: boolean = false
   private consumingLaunchAction: boolean = false
-  @State currentVersionLabel: string = '2.0.0'
+  @State currentVersionLabel: string = '2.0.1'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -831,7 +831,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '2.0.0'
+      this.currentVersionLabel = '2.0.1'
     }
   }
 

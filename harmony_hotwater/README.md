@@ -1,6 +1,6 @@
 # HarmonyOS 热水应用
 
-这是趣智校园第三方热水控制项目的 HarmonyOS NEXT 客户端，使用 ArkTS、ArkUI、Network Kit 和 Scan Kit 实现。当前版本为 `2.0.0 (2000000)`，兼容 HarmonyOS SDK `6.1.0(23)`，目标 SDK 为 `6.1.1(24)`。
+这是趣智校园第三方热水控制项目的 HarmonyOS NEXT 客户端，使用 ArkTS、ArkUI、Network Kit 和 Scan Kit 实现。当前版本为 `2.0.1 (2000001)`，兼容 HarmonyOS SDK `6.1.0(23)`，目标 SDK 为 `6.1.1(24)`。
 
 ## 当前功能
 
@@ -8,7 +8,7 @@
 - 独立趣智校园登录页，配置页通过“登录趣智校园”按钮跳转。
 - 自动填写 `projectId`、`userId`、`accountId`、`loginCode` 和 `telephone`。
 - `snCode` 输入框右侧提供扫码入口，使用 Scan Kit 在 ArkUI `XComponent` 中显示实时相机画面，并只识别 QR Code。
-- 首次安装、重新安装及版本更新引导：两句欢迎诗依次整句从下向上淡入，每句完成时短振一次，最后显示作者，之后进入登录、扫码绑定和完成阶段。
+- 首次安装、重新安装及版本更新引导：两句欢迎诗依次整句从下向上淡入，每句完成时短振一次，最后显示作者；已有完整配置时快速开始会直接恢复主界面，仅缺 `snCode` 时恢复扫码，只有没有账号配置时才进入登录流程。
 - 登录和绑定均可跳过，之后可以从配置页补充。
 - 支持 JSON 配置导入导出，导出文件使用不含账号信息或特殊字符的固定名称。
 - HarmonyOS 服务卡片、深色模式、操作历史和应用内更新。
@@ -47,12 +47,12 @@ KLCXKJ-Water,M,C47F0EDA85D8
 
 ## 新手引导
 
-引导完成状态同时记录应用 `versionCode` 和安装时间，用于覆盖首次安装、重新安装及版本更新：
+引导完成状态同时记录应用 `versionCode` 和安装时间，用于覆盖首次安装、重新安装及版本更新；更新时会保留已保存的账号和设备配置，并从最远已完成的阶段继续：
 
 1. 竖排展示无逗号的两句诗。前句在右侧略高，后句在左侧下错；前句整句上浮并淡入后短振一次，再播放后句，最后由细竖线引出署名。
 2. 登录趣智校园，可选择“跳过登录”。
 3. “绑定你的热水器”实时扫码页，可选择“跳过绑定”直接进入主界面。
-4. 扫码保存成功后显示完成页，点击“立即开始”进入主界面。
+4. 扫码保存成功后显示完成页，点击“立即开始”进入主界面；已有完整配置时直接完成引导，不再要求重新登录。
 
 欢迎页的“快速开始”按钮独立固定在底部安全区，不参与中部诗句布局。
 
@@ -89,7 +89,7 @@ $hvigor = Join-Path $deveco 'tools\hvigor\bin\hvigorw.bat'
 & $hvigor --mode module -p product=default -p buildMode=release assembleHap --no-daemon --no-incremental --parallel
 ```
 
-本次改动的单元测试为 43/43 通过，Release HAP 构建成功。签名产物输出到：
+本次改动的单元测试为 44/44 通过，Release HAP 构建成功。签名产物输出到：
 
 ```text
 entry/build/default/outputs/default/entry-default-signed.hap
