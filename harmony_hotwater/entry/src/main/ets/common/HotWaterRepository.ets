@@ -15,8 +15,7 @@ import { HotWaterPayload } from './HotWaterPayload'
 const BASE_URL: string = 'https://v3-api.china-qzxy.cn'
 const DEVICE_BUSY_ERROR_CODE: number = 307
 const DEVICE_BUSY_BY_OTHER_MESSAGE: string = '已有他人正在使用这台设备，请稍后再试。'
-const POST_CLOSE_BALANCE_REFRESH_ATTEMPTS: number = 6
-const POST_CLOSE_BALANCE_REFRESH_DELAY_MS: number = 1200
+const PENDING_CLOSE_OPEN_GUARD_MS: number = 15 * 1000
 const PROVISIONAL_OPENING_MAX_AGE_MS: number = 2 * 60 * 1000
 const DEVICE_WORKFLOW_LOCK = ArkTSUtils.locks.AsyncLock.request('cn.qzxy.hotwater.device-workflow')
 
@@ -24,13 +23,6 @@ interface RequestHeaders {
   Accept?: string
   'User-Agent'?: string
   'Content-Type'?: string
-}
-
-class SettlementRefreshResult {
-  snapshot: DashboardSnapshot | null = null
-  explicitConsumptionYuan: number = -1
-  settledBalanceYuan: number = -1
-  settledBalanceIsTrusted: boolean = false
 }
 
 export class HotWaterRepository {
@@ -63,12 +55,34 @@ export class HotWaterRepository {
 
   private async openExclusive(config: HotWaterConfig): Promise<OperationResult> {
     this.ensureConfig(config)
+    const pendingClose = await this.findLatestPendingClose()
     const statusText = await this.postForm('/order/tcpDevice/query/rateOrder/using', this.buildFormString(config))
     if (this.isDeviceBusyByOther(statusText)) {
       return await this.buildDeviceBusyResult(config, statusText)
     }
 
-    const activeOrderNo = this.extractFirstOrEmpty(statusText, 'orderNo')
+    let activeOrderNo = this.extractFirstOrEmpty(statusText, 'orderNo')
+    if (pendingClose !== null) {
+      if (this.isConfirmedWithoutActiveOrder(statusText)) {
+        pendingClose.closeConfirmed = true
+        await this.store.markPendingCloseConfirmed(pendingClose.orderNo)
+      } else if (pendingClose.confirmedConsumptionYuan >= 0 && !pendingClose.closeConfirmed) {
+        pendingClose.closeConfirmed = true
+        await this.store.markPendingCloseConfirmed(pendingClose.orderNo)
+      } else if (pendingClose.shouldBlockOpen(Date.now(), PENDING_CLOSE_OPEN_GUARD_MS)) {
+        if (await this.queryCloseConfirmed(config, pendingClose.orderNo)) {
+          pendingClose.closeConfirmed = true
+          await this.store.markPendingCloseConfirmed(pendingClose.orderNo)
+        } else if (activeOrderNo.length === 0 || pendingClose.matchesOrder(activeOrderNo)) {
+          return this.buildPendingCloseGateResult(config, statusText)
+        }
+      }
+
+      if (pendingClose.closeConfirmed && pendingClose.matchesOrder(activeOrderNo)) {
+        activeOrderNo = ''
+      }
+    }
+
     if (activeOrderNo.length > 0) {
       await this.store.saveOrderNo(activeOrderNo)
       await this.store.confirmUsageSession()
@@ -76,6 +90,9 @@ export class HotWaterRepository {
       try {
         snapshot = await this.refreshSnapshotWithStatus(config, statusText)
       } catch (error) {
+        if (HotWaterPayload.isCredentialExpiredError(error)) {
+          throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+        }
         await this.store.startUsageSessionIfAbsent(-1, false)
         snapshot = this.fallbackSnapshot(
           config,
@@ -98,6 +115,9 @@ export class HotWaterRepository {
     try {
       openingBalanceYuan = await this.fetchBalanceYuan(config)
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       // 开水前余额只用于提高结算精度，读取失败不能阻断设备操作。
     }
     await this.store.startUsageSessionIfAbsent(
@@ -112,6 +132,9 @@ export class HotWaterRepository {
         this.buildOpenFormString(config)
       )
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       await this.store.clearUsageSession()
       throw new Error(String(error))
     }
@@ -132,6 +155,9 @@ export class HotWaterRepository {
           this.buildFormString(config, orderNo)
         )
       } catch (error) {
+        if (HotWaterPayload.isCredentialExpiredError(error)) {
+          throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+        }
         continue
       }
       if (this.isDeviceBusyByOther(openResultText)) {
@@ -162,6 +188,9 @@ export class HotWaterRepository {
     try {
       snapshotWithUsageSession = await this.refreshSnapshot(config)
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       snapshotWithUsageSession = this.fallbackSnapshot(
         config,
         success ? '热水已开启，可以直接关闭。' : '开热水请求已发送，等待设备确认。',
@@ -219,6 +248,9 @@ export class HotWaterRepository {
         )
       }
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       // 余额预读失败不阻断关水；结算刷新仍会继续尝试。
     }
     if (!usageSession) {
@@ -250,98 +282,60 @@ export class HotWaterRepository {
     }
 
     let success = false
-    for (let index = 0; index < 5; index++) {
-      await this.sleep(2000)
-      let closeResultText: string
-      try {
-        closeResultText = await this.postForm(
-          '/order/tcpDevice/closeOrder/result/query',
-          this.buildFormString(config, orderNo)
-        )
-      } catch (error) {
-        continue
-      }
-      if (this.extractSuccess(closeResultText) && this.extractErrorCode(closeResultText) == 0) {
-        success = true
-        if (settlementRecord === null && usageSession) {
-          settlementRecord = await this.persistPendingSettlementContext(
-            orderNo,
-            usageSession,
-            activeBalanceYuan,
-            Date.now()
+    if (!closeAccepted) {
+      for (let index = 0; index < 5; index++) {
+        await this.sleep(2000)
+        let closeResultText: string
+        try {
+          closeResultText = await this.postForm(
+            '/order/tcpDevice/closeOrder/result/query',
+            this.buildFormString(config, orderNo)
           )
+        } catch (error) {
+          if (HotWaterPayload.isCredentialExpiredError(error)) {
+            throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+          }
+          continue
         }
-        break
+        if (this.extractSuccess(closeResultText) && this.extractErrorCode(closeResultText) == 0) {
+          success = true
+          break
+        }
       }
     }
 
     const usageEnded = closeAccepted || success
-    let settlementRefresh = new SettlementRefreshResult()
-    if (usageEnded) {
-      let knownVerifiedConsumptionYuan: number = -1
-      if (settlementRecord !== null && settlementRecord.settlementVerified) {
-        knownVerifiedConsumptionYuan = settlementRecord.consumptionYuan
-      }
-      try {
-        settlementRefresh = await this.refreshSnapshotAfterClose(
-          config,
-          success ? '热水已关闭。' : '关热水请求已发送，稍后可刷新确认。',
-          activeBalanceYuan,
-          this.normalizeStartBalance(usageSession),
-          knownVerifiedConsumptionYuan,
-          orderNo
-        )
-      } catch (error) {
-        settlementRefresh = new SettlementRefreshResult()
-      }
+    if (usageEnded && settlementRecord === null && usageSession) {
+      settlementRecord = await this.persistPendingSettlementContext(
+        orderNo,
+        usageSession,
+        activeBalanceYuan,
+        Date.now(),
+        success
+      )
     }
-    const refreshedSnapshot = settlementRefresh.snapshot
-    const fallbackCloseStatus = settlementRefresh.explicitConsumptionYuan >= 0
-      ? '热水已关闭，余额仍在结算中。'
-      : (success ? '热水已关闭。' : '关热水请求已发送，稍后可刷新确认。')
+
+    const closeStatus = success
+      ? '热水已关闭，余额和账单正在同步。'
+      : (closeAccepted ? '关热水请求已受理，余额和账单正在同步。' : '关热水请求尚未确认。')
     const snapshot = usageEnded
-      ? (refreshedSnapshot ?? this.fallbackSnapshot(config, fallbackCloseStatus, '', false))
+      ? this.fallbackSnapshot(config, closeStatus, '', false)
       : await this.refreshSnapshot(config)
 
     const result = new OperationResult()
-    if (usageEnded && usageSession) {
-      if (settlementRecord === null) {
-        settlementRecord = await this.persistPendingSettlementContext(
-          orderNo,
-          usageSession,
-          activeBalanceYuan,
-          Date.now()
-        )
-      }
-      const endedAtMillis = settlementRecord.endedAtMillis
-      result.usageDurationMillis = Math.max(0, endedAtMillis - usageSession.startedAtMillis)
-      result.consumptionYuan = settlementRecord.settlementVerified
-        ? settlementRecord.consumptionYuan
-        : ConsumptionSettlement.resolveConsumption(
-          settlementRefresh.explicitConsumptionYuan,
-          this.normalizeStartBalance(usageSession),
-          settlementRefresh.settledBalanceYuan,
-          settlementRefresh.settledBalanceIsTrusted
-        )
-
-      if (result.consumptionYuan >= 0) {
-        settlementRecord.usageDurationMillis = result.usageDurationMillis
-        settlementRecord.consumptionYuan = result.consumptionYuan
-        settlementRecord.settlementVerified = true
-        const keepPendingForBalance = settlementRefresh.snapshot === null &&
-          (settlementRefresh.explicitConsumptionYuan >= 0 || settlementRecord.settlementVerified)
-        settlementRecord = await this.store.finalizePendingSettlement(
-          settlementRecord,
-          orderNo,
-          keepPendingForBalance
-        )
+    if (usageEnded && usageSession && settlementRecord !== null) {
+      result.usageDurationMillis = Math.max(
+        0,
+        settlementRecord.endedAtMillis - usageSession.startedAtMillis
+      )
+      if (settlementRecord.settlementVerified) {
         result.consumptionYuan = settlementRecord.consumptionYuan
       }
     }
 
-    result.title = success ? '关热水完成' : (closeAccepted ? '关热水已受理' : '关热水请求已发送')
-    result.summary = success
-      ? `${snapshot.balanceLabel === '--' ? '热水已关闭，余额仍在结算中。' : '热水已关闭。'}\n余额 ${snapshot.balanceLabel} 元`
+    result.title = success ? '关热水完成' : (closeAccepted ? '关热水已受理' : '关热水请求未确认')
+    result.summary = usageEnded
+      ? `${closeStatus}\n余额 ${snapshot.balanceLabel} 元`
       : this.buildSummary(snapshot)
     result.details = closeResponseText
     result.snapshot = snapshot
@@ -356,81 +350,12 @@ export class HotWaterRepository {
     return await this.ensureUsageSession(await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText))
   }
 
-  private async refreshSnapshotAfterClose(
-    config: HotWaterConfig,
-    forcedStatus: string,
-    activeBalanceYuan: number,
-    startBalanceYuan: number,
-    knownVerifiedConsumptionYuan: number,
-    orderNo: string
-  ): Promise<SettlementRefreshResult> {
-    const result = new SettlementRefreshResult()
-    if (Number.isFinite(knownVerifiedConsumptionYuan) && knownVerifiedConsumptionYuan >= 0) {
-      result.explicitConsumptionYuan = knownVerifiedConsumptionYuan
-    }
-    let userInfoText: string = ''
-    let deviceInfoText: string = ''
-    try {
-      userInfoText = await this.get('/user/info', this.buildUserInfoQuery(config))
-    } catch (error) {
-      userInfoText = ''
-    }
-    try {
-      deviceInfoText = await this.get('/device/info/mac', this.buildDeviceInfoQuery(config))
-    } catch (error) {
-      deviceInfoText = ''
-    }
-
-    for (let attempt = 0; attempt < POST_CLOSE_BALANCE_REFRESH_ATTEMPTS; attempt++) {
-      await this.sleep(POST_CLOSE_BALANCE_REFRESH_DELAY_MS)
-
-      try {
-        const consumptionText = await this.postForm(
-          '/order/consumeOrder/result/query',
-          this.buildFormString(config, orderNo)
-        )
-        const explicitConsumptionYuan = HotWaterPayload.extractConfirmedConsumptionYuan(consumptionText)
-        if (explicitConsumptionYuan >= 0) {
-          result.explicitConsumptionYuan = explicitConsumptionYuan
-        }
-      } catch (error) {
-        // 订单金额和余额是两条独立结算证据，其中一条失败时继续等待另一条。
-      }
-
-      try {
-        const balanceText = await this.get('/account/wallet/money', this.buildBalanceQuery(config))
-        const candidateBalanceYuan = HotWaterPayload.extractBalanceYuan(balanceText)
-        const candidateSnapshot = this.snapshotFromTexts(config, userInfoText, deviceInfoText, balanceText)
-        candidateSnapshot.statusLabel = forcedStatus
-        candidateSnapshot.orderNo = ''
-        candidateSnapshot.hasCachedOrder = false
-        const explicitAmountReady = result.explicitConsumptionYuan >= 0
-        const finalBalanceConfirmed = explicitAmountReady &&
-          ConsumptionSettlement.matchesExplicitConsumption(
-            startBalanceYuan,
-            result.explicitConsumptionYuan,
-            candidateBalanceYuan
-          )
-        const balanceDeltaConfirmed = !explicitAmountReady &&
-          ConsumptionSettlement.hasSettledBalanceChanged(activeBalanceYuan, candidateBalanceYuan)
-        if (finalBalanceConfirmed || balanceDeltaConfirmed) {
-          result.settledBalanceYuan = candidateBalanceYuan
-          result.settledBalanceIsTrusted = true
-          result.snapshot = candidateSnapshot
-          return result
-        }
-      } catch (error) {
-        // 保留此前最新的有效余额；最后一次网络失败时仍可展示已取得的最新值。
-      }
-    }
-    return result
-  }
-
   private async persistPendingSettlementContext(
     orderNo: string,
     usageSession: UsageSession,
     activeBalanceYuan: number,
-    endedAtMillis: number
+    endedAtMillis: number,
+    closeConfirmed: boolean = false
   ): Promise<ConsumptionRecord> {
     const record = new ConsumptionRecord()
     record.id = endedAtMillis
@@ -448,6 +373,7 @@ export class HotWaterRepository {
     pending.startBalanceYuan = this.normalizeStartBalance(usageSession)
     pending.activeBalanceYuan = activeBalanceYuan
     pending.balanceFallbackEligible = true
+    pending.closeConfirmed = closeConfirmed
     return await this.store.savePendingSettlementContext(record, pending)
   }
 
@@ -458,6 +384,44 @@ export class HotWaterRepository {
     return await this.ensureUsageSession(await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText))
   }
 
+  private async findLatestPendingClose(): Promise<PendingSettlement | null> {
+    const pendingSettlements = await this.store.loadPendingSettlements()
+    let latest: PendingSettlement | null = null
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      const candidate = pendingSettlements[index]
+      if (latest === null || candidate.endedAtMillis > latest.endedAtMillis ||
+        (candidate.endedAtMillis === latest.endedAtMillis && candidate.recordId > latest.recordId)) {
+        latest = candidate
+      }
+    }
+    return latest
+  }
+
+  private async queryCloseConfirmed(config: HotWaterConfig, orderNo: string): Promise<boolean> {
+    try {
+      const closeResultText = await this.postForm(
+        '/order/tcpDevice/closeOrder/result/query',
+        this.buildFormString(config, orderNo)
+      )
+      return this.extractSuccess(closeResultText) && this.extractErrorCode(closeResultText) === 0
+    } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
+      return false
+    }
+  }
+
+  private buildPendingCloseGateResult(config: HotWaterConfig, statusText: string): OperationResult {
+    const snapshot = this.fallbackSnapshot(config, '关水确认中，请稍后再试。', '', false)
+    const result = new OperationResult()
+    result.title = '关水确认中'
+    result.summary = '关水确认中，请稍后再试。\n余额 -- 元'
+    result.details = statusText
+    result.snapshot = snapshot
+    return result
+  }
+
   private async buildDeviceBusyResult(config: HotWaterConfig, statusText: string): Promise<OperationResult> {
     await this.store.clearOrderNo()
     await this.store.clearUsageSession()
@@ -465,6 +429,9 @@ export class HotWaterRepository {
     try {
       snapshot = await this.refreshSnapshotWithStatus(config, statusText)
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       snapshot = this.fallbackSnapshot(config, DEVICE_BUSY_BY_OTHER_MESSAGE, '', true)
     }
     const result = new OperationResult()
@@ -490,12 +457,14 @@ export class HotWaterRepository {
       await this.store.clearUsageSession()
     } else if (extractedOrderNo.length > 0) {
       const ignoreRecovered = await this.store.shouldIgnoreRecoveredOrder()
-      if (!ignoreRecovered) {
+      const matchesPendingSettlement = await this.store.hasPendingSettlementForOrder(extractedOrderNo)
+      if (!ignoreRecovered && !matchesPendingSettlement) {
         await this.store.saveOrderNo(extractedOrderNo)
         await this.store.confirmUsageSession()
         snapshot.remoteOrderConfirmed = true
       }
     } else if (this.isConfirmedWithoutActiveOrder(statusText)) {
+      snapshot.remoteNoActiveOrderConfirmed = true
       await this.store.clearExpiredProvisionalUsageState(Date.now(), PROVISIONAL_OPENING_MAX_AGE_MS)
     }
     const cachedOrderNo = busyByOther ? '' : await this.store.loadOrderNo()
@@ -601,6 +570,9 @@ export class HotWaterRepository {
     try {
       await this.reconcilePendingSettlements(config, snapshot)
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       // 历史回填失败不应让余额刷新或设备操作失败，下一次刷新会继续尝试。
     }
   }
@@ -659,6 +631,13 @@ export class HotWaterRepository {
     const reconciliationStartedAtMillis = Date.now()
     for (let index = 0; index < pendingSettlements.length; index++) {
       const pending = pendingSettlements[index]
+      let closeResultConfirmed = pending.closeConfirmed
+      if (!closeResultConfirmed && !snapshot.remoteNoActiveOrderConfirmed && pending.shouldBlockOpen(
+        reconciliationStartedAtMillis,
+        PENDING_CLOSE_OPEN_GUARD_MS
+      )) {
+        closeResultConfirmed = await this.queryCloseConfirmed(config, pending.orderNo)
+      }
       let consumptionYuan: number = pending.confirmedConsumptionYuan
       if (consumptionYuan < 0) {
         try {
@@ -668,8 +647,16 @@ export class HotWaterRepository {
           )
           consumptionYuan = HotWaterPayload.extractConfirmedConsumptionYuan(consumptionText)
         } catch (error) {
+          if (HotWaterPayload.isCredentialExpiredError(error)) {
+            throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+          }
           consumptionYuan = -1
         }
+      }
+
+      if (snapshot.remoteNoActiveOrderConfirmed || closeResultConfirmed || consumptionYuan >= 0) {
+        pending.closeConfirmed = true
+        await this.store.markPendingCloseConfirmed(pending.orderNo)
       }
 
       const localUsageSession = await this.store.loadUsageSession()
@@ -705,6 +692,8 @@ export class HotWaterRepository {
           }
         }
         if (localFallbackPreconditionsMet && remoteHasNoActiveOrder === true) {
+          pending.closeConfirmed = true
+          await this.store.markPendingCloseConfirmed(pending.orderNo)
           const latestUsageSession = await this.store.loadUsageSession()
           const latestOrderNo = await this.store.loadOrderNo()
           if (latestUsageSession === null && latestOrderNo.length === 0) {
@@ -745,6 +734,9 @@ export class HotWaterRepository {
       const statusText = await this.postForm('/order/tcpDevice/query/rateOrder/using', this.buildFormString(config))
       return this.isConfirmedWithoutActiveOrder(statusText)
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       return false
     }
   }
@@ -853,10 +845,14 @@ export class HotWaterRepository {
         header: headers
       }
       const response = await client.request(url, options)
+      const responseText = String(response.result)
+      if (HotWaterPayload.isCredentialExpiredResponse(responseText, response.responseCode)) {
+        throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
+      }
       if (response.responseCode < 200 || response.responseCode >= 300) {
         throw new Error('HTTP ' + String(response.responseCode))
       }
-      return String(response.result)
+      return responseText
     } finally {
       client.destroy()
     }

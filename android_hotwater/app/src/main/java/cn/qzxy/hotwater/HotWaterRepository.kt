@@ -2,8 +2,13 @@ package cn.qzxy.hotwater
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 data class DashboardSnapshot(
@@ -43,8 +48,19 @@ class HotWaterRepository(
 ) {
     suspend fun check(config: HotWaterConfig): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
-        reconcilePendingSettlements(config)
-        val snapshot = refreshSnapshot(config)
+        val stateGeneration = store.loadStateGeneration()
+        // Probe authentication first so startup can route expired sessions to login
+        // without waiting for old settlement reconciliation.
+        val userInfo = api.userInfo(config)
+        reconcilePendingSettlements(config, stateGeneration)
+        val snapshot = guardPendingSettlementBalance(
+            refreshSnapshot(
+                config,
+                prefetchedUserInfo = userInfo,
+                expectedStateGeneration = stateGeneration,
+            ),
+        )
+        ensureStateGeneration(stateGeneration)
         OperationResult(
             title = "余额已刷新",
             summary = buildSummary(snapshot),
@@ -58,23 +74,76 @@ class HotWaterRepository(
         config: HotWaterConfig,
         pollAttempts: Int = 5,
         pollDelayMs: Long = 2_000L,
+    ): OperationResult = DEVICE_CONTROL_MUTEX.withLock {
+        openLocked(config, pollAttempts, pollDelayMs)
+    }
+
+    private suspend fun openLocked(
+        config: HotWaterConfig,
+        pollAttempts: Int,
+        pollDelayMs: Long,
     ): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
-        reconcilePendingSettlements(config)
+        val stateGeneration = store.loadStateGeneration()
+        reconcilePendingSettlements(config, stateGeneration)
+
+        val nowMillis = System.currentTimeMillis()
+        val unconfirmedClose = store.loadPendingSettlements()
+            .filter { pending ->
+                val ageMillis = nowMillis - pending.closedAtMillis
+                !pending.closeConfirmed &&
+                    pending.finalConsumptionYuan == null &&
+                    ageMillis in 0L..MAX_UNCONFIRMED_CLOSE_GATE_MS
+            }
+            .maxByOrNull(PendingSettlement::closedAtMillis)
+        if (unconfirmedClose != null) {
+            ensureStateGeneration(stateGeneration)
+            val snapshot = buildFallbackSnapshot(
+                config = config,
+                balancePayload = null,
+                statusLabel = "关水确认中，请稍后再试。",
+                orderNo = null,
+            )
+            ensureStateGeneration(stateGeneration)
+            return@withContext OperationResult(
+                title = "关水确认中",
+                summary = "关水确认中，请稍后再试。",
+                details = "Waiting for close confirmation, orderNo=${unconfirmedClose.orderNo}",
+                snapshot = snapshot,
+                outcome = OperationOutcome.PENDING,
+            )
+        }
 
         val detailBuilder = StringBuilder()
         val currentStatus = api.status(config)
         detailBuilder.appendLine("[Current Status]")
         detailBuilder.appendLine(currentStatus.toString(2))
         if (isDeviceBusyByOther(currentStatus)) {
-            return@withContext buildDeviceBusyResult(config, currentStatus, detailBuilder)
+            return@withContext buildDeviceBusyResult(config, currentStatus, detailBuilder, stateGeneration)
         }
         val existingOrderNo = findNestedValue(currentStatus, "orderNo")
             ?.toString()
             ?.takeIf { it.isNotBlank() }
         if (existingOrderNo != null) {
-            store.saveOrderNo(existingOrderNo)
-            val snapshot = tryApi { refreshSnapshotWithStatus(config, currentStatus) }
+            if (!store.saveOrderNoUnlessPending(existingOrderNo, stateGeneration)) {
+                ensureStateGeneration(stateGeneration)
+                val snapshot = buildFallbackSnapshot(
+                    config = config,
+                    balancePayload = null,
+                    statusLabel = "关水后的账单仍在同步，请稍后再试。",
+                    orderNo = null,
+                )
+                return@withContext OperationResult(
+                    title = "账单同步中",
+                    summary = "关水后的账单仍在同步，请稍后再试。",
+                    details = detailBuilder.toString().trim(),
+                    snapshot = snapshot,
+                    outcome = OperationOutcome.PENDING,
+                )
+            }
+            val snapshot = tryApi {
+                refreshSnapshotWithStatus(config, currentStatus, stateGeneration)
+            }
                 .getOrElse {
                     buildFallbackSnapshot(
                         config = config,
@@ -83,6 +152,7 @@ class HotWaterRepository(
                         orderNo = existingOrderNo,
                     )
                 }
+            ensureStateGeneration(stateGeneration)
             return@withContext OperationResult(
                 title = "热水已经开启",
                 summary = "检测到当前账号已有用水订单。\n余额 ${snapshot.balanceLabel} 元",
@@ -92,7 +162,9 @@ class HotWaterRepository(
             )
         }
         if (isConfirmedWithoutActiveOrder(currentStatus)) {
-            store.clearUsageSession()
+            if (!store.clearUsageSessionForGeneration(stateGeneration)) {
+                throw staleOperationCancellation()
+            }
         }
 
         // The platform reserves 5 yuan as soon as water is opened. Capture the real
@@ -103,13 +175,14 @@ class HotWaterRepository(
 
         detailBuilder.appendLine()
         detailBuilder.appendLine("Sending open request...")
+        ensureStateGeneration(stateGeneration)
         val openResponse = api.openHotWater(config)
         detailBuilder.appendLine()
         detailBuilder.appendLine("[Open Response]")
         detailBuilder.appendLine(openResponse.toString(2))
 
         if (isDeviceBusyByOther(openResponse)) {
-            return@withContext buildDeviceBusyResult(config, openResponse, detailBuilder)
+            return@withContext buildDeviceBusyResult(config, openResponse, detailBuilder, stateGeneration)
         }
 
         var orderNo = findNestedValue(openResponse, "orderNo")?.toString()
@@ -118,7 +191,9 @@ class HotWaterRepository(
         var busyByOtherPayload: JSONObject? = null
 
         for (index in 0 until pollAttempts) {
+            ensureStateGeneration(stateGeneration)
             delay(pollDelayMs)
+            ensureStateGeneration(stateGeneration)
             val openResult = api.openResult(config, orderNo)
             finalOpenResult = openResult
             detailBuilder.appendLine()
@@ -147,12 +222,14 @@ class HotWaterRepository(
         }
 
         if (busyByOtherPayload != null) {
-            return@withContext buildDeviceBusyResult(config, busyByOtherPayload, detailBuilder)
+            return@withContext buildDeviceBusyResult(config, busyByOtherPayload, detailBuilder, stateGeneration)
         }
 
         var consumeResult: JSONObject? = null
         if (!orderNo.isNullOrBlank()) {
-            store.saveOrderNo(orderNo)
+            if (!store.saveOrderNoForGeneration(orderNo, stateGeneration)) {
+                throw staleOperationCancellation()
+            }
             consumeResult = tryApi { api.consumeResult(config, orderNo) }.getOrNull()
             if (consumeResult != null) {
                 detailBuilder.appendLine()
@@ -166,6 +243,7 @@ class HotWaterRepository(
                 config,
                 preferredUsageStartBalanceYuan = balanceBeforeOpenYuan,
                 allowSnapshotUsageBaseline = balanceBeforeOpenYuan != null,
+                expectedStateGeneration = stateGeneration,
             )
         }.getOrElse {
             buildFallbackSnapshot(
@@ -179,7 +257,9 @@ class HotWaterRepository(
             snapshot,
             preferredStartBalanceYuan = balanceBeforeOpenYuan,
             allowSnapshotBalanceBaseline = balanceBeforeOpenYuan != null,
+            expectedStateGeneration = stateGeneration,
         )
+        ensureStateGeneration(stateGeneration)
 
         val summary = when {
             success -> "热水已开启。\n余额 ${snapshotWithUsageSession.balanceLabel} 元"
@@ -199,42 +279,81 @@ class HotWaterRepository(
     suspend fun close(
         config: HotWaterConfig,
         pollAttempts: Int = 5,
-        pollDelayMs: Long = 2_000L,
-        settlementRefreshAttempts: Int = 6,
-        settlementRefreshDelayMs: Long = 1_200L,
+        pollDelayMs: Long = 600L,
+        settlementRefreshAttempts: Int = 0,
+        settlementRefreshDelayMs: Long = 0L,
+    ): OperationResult = DEVICE_CONTROL_MUTEX.withLock {
+        SETTLEMENT_RECONCILIATION_MUTEX.withLock {
+            closeLocked(
+                config,
+                pollAttempts,
+                pollDelayMs,
+                settlementRefreshAttempts,
+                settlementRefreshDelayMs,
+            )
+        }
+    }
+
+    private suspend fun closeLocked(
+        config: HotWaterConfig,
+        pollAttempts: Int,
+        pollDelayMs: Long,
+        settlementRefreshAttempts: Int,
+        settlementRefreshDelayMs: Long,
     ): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
-        reconcilePendingSettlements(config)
+        val stateGeneration = store.loadStateGeneration()
 
         val usageSession = store.loadUsageSession()
         val detailBuilder = StringBuilder()
-        val status = api.status(config)
+        val cachedOrderNo = store.loadOrderNo()
+        if (!cachedOrderNo.isNullOrBlank()) {
+            findPendingClose(cachedOrderNo)?.let { pending ->
+                ensureStateGeneration(stateGeneration)
+                return@withContext buildPendingCloseResult(config, pending, detailBuilder)
+            }
+        }
+        val (status, queriedActiveBalanceYuan) = coroutineScope {
+            val balance = async {
+                tryApi { HotWaterPayload.balanceYuan(api.balance(config)) }.getOrNull()
+            }
+            api.status(config) to balance.await()
+        }
         var orderNo = findNestedValue(status, "orderNo")?.toString()
         detailBuilder.appendLine("[Current Status]")
         detailBuilder.appendLine(status.toString(2))
 
         if (isDeviceBusyByOther(status)) {
-            return@withContext buildDeviceBusyResult(config, status, detailBuilder)
+            return@withContext buildDeviceBusyResult(config, status, detailBuilder, stateGeneration)
         }
 
         if (orderNo.isNullOrBlank()) {
-            orderNo = store.loadOrderNo()
+            orderNo = cachedOrderNo
+        }
+
+        findPendingClose(orderNo)?.let { pending ->
+            ensureStateGeneration(stateGeneration)
+            return@withContext buildPendingCloseResult(config, pending, detailBuilder)
         }
 
         if (orderNo.isNullOrBlank()) {
+            findPendingClose(null)?.let { pending ->
+                ensureStateGeneration(stateGeneration)
+                return@withContext buildPendingCloseResult(config, pending, detailBuilder)
+            }
             throw IllegalStateException(
                 "No active orderNo found. Open hot water once in the app or import a newer capture file first.\n\n$detailBuilder",
             )
         }
         val activeOrderNo = orderNo
 
-        val queriedActiveBalanceYuan = tryApi {
-            HotWaterPayload.balanceYuan(api.balance(config))
-        }.getOrNull()
-        val activeBalanceYuan = queriedActiveBalanceYuan ?: usageSession?.let {
-            HotWaterSettlement.balanceBeforePreauthorization(it)
-        }?.minus(HOT_WATER_PREAUTHORIZATION_YUAN)
-        val startBalanceYuan = usageSession?.let(HotWaterSettlement::balanceBeforePreauthorization)
+        val storedStartBalanceYuan = usageSession?.let(
+            HotWaterSettlement::balanceBeforePreauthorization,
+        )
+        val activeBalanceYuan = storedStartBalanceYuan
+            ?.let { queriedActiveBalanceYuan ?: it.minus(HOT_WATER_PREAUTHORIZATION_YUAN) }
+            ?: queriedActiveBalanceYuan
+        val startBalanceYuan = storedStartBalanceYuan
             ?: activeBalanceYuan?.plus(HOT_WATER_PREAUTHORIZATION_YUAN)
         val closedAtMillis = System.currentTimeMillis()
         val historyId = closedAtMillis
@@ -242,6 +361,7 @@ class HotWaterRepository(
 
         detailBuilder.appendLine()
         detailBuilder.appendLine("Sending close request, orderNo=$activeOrderNo")
+        ensureStateGeneration(stateGeneration)
         val closeResponse = api.closeHotWater(config, activeOrderNo)
         detailBuilder.appendLine()
         detailBuilder.appendLine("[Close Response]")
@@ -256,7 +376,7 @@ class HotWaterRepository(
 
         fun persistPendingSettlement() {
             if (!closeAccepted && !closeConfirmed) return
-            store.savePendingSettlement(
+            val persisted = store.savePendingSettlementAndEndUsage(
                 PendingSettlement(
                     historyId = historyId,
                     orderNo = activeOrderNo,
@@ -268,55 +388,47 @@ class HotWaterRepository(
                     provisionalConsumptionYuan = provisionalConsumptionYuan,
                     finalConsumptionYuan = finalConsumptionYuan,
                     zeroConsumptionReported = zeroConsumptionReported,
+                    closeConfirmed = closeConfirmed,
+                    stateGeneration = stateGeneration,
                 ),
+                expectedStateGeneration = stateGeneration,
             )
-            store.clearOrderNo()
-            store.clearUsageSession()
+            if (!persisted) throw staleOperationCancellation()
         }
 
-        // Persist the settlement context before any delayed polling. If the caller is
-        // cancelled after closeOrder was accepted, a later refresh can still finish it.
+        // closeOrder success means the server accepted the command. Persist the bill
+        // immediately and let background reconciliation confirm the device and amount.
         if (closeAccepted) persistPendingSettlement()
 
-        for (index in 0 until pollAttempts) {
-            delay(pollDelayMs)
-            val closeResult = tryApi { api.closeResult(config, activeOrderNo) }.getOrNull()
-            if (closeResult != null) {
-                if (isConfirmedResponse(closeResult)) {
-                    provisionalConsumptionYuan = HotWaterPayload.consumptionYuan(closeResult)
-                        ?: provisionalConsumptionYuan
+        if (!closeAccepted) {
+            for (index in 0 until pollAttempts) {
+                ensureStateGeneration(stateGeneration)
+                if (pollDelayMs > 0L) delay(pollDelayMs)
+                ensureStateGeneration(stateGeneration)
+                val closeResult = tryApi { api.closeResult(config, activeOrderNo) }.getOrNull()
+                if (closeResult == null) {
+                    detailBuilder.appendLine()
+                    detailBuilder.appendLine("[Close Result #${index + 1}] unavailable")
+                    continue
                 }
-                zeroConsumptionReported = zeroConsumptionReported ||
-                    reportsZeroConsumption(closeResult)
+
                 detailBuilder.appendLine()
                 detailBuilder.appendLine("[Close Result #${index + 1}]")
                 detailBuilder.appendLine(closeResult.toString(2))
                 if (isConfirmedResponse(closeResult)) {
                     closeConfirmed = true
                     closeAccepted = true
+                    provisionalConsumptionYuan = HotWaterPayload.consumptionYuan(closeResult)
+                        ?: provisionalConsumptionYuan
+                    zeroConsumptionReported = zeroConsumptionReported ||
+                        reportsZeroConsumption(closeResult)
                     persistPendingSettlement()
+                    break
                 }
-            } else {
-                detailBuilder.appendLine()
-                detailBuilder.appendLine("[Close Result #${index + 1}] unavailable")
             }
-
-            val consumeResult = tryApi { api.consumeResult(config, activeOrderNo) }.getOrNull()
-            if (consumeResult != null) {
-                detailBuilder.appendLine()
-                detailBuilder.appendLine("[Consume Result #${index + 1}]")
-                detailBuilder.appendLine(consumeResult.toString(2))
-                finalConsumptionYuan = finalConsumptionFrom(consumeResult)
-                    ?: finalConsumptionYuan
-                zeroConsumptionReported = zeroConsumptionReported ||
-                    reportsZeroConsumption(consumeResult)
-            }
-
-            if (closeAccepted || closeConfirmed) persistPendingSettlement()
-            if (closeConfirmed && finalConsumptionYuan != null) break
         }
 
-        val closeStatusLabel = if (closeConfirmed) {
+        var closeStatusLabel = if (closeConfirmed) {
             "热水已关闭。"
         } else if (closeAccepted) {
             "关热水请求已受理，消费金额可能仍在同步。"
@@ -325,7 +437,7 @@ class HotWaterRepository(
         }
 
         val usageEnded = closeAccepted || closeConfirmed
-        val settlementRefresh = if (usageEnded) {
+        val settlementRefresh = if (usageEnded && settlementRefreshAttempts > 0) {
             refreshSettlementAfterClose(
                 config = config,
                 orderNo = activeOrderNo,
@@ -342,7 +454,14 @@ class HotWaterRepository(
             SettlementRefreshResult()
         }
         finalConsumptionYuan = settlementRefresh.finalConsumptionYuan ?: finalConsumptionYuan
-        zeroConsumptionReported = settlementRefresh.zeroConsumptionReported
+        zeroConsumptionReported = zeroConsumptionReported || settlementRefresh.zeroConsumptionReported
+        if (
+            !closeConfirmed &&
+            (finalConsumptionYuan != null || settlementRefresh.settledBalanceYuan != null)
+        ) {
+            closeConfirmed = true
+            closeStatusLabel = "热水已关闭。"
+        }
         val refreshedSnapshot = settlementRefresh.snapshot
         val snapshot = if (usageEnded) {
             refreshedSnapshot ?: run {
@@ -354,7 +473,9 @@ class HotWaterRepository(
                 )
             }
         } else {
-            tryApi { refreshSnapshot(config) }.getOrElse {
+            tryApi {
+                refreshSnapshot(config, expectedStateGeneration = stateGeneration)
+            }.getOrElse {
                 buildFallbackSnapshot(
                     config = config,
                     balancePayload = null,
@@ -376,12 +497,16 @@ class HotWaterRepository(
             null
         }
         if (usageEnded) {
-            if (consumptionYuan != null) {
-                store.removePendingSettlement(activeOrderNo)
+            val balanceGuardRequired = finalConsumptionYuan != null &&
+                startBalanceYuan != null &&
+                settlementRefresh.settledBalanceYuan == null
+            if (consumptionYuan != null && !balanceGuardRequired) {
+                store.removePendingSettlement(activeOrderNo, stateGeneration)
             } else {
                 persistPendingSettlement()
             }
         }
+        ensureStateGeneration(stateGeneration)
 
         OperationResult(
             title = when {
@@ -396,7 +521,49 @@ class HotWaterRepository(
             usageDurationMillis = if (usageEnded) usageDurationMillis else null,
             usageStartedAtMillis = if (usageEnded) usageSession?.startedAtMillis else null,
             historyId = if (usageEnded) historyId else null,
-            outcome = if (usageEnded) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
+            outcome = if (closeConfirmed) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
+        )
+    }
+
+    private fun findPendingClose(orderNo: String?): PendingSettlement? {
+        val candidates = store.loadPendingSettlements()
+        return if (orderNo.isNullOrBlank()) {
+            candidates.maxWithOrNull(
+                compareBy<PendingSettlement> { it.closedAtMillis }
+                    .thenBy { it.historyId },
+            )
+        } else {
+            candidates.firstOrNull { it.orderNo == orderNo }
+        }
+    }
+
+    private fun buildPendingCloseResult(
+        config: HotWaterConfig,
+        pending: PendingSettlement,
+        detailBuilder: StringBuilder,
+    ): OperationResult {
+        val confirmed = pending.closeConfirmed || pending.finalConsumptionYuan != null
+        val statusLabel = if (confirmed) {
+            "热水已关闭，余额仍在同步。"
+        } else {
+            "关热水请求已受理，正在等待设备确认。"
+        }
+        val snapshot = buildFallbackSnapshot(
+            config = config,
+            balancePayload = null,
+            statusLabel = statusLabel,
+            orderNo = null,
+        )
+        return OperationResult(
+            title = if (confirmed) "关热水完成" else "关热水已受理",
+            summary = "$statusLabel\n余额 -- 元",
+            details = detailBuilder.toString().trim(),
+            snapshot = snapshot,
+            consumptionYuan = pending.finalConsumptionYuan,
+            usageDurationMillis = pending.usageDurationMillis,
+            usageStartedAtMillis = pending.usageStartedAtMillis,
+            historyId = pending.historyId,
+            outcome = if (confirmed) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
         )
     }
 
@@ -404,36 +571,47 @@ class HotWaterRepository(
         config: HotWaterConfig,
         preferredUsageStartBalanceYuan: Double? = null,
         allowSnapshotUsageBaseline: Boolean = true,
+        prefetchedUserInfo: JSONObject? = null,
+        expectedStateGeneration: Long,
     ): DashboardSnapshot {
-        val userInfo = api.userInfo(config)
+        val userInfo = prefetchedUserInfo ?: api.userInfo(config)
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
         val status = api.status(config)
         return ensureUsageSession(
-            buildSnapshot(config, userInfo, deviceInfo, balance, status),
+            buildSnapshot(config, userInfo, deviceInfo, balance, status, expectedStateGeneration),
             preferredUsageStartBalanceYuan,
             allowSnapshotUsageBaseline,
+            expectedStateGeneration,
         )
     }
 
     private suspend fun refreshSnapshotWithStatus(
         config: HotWaterConfig,
         statusPayload: JSONObject,
+        expectedStateGeneration: Long,
     ): DashboardSnapshot {
         val userInfo = api.userInfo(config)
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
-        return ensureUsageSession(buildSnapshot(config, userInfo, deviceInfo, balance, statusPayload))
+        return ensureUsageSession(
+            buildSnapshot(config, userInfo, deviceInfo, balance, statusPayload, expectedStateGeneration),
+            expectedStateGeneration = expectedStateGeneration,
+        )
     }
 
     private suspend fun buildDeviceBusyResult(
         config: HotWaterConfig,
         statusPayload: JSONObject,
         detailBuilder: StringBuilder,
+        expectedStateGeneration: Long,
     ): OperationResult {
-        store.clearOrderNo()
-        store.clearUsageSession()
-        val snapshot = tryApi { refreshSnapshotWithStatus(config, statusPayload) }.getOrElse {
+        if (!store.clearActiveUsageForGeneration(expectedStateGeneration)) {
+            throw staleOperationCancellation()
+        }
+        val snapshot = tryApi {
+            refreshSnapshotWithStatus(config, statusPayload, expectedStateGeneration)
+        }.getOrElse {
             buildFallbackSnapshot(
                 config = config,
                 balancePayload = null,
@@ -442,6 +620,7 @@ class HotWaterRepository(
                 isDeviceBusyByOther = true,
             )
         }
+        ensureStateGeneration(expectedStateGeneration)
         return OperationResult(
             title = "设备正在使用中",
             summary = "$DEVICE_BUSY_BY_OTHER_MESSAGE\n余额 ${snapshot.balanceLabel} 元",
@@ -543,17 +722,38 @@ class HotWaterRepository(
         )
     }
 
-    private suspend fun reconcilePendingSettlements(config: HotWaterConfig) {
+    private suspend fun reconcilePendingSettlements(
+        config: HotWaterConfig,
+        expectedStateGeneration: Long,
+    ) {
+        withTimeoutOrNull(MAX_RECONCILIATION_LOCK_MS) {
+            SETTLEMENT_RECONCILIATION_MUTEX.withLock {
+                reconcilePendingSettlementsLocked(config, expectedStateGeneration)
+            }
+        }
+    }
+
+    private suspend fun reconcilePendingSettlementsLocked(
+        config: HotWaterConfig,
+        expectedStateGeneration: Long,
+    ) {
+        ensureStateGeneration(expectedStateGeneration)
         val pendingSettlements = store.loadPendingSettlements()
+        ensureStateGeneration(expectedStateGeneration)
+        if (pendingSettlements.any { it.stateGeneration != expectedStateGeneration }) {
+            throw staleOperationCancellation()
+        }
         val latestPending = pendingSettlements.maxWithOrNull(
             compareBy<PendingSettlement> { it.closedAtMillis }
                 .thenBy { it.historyId },
         )
-        pendingSettlements
-            .filter { it.orderNo != latestPending?.orderNo && it.balanceFallbackAllowed }
-            .forEach { pending ->
-                store.savePendingSettlement(pending.copy(balanceFallbackAllowed = false))
+        val normalizedPendingSettlements = pendingSettlements.map { pending ->
+            if (pending.orderNo != latestPending?.orderNo && pending.balanceFallbackAllowed) {
+                pending.copy(balanceFallbackAllowed = false).also(store::savePendingSettlement)
+            } else {
+                pending
             }
+        }
         val reconciliationStartedAtMillis = System.currentTimeMillis()
         var remoteHasNoActiveOrder: Boolean? = null
 
@@ -573,9 +773,25 @@ class HotWaterRepository(
             return remoteHasNoActiveOrder == true
         }
 
-        pendingSettlements.forEach { pending ->
+        normalizedPendingSettlements.forEach { pending ->
             var finalConsumptionYuan = pending.finalConsumptionYuan
             var zeroConsumptionReported = pending.zeroConsumptionReported
+            var closeConfirmed = pending.closeConfirmed
+            var provisionalConsumptionYuan = pending.provisionalConsumptionYuan
+
+            if (!closeConfirmed) {
+                val closeResult = tryApi {
+                    api.closeResult(config, pending.orderNo)
+                }.getOrNull()
+                if (closeResult?.let(::isConfirmedResponse) == true) {
+                    closeConfirmed = true
+                    provisionalConsumptionYuan = HotWaterPayload.consumptionYuan(closeResult)
+                        ?: provisionalConsumptionYuan
+                    zeroConsumptionReported = zeroConsumptionReported ||
+                        reportsZeroConsumption(closeResult)
+                }
+            }
+
             if (finalConsumptionYuan == null) {
                 val consumeResult = tryApi {
                     api.consumeResult(config, pending.orderNo)
@@ -586,37 +802,69 @@ class HotWaterRepository(
             }
 
             if (finalConsumptionYuan != null) {
-                store.updateHistorySettlement(pending, finalConsumptionYuan)
-                store.removePendingSettlement(pending.orderNo)
-                return@forEach
+                store.updateHistorySettlement(
+                    pending.copy(closeConfirmed = true),
+                    finalConsumptionYuan,
+                )
+                closeConfirmed = true
+                val ageMillis = reconciliationStartedAtMillis - pending.closedAtMillis
+                if (
+                    pending.startBalanceYuan == null ||
+                    ageMillis !in 0L..MAX_PENDING_BALANCE_FALLBACK_AGE_MS
+                ) {
+                    store.removePendingSettlement(pending.orderNo, pending.stateGeneration)
+                    return@forEach
+                }
             }
 
             // A wallet balance is account-wide state, not an immutable order result.
             // Only the newest, still-fresh settlement may use it as a fallback, and
             // only after both local and remote state confirm there is no newer usage.
             if (!canUseCurrentBalance(pending)) {
-                if (pending.zeroConsumptionReported != zeroConsumptionReported) {
+                if (
+                    pending.zeroConsumptionReported != zeroConsumptionReported ||
+                    pending.closeConfirmed != closeConfirmed ||
+                    pending.provisionalConsumptionYuan != provisionalConsumptionYuan ||
+                    pending.finalConsumptionYuan != finalConsumptionYuan
+                ) {
                     store.savePendingSettlement(
-                        pending.copy(zeroConsumptionReported = zeroConsumptionReported),
+                        pending.copy(
+                            provisionalConsumptionYuan = provisionalConsumptionYuan,
+                            finalConsumptionYuan = finalConsumptionYuan,
+                            zeroConsumptionReported = zeroConsumptionReported,
+                            closeConfirmed = closeConfirmed,
+                        ),
                     )
                 }
                 return@forEach
             }
+            closeConfirmed = true
 
             val balanceYuan = tryApi {
                 HotWaterPayload.balanceYuan(api.balance(config))
             }.getOrNull()
+            val finalBalanceConfirmed = finalConsumptionYuan?.let { consumption ->
+                pending.startBalanceYuan?.minus(consumption)?.let { expectedBalanceYuan ->
+                    HotWaterSettlement.balancesMatch(expectedBalanceYuan, balanceYuan)
+                }
+            } == true
+            if (finalBalanceConfirmed) {
+                store.removePendingSettlement(pending.orderNo, pending.stateGeneration)
+                return@forEach
+            }
             val settledBalanceYuan = balanceYuan?.takeIf {
                 HotWaterSettlement.hasSettledBalanceChanged(pending.activeBalanceYuan, it)
             }
             val zeroBalanceConfirmed = zeroConsumptionReported &&
                 HotWaterSettlement.balancesMatch(pending.startBalanceYuan, balanceYuan)
-            val resolvedConsumptionYuan = if (zeroBalanceConfirmed) {
+            val resolvedConsumptionYuan = if (finalConsumptionYuan != null) {
+                null
+            } else if (zeroBalanceConfirmed) {
                 0.0
             } else {
                 settledBalanceYuan?.let {
                     HotWaterSettlement.resolveConsumptionYuan(
-                        provisionalConsumptionYuan = pending.provisionalConsumptionYuan,
+                        provisionalConsumptionYuan = provisionalConsumptionYuan,
                         startBalanceYuan = pending.startBalanceYuan,
                         settledBalanceYuan = it,
                     )
@@ -624,19 +872,68 @@ class HotWaterRepository(
             }
             if (resolvedConsumptionYuan != null) {
                 store.updateHistorySettlement(pending, resolvedConsumptionYuan)
-                store.removePendingSettlement(pending.orderNo)
+                store.removePendingSettlement(pending.orderNo, pending.stateGeneration)
             } else if (
                 pending.finalConsumptionYuan != finalConsumptionYuan ||
-                pending.zeroConsumptionReported != zeroConsumptionReported
+                pending.zeroConsumptionReported != zeroConsumptionReported ||
+                pending.closeConfirmed != closeConfirmed ||
+                pending.provisionalConsumptionYuan != provisionalConsumptionYuan
             ) {
                 store.savePendingSettlement(
                     pending.copy(
+                        provisionalConsumptionYuan = provisionalConsumptionYuan,
                         finalConsumptionYuan = finalConsumptionYuan,
                         zeroConsumptionReported = zeroConsumptionReported,
+                        closeConfirmed = closeConfirmed,
                     ),
                 )
             }
         }
+    }
+
+    private fun guardPendingSettlementBalance(snapshot: DashboardSnapshot): DashboardSnapshot {
+        if (snapshot.hasCachedOrder || snapshot.balanceYuan == null) return snapshot
+        val pending = store.loadPendingSettlements()
+            .filter(PendingSettlement::balanceFallbackAllowed)
+            .filter { pending ->
+                val ageMillis = System.currentTimeMillis() - pending.closedAtMillis
+                ageMillis in 0L..MAX_PENDING_BALANCE_FALLBACK_AGE_MS
+            }
+            .maxWithOrNull(
+                compareBy<PendingSettlement> { it.closedAtMillis }
+                    .thenBy { it.historyId },
+            )
+            ?: return snapshot
+        if (store.loadOrderNo() != null || store.loadUsageSession() != null) return snapshot
+
+        val expectedBalanceYuan = pending.finalConsumptionYuan?.let { consumption ->
+            pending.startBalanceYuan?.minus(consumption)
+        }
+        val balanceStillStale = when {
+            expectedBalanceYuan != null -> !HotWaterSettlement.balancesMatch(
+                expectedBalanceYuan,
+                snapshot.balanceYuan,
+            )
+            pending.activeBalanceYuan != null -> HotWaterSettlement.balancesMatch(
+                pending.activeBalanceYuan,
+                snapshot.balanceYuan,
+            )
+            else -> false
+        }
+        if (!balanceStillStale) return snapshot
+
+        val statusLabel = if (pending.finalConsumptionYuan != null) {
+            "消费金额已确认，余额仍在同步。"
+        } else if (pending.closeConfirmed) {
+            "热水已关闭，账单和余额正在同步。"
+        } else {
+            "关热水请求已受理，正在等待设备确认。"
+        }
+        return snapshot.copy(
+            balanceYuan = null,
+            balanceLabel = "--",
+            statusLabel = statusLabel,
+        )
     }
 
     private fun buildSnapshot(
@@ -645,23 +942,28 @@ class HotWaterRepository(
         deviceInfo: JSONObject,
         balancePayload: JSONObject,
         statusPayload: JSONObject,
+        expectedStateGeneration: Long,
     ): DashboardSnapshot {
+        ensureStateGeneration(expectedStateGeneration)
         val userData = userInfo.optJSONObject("data") ?: JSONObject()
         val deviceData = deviceInfo.optJSONObject("data") ?: JSONObject()
         val busyByOther = isDeviceBusyByOther(statusPayload)
 
         val extractedOrderNo = findNestedValue(statusPayload, "orderNo")?.toString()?.takeIf { it.isNotBlank() }
         if (busyByOther) {
-            store.clearOrderNo()
+            if (!store.clearActiveUsageForGeneration(expectedStateGeneration)) {
+                throw staleOperationCancellation()
+            }
         } else if (!extractedOrderNo.isNullOrBlank()) {
-            if (store.shouldIgnoreRecoveredOrder()) {
-                // Ignore a briefly stale orderNo right after a close request clears local state.
-            } else {
-                store.saveOrderNo(extractedOrderNo)
+            // The store rechecks both pending settlements and the close grace period
+            // under one process-wide lock before persisting a recovered order.
+            if (!store.saveOrderNoUnlessPending(extractedOrderNo, expectedStateGeneration)) {
+                ensureStateGeneration(expectedStateGeneration)
             }
         }
 
         val cachedOrderNo = if (busyByOther) null else store.loadOrderNo()
+        ensureStateGeneration(expectedStateGeneration)
         val balanceYuan = HotWaterPayload.balanceYuan(balancePayload)
         val locationLabel = listOf(
             deviceData.optString("areaName"),
@@ -762,6 +1064,7 @@ class HotWaterRepository(
         snapshot: DashboardSnapshot,
         preferredStartBalanceYuan: Double? = null,
         allowSnapshotBalanceBaseline: Boolean = true,
+        expectedStateGeneration: Long,
     ): DashboardSnapshot {
         if (!snapshot.hasCachedOrder || snapshot.isDeviceBusyByOther) {
             return snapshot.copy(usageStartedAtMillis = null)
@@ -771,8 +1074,19 @@ class HotWaterRepository(
         val session = store.startUsageSessionIfAbsent(
             startBalanceYuan,
             startBalanceIsBeforePreauthorization = preferredStartBalanceYuan != null,
-        )
+            expectedStateGeneration = expectedStateGeneration,
+        ) ?: throw staleOperationCancellation()
         return snapshot.copy(usageStartedAtMillis = session.startedAtMillis)
+    }
+
+    private fun ensureStateGeneration(expectedStateGeneration: Long) {
+        if (store.loadStateGeneration() != expectedStateGeneration) {
+            throw staleOperationCancellation()
+        }
+    }
+
+    private fun staleOperationCancellation(): CancellationException {
+        return CancellationException("Hot-water account state changed during the operation.")
     }
 
     private fun buildSummary(snapshot: DashboardSnapshot): String {
@@ -790,13 +1104,17 @@ class HotWaterRepository(
             Result.success(block())
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (expired: CredentialExpiredException) {
+            throw expired
         } catch (error: Exception) {
             Result.failure(error)
         }
     }
 
     private fun isAcceptedResponse(payload: JSONObject): Boolean {
-        return payload.optBoolean("success") || payload.optInt("errorCode", -1) == 0
+        val hasErrorCode = payload.has("errorCode") && !payload.isNull("errorCode")
+        return payload.optBoolean("success") &&
+            (!hasErrorCode || payload.optInt("errorCode", -1) == 0)
     }
 
     private fun isConfirmedResponse(payload: JSONObject): Boolean {
@@ -833,6 +1151,10 @@ class HotWaterRepository(
         private const val MIN_SETTLEMENT_REFRESH_ATTEMPTS = 2
         private const val HOT_WATER_PREAUTHORIZATION_YUAN = 5.0
         private const val MAX_PENDING_BALANCE_FALLBACK_AGE_MS = 10 * 60 * 1_000L
+        private const val MAX_UNCONFIRMED_CLOSE_GATE_MS = 15_000L
+        private const val MAX_RECONCILIATION_LOCK_MS = 1_500L
+        private val DEVICE_CONTROL_MUTEX = Mutex()
+        private val SETTLEMENT_RECONCILIATION_MUTEX = Mutex()
     }
 
     private fun isConfirmedWithoutActiveOrder(payload: JSONObject): Boolean {

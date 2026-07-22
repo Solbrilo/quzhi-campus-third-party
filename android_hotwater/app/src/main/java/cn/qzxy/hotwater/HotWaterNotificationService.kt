@@ -47,12 +47,20 @@ class HotWaterNotificationService : Service() {
 
     private fun syncNotificationState() {
         val store = HotWaterConfigStore(this)
+        val stateGeneration = store.loadStateGeneration()
         if (store.loadOrderNo().isNullOrBlank()) {
             stopSelf()
             return
         }
         val usageStartedAtMillis = store.loadUsageSession()?.startedAtMillis
-            ?: store.startUsageSessionIfAbsent(startBalanceYuan = null).startedAtMillis
+            ?: store.startUsageSessionIfAbsent(
+                startBalanceYuan = null,
+                expectedStateGeneration = stateGeneration,
+            )?.startedAtMillis
+            ?: run {
+                stopSelf()
+                return
+            }
         showNotification(usageStartedAtMillis)
     }
 
@@ -85,6 +93,9 @@ class HotWaterNotificationService : Service() {
                 val repository = HotWaterRepository(HotWaterApi(), store)
                 val result = withContext(Dispatchers.IO) { repository.close(config) }
                 store.saveOperationResultHistory(OperationHistory.OperationType.CLOSE, result)
+                if (result.historyId != null) {
+                    HotWaterSettlementSyncScheduler.enqueue(this@HotWaterNotificationService)
+                }
                 HotWaterWidgetUi.updateAllWidgets(this@HotWaterNotificationService)
                 TileService.requestListeningState(
                     this@HotWaterNotificationService,

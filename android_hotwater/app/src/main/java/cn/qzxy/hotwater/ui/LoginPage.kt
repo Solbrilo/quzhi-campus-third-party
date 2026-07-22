@@ -61,6 +61,7 @@ fun LoginPage(
     onLogin: (String, String) -> Unit,
     onBack: () -> Unit,
     onSkip: (() -> Unit)? = null,
+    showBackButton: Boolean = true,
 ) {
     val tokens = LocalGlassTokens.current
     val focusManager = LocalFocusManager.current
@@ -87,21 +88,23 @@ fun LoginPage(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GlassPressable(
-                    onClick = onBack,
-                    material = GlassMaterial.Control,
-                    cornerRadius = 24.dp,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .semantics { contentDescription = "返回" },
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = null,
-                        tint = tokens.textPrimary,
-                    )
+                if (showBackButton) {
+                    GlassPressable(
+                        onClick = onBack,
+                        material = GlassMaterial.Control,
+                        cornerRadius = 24.dp,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "返回" },
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = null,
+                            tint = tokens.textPrimary,
+                        )
+                    }
                 }
-                Column(modifier = Modifier.padding(start = 16.dp)) {
+                Column(modifier = Modifier.padding(start = if (showBackButton) 16.dp else 0.dp)) {
                     Text(
                         text = "登录趣智校园",
                         color = tokens.textPrimary,

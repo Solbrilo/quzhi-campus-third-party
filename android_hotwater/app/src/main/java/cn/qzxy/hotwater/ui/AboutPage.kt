@@ -397,7 +397,7 @@ private fun UpdateStatusText(
         installResult is AppUpdateInstallResult.InstallationLaunched ->
             "已打开系统安装确认，请完成更新。" to tokens.accentSuccess
         installResult is AppUpdateInstallResult.SourcePermissionRequired ->
-            "请允许安装未知应用后，再次点击立即更新。" to tokens.accentWarning
+            "请允许安装未知应用，返回后将自动继续安装。" to tokens.accentWarning
         installResult is AppUpdateInstallResult.Failed -> installResult.message to tokens.accentError
         checkResult is AppUpdateCheckResult.UpToDate -> "当前已是最新版本。" to tokens.accentSuccess
         checkResult is AppUpdateCheckResult.NoRelease -> "暂无已发布版本。" to tokens.textSecondary

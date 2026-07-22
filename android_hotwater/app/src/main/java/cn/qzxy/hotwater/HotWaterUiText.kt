@@ -4,6 +4,8 @@ object HotWaterUiText {
     fun summarizeError(error: Throwable): String {
         val raw = error.message.orEmpty()
         return when {
+            error is CredentialExpiredException -> CREDENTIAL_EXPIRED_MESSAGE
+
             raw.contains("No active orderNo found", ignoreCase = true) ->
                 "没有找到可关闭的订单，先开一次热水再试。"
 
@@ -37,6 +39,8 @@ object HotWaterUiText {
             WidgetHotWaterAction.CLOSE -> {
                 if (snapshot?.isDeviceBusyByOther == true) {
                     "已有他人正在使用这台设备，请稍后再试。"
+                } else if (result.outcome == OperationOutcome.PENDING) {
+                    "关热水请求已受理，设备确认和账单正在后台同步。"
                 } else if (snapshot?.hasCachedOrder == false) {
                     "热水已关闭。"
                 } else {

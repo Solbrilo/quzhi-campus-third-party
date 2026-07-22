@@ -1,18 +1,21 @@
 package cn.qzxy.hotwater
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -54,6 +57,10 @@ sealed interface AppUpdateInstallResult {
 
 class AppUpdateManager(context: Context) {
     private val appContext = context.applicationContext
+    private val pendingInstallPreferences = appContext.getSharedPreferences(
+        PENDING_INSTALL_PREFERENCES,
+        Context.MODE_PRIVATE,
+    )
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -119,100 +126,283 @@ class AppUpdateManager(context: Context) {
     suspend fun downloadAndInstall(
         update: AppUpdateInfo,
         onProgress: (AppUpdateDownloadProgress) -> Unit = {},
-    ): AppUpdateInstallResult = withContext(Dispatchers.IO) {
-        val targetFile = updateFile(update.versionName)
-        val partialFile = File(targetFile.parentFile, "${targetFile.name}.part")
-        try {
-            val request = Request.Builder()
-                .url(update.apkUrl)
-                .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
-                .build()
-            partialFile.delete()
-            val call = client.newCall(request)
-            val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
-                onCancelling = true,
-                invokeImmediately = true,
-            ) { cause ->
-                if (cause is CancellationException) call.cancel()
-            }
+    ): AppUpdateInstallResult = updateInstallMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val targetFile = updateFile(update.versionName)
+            val partialFile = File(targetFile.parentFile, "${targetFile.name}.part")
             try {
-                runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
-                if (!response.isSuccessful) {
-                    return@withContext AppUpdateInstallResult.Failed("下载安装包失败：HTTP ${response.code}")
+                clearPendingInstall()
+                if (targetFile.isFile && validateUpdatePackage(targetFile, update.versionName) == null) {
+                    return@withContext installDownloadedPackage(
+                        apkFile = targetFile,
+                        versionName = update.versionName,
+                        openPermissionSettings = true,
+                    )
                 }
-                val body = response.body ?: return@withContext AppUpdateInstallResult.Failed("下载安装包失败：响应为空")
-                val totalBytes = body.contentLength().takeIf { it > 0L }
-                var downloadedBytes = 0L
-                var lastReportedPercent = -1
-                var lastReportedBytes = -PROGRESS_REPORT_INTERVAL_BYTES
-
-                suspend fun reportProgress(force: Boolean = false) {
-                    val progress = AppUpdateDownloadProgress(downloadedBytes, totalBytes)
-                    val percent = progress.fraction?.let { (it * 100).toInt() }
-                    val shouldReport = force || when {
-                        percent != null -> percent != lastReportedPercent
-                        else -> downloadedBytes - lastReportedBytes >= PROGRESS_REPORT_INTERVAL_BYTES
-                    }
-                    if (shouldReport) {
-                        lastReportedPercent = percent ?: lastReportedPercent
-                        lastReportedBytes = downloadedBytes
-                        withContext(Dispatchers.Main.immediate) { onProgress(progress) }
-                    }
+                if (targetFile.exists() && !targetFile.delete()) {
+                    return@withContext AppUpdateInstallResult.Failed("无法替换旧的安装包")
                 }
 
-                reportProgress(force = true)
-                partialFile.outputStream().use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    body.byteStream().use { input ->
-                        while (true) {
-                            val read = runInterruptible(Dispatchers.IO) { input.read(buffer) }
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            downloadedBytes += read
-                            reportProgress()
+                val request = Request.Builder()
+                    .url(update.apkUrl)
+                    .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
+                    .build()
+                partialFile.delete()
+                val call = client.newCall(request)
+                val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
+                    onCancelling = true,
+                    invokeImmediately = true,
+                ) { cause ->
+                    if (cause is CancellationException) call.cancel()
+                }
+                try {
+                    runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
+                        if (!response.isSuccessful) {
+                            return@withContext AppUpdateInstallResult.Failed(
+                                "下载安装包失败：HTTP ${response.code}",
+                            )
                         }
+                        val body = response.body ?: return@withContext AppUpdateInstallResult.Failed(
+                            "下载安装包失败：响应为空",
+                        )
+                        val totalBytes = body.contentLength().takeIf { it > 0L }
+                        var downloadedBytes = 0L
+                        var lastReportedPercent = -1
+                        var lastReportedBytes = -PROGRESS_REPORT_INTERVAL_BYTES
+
+                        suspend fun reportProgress(force: Boolean = false) {
+                            val progress = AppUpdateDownloadProgress(downloadedBytes, totalBytes)
+                            val percent = progress.fraction?.let { (it * 100).toInt() }
+                            val shouldReport = force || when {
+                                percent != null -> percent != lastReportedPercent
+                                else -> downloadedBytes - lastReportedBytes >=
+                                    PROGRESS_REPORT_INTERVAL_BYTES
+                            }
+                            if (shouldReport) {
+                                lastReportedPercent = percent ?: lastReportedPercent
+                                lastReportedBytes = downloadedBytes
+                                withContext(Dispatchers.Main.immediate) { onProgress(progress) }
+                            }
+                        }
+
+                        reportProgress(force = true)
+                        partialFile.outputStream().use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            body.byteStream().use { input ->
+                                while (true) {
+                                    val read = runInterruptible(Dispatchers.IO) { input.read(buffer) }
+                                    if (read == -1) break
+                                    output.write(buffer, 0, read)
+                                    downloadedBytes += read
+                                    reportProgress()
+                                }
+                            }
+                            output.flush()
+                        }
+                        reportProgress(force = true)
                     }
-                    output.flush()
+                } finally {
+                    cancellationHandle.dispose()
                 }
-                reportProgress(force = true)
+
+                if (targetFile.exists() && !targetFile.delete()) {
+                    partialFile.delete()
+                    return@withContext AppUpdateInstallResult.Failed("无法替换旧的安装包")
                 }
-            } finally {
-                cancellationHandle.dispose()
-            }
+                if (!partialFile.renameTo(targetFile)) {
+                    partialFile.copyTo(targetFile, overwrite = true)
+                    partialFile.delete()
+                }
 
-            if (targetFile.exists() && !targetFile.delete()) {
+                validateUpdatePackage(targetFile, update.versionName)?.let { validationError ->
+                    targetFile.delete()
+                    return@withContext AppUpdateInstallResult.Failed(validationError)
+                }
+                installDownloadedPackage(
+                    apkFile = targetFile,
+                    versionName = update.versionName,
+                    openPermissionSettings = true,
+                )
+            } catch (cancelled: CancellationException) {
                 partialFile.delete()
-                return@withContext AppUpdateInstallResult.Failed("无法替换旧的安装包")
-            }
-            if (!partialFile.renameTo(targetFile)) {
-                partialFile.copyTo(targetFile, overwrite = true)
+                throw cancelled
+            } catch (error: IOException) {
                 partialFile.delete()
+                AppUpdateInstallResult.Failed("下载安装包失败，请检查网络后重试")
+            } catch (error: Exception) {
+                partialFile.delete()
+                AppUpdateInstallResult.Failed("无法启动安装：${error.message ?: "未知错误"}")
             }
+        }
+    }
 
-            val packageInfo = appContext.packageManager.getPackageArchiveInfo(
-                targetFile.absolutePath,
-                PackageManager.GET_ACTIVITIES,
-            ) ?: return@withContext AppUpdateInstallResult.Failed("安装包无效")
-            if (packageInfo.packageName != appContext.packageName) {
-                return@withContext AppUpdateInstallResult.Failed("安装包与当前应用不匹配")
+    suspend fun resumePendingInstall(
+        canLaunchInstaller: () -> Boolean = { true },
+    ): AppUpdateInstallResult? = updateInstallMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val versionName = readPendingInstallVersion() ?: return@withContext null
+            val targetFile = updateFile(versionName)
+            validateUpdatePackage(targetFile, versionName)?.let { validationError ->
+                clearPendingInstall()
+                targetFile.delete()
+                return@withContext AppUpdateInstallResult.Failed(
+                    "已下载的$validationError，请重新下载更新。",
+                )
             }
+            installDownloadedPackageIfAllowed(
+                apkFile = targetFile,
+                versionName = versionName,
+                openPermissionSettings = false,
+                canLaunchInstaller = canLaunchInstaller,
+            )
+        }
+    }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !appContext.packageManager.canRequestPackageInstalls()) {
-                withContext(Dispatchers.Main) { openUnknownSourceSettings() }
-                return@withContext AppUpdateInstallResult.SourcePermissionRequired
+    private suspend fun installDownloadedPackage(
+        apkFile: File,
+        versionName: String,
+        openPermissionSettings: Boolean,
+    ): AppUpdateInstallResult = checkNotNull(
+        installDownloadedPackageIfAllowed(
+            apkFile = apkFile,
+            versionName = versionName,
+            openPermissionSettings = openPermissionSettings,
+            canLaunchInstaller = null,
+        ),
+    )
+
+    private suspend fun installDownloadedPackageIfAllowed(
+        apkFile: File,
+        versionName: String,
+        openPermissionSettings: Boolean,
+        canLaunchInstaller: (() -> Boolean)?,
+    ): AppUpdateInstallResult? {
+        if (!appContext.packageManager.canRequestPackageInstalls()) {
+            if (!rememberPendingInstall(versionName)) {
+                return AppUpdateInstallResult.Failed("无法保存待安装状态，请重试")
             }
-            withContext(Dispatchers.Main) { launchPackageInstaller(targetFile) }
+            if (openPermissionSettings) {
+                try {
+                    withContext(Dispatchers.Main) { openUnknownSourceSettings() }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    clearPendingInstall()
+                    return AppUpdateInstallResult.Failed(
+                        "无法打开安装权限设置：${error.message ?: "未知错误"}",
+                    )
+                }
+            }
+            return AppUpdateInstallResult.SourcePermissionRequired
+        }
+
+        return try {
+            val launched = withContext(Dispatchers.Main.immediate) {
+                if (canLaunchInstaller?.invoke() == false) {
+                    false
+                } else {
+                    launchPackageInstaller(apkFile)
+                    true
+                }
+            }
+            if (!launched) return null
+            clearPendingInstall()
             AppUpdateInstallResult.InstallationLaunched
         } catch (cancelled: CancellationException) {
-            partialFile.delete()
             throw cancelled
-        } catch (error: IOException) {
-            partialFile.delete()
-            AppUpdateInstallResult.Failed("下载安装包失败，请检查网络后重试")
         } catch (error: Exception) {
-            partialFile.delete()
+            clearPendingInstall()
             AppUpdateInstallResult.Failed("无法启动安装：${error.message ?: "未知错误"}")
         }
+    }
+
+    private fun validateUpdatePackage(apkFile: File, expectedVersionName: String): String? {
+        if (!apkFile.isFile || apkFile.length() <= 0L) return "安装包不存在"
+        val signingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        val packageInfo = appContext.packageManager.getPackageArchiveInfo(
+            apkFile.absolutePath,
+            signingFlags,
+        ) ?: return "安装包无效"
+        if (packageInfo.packageName != appContext.packageName) {
+            return "安装包与当前应用不匹配"
+        }
+        if (packageInfo.versionName != expectedVersionName) {
+            return "安装包版本与更新信息不匹配"
+        }
+        if (packageVersionCode(packageInfo) <= BuildConfig.VERSION_CODE.toLong()) {
+            return "安装包版本不高于当前版本"
+        }
+        if (!hasCompatibleSigningCertificate(packageInfo, signingFlags)) {
+            return "安装包签名与当前应用不匹配"
+        }
+        return null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun packageVersionCode(packageInfo: android.content.pm.PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            packageInfo.versionCode.toLong()
+        }
+
+    @Suppress("DEPRECATION")
+    private fun hasCompatibleSigningCertificate(
+        archivePackageInfo: android.content.pm.PackageInfo,
+        signingFlags: Int,
+    ): Boolean = runCatching {
+        val installedPackageInfo = appContext.packageManager.getPackageInfo(
+            appContext.packageName,
+            signingFlags,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val installedSigningInfo = installedPackageInfo.signingInfo ?: return@runCatching false
+            val archiveSigningInfo = archivePackageInfo.signingInfo ?: return@runCatching false
+            if (installedSigningInfo.hasMultipleSigners() || archiveSigningInfo.hasMultipleSigners()) {
+                installedSigningInfo.apkContentsSigners.orEmpty().toSet() ==
+                    archiveSigningInfo.apkContentsSigners.orEmpty().toSet()
+            } else {
+                val installedSigner = installedSigningInfo.apkContentsSigners
+                    .orEmpty()
+                    .singleOrNull()
+                    ?: return@runCatching false
+                archiveSigningInfo.signingCertificateHistory
+                    .orEmpty()
+                    .any { archiveSigner -> archiveSigner == installedSigner }
+            }
+        } else {
+            val installedSignatures = installedPackageInfo.signatures.orEmpty().toSet()
+            installedSignatures.isNotEmpty() &&
+                installedSignatures == archivePackageInfo.signatures.orEmpty().toSet()
+        }
+    }.getOrDefault(false)
+
+    // Settings may replace this process immediately after the pending marker is written.
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    private fun rememberPendingInstall(versionName: String): Boolean =
+        pendingInstallPreferences.edit()
+            .putString(PENDING_INSTALL_VERSION, versionName)
+            .commit()
+
+    private fun readPendingInstallVersion(): String? {
+        val versionName = pendingInstallPreferences.getString(PENDING_INSTALL_VERSION, null)
+            ?: return null
+        if (!RELEASE_VERSION_PATTERN.matches(versionName)) {
+            clearPendingInstall()
+            return null
+        }
+        return versionName
+    }
+
+    // Persist removal before handing control to the package installer.
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    private fun clearPendingInstall() {
+        pendingInstallPreferences.edit().remove(PENDING_INSTALL_VERSION).commit()
     }
 
     private fun updateFile(versionName: String): File {
@@ -223,7 +413,7 @@ class AppUpdateManager(context: Context) {
     private fun openUnknownSourceSettings() {
         val intent = Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:${appContext.packageName}"),
+            "package:${appContext.packageName}".toUri(),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         appContext.startActivity(intent)
     }
@@ -275,6 +465,12 @@ class AppUpdateManager(context: Context) {
             "https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases/latest"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val PROGRESS_REPORT_INTERVAL_BYTES = 256L * 1024L
+        const val PENDING_INSTALL_PREFERENCES = "app_update_install"
+        const val PENDING_INSTALL_VERSION = "pending_version"
         val VERSION_PATTERN = Regex("^v(\\d+)\\.(\\d+)\\.(\\d+)$")
+        val RELEASE_VERSION_PATTERN = Regex("^\\d+\\.\\d+\\.\\d+$")
+
+        // MainActivity and AboutActivity own separate managers but share update files and state.
+        val updateInstallMutex = Mutex()
     }
 }

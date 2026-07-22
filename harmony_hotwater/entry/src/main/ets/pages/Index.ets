@@ -17,6 +17,7 @@ import {
 } from '../common/HotWaterModels'
 import { HotWaterRepository } from '../common/HotWaterRepository'
 import { HotWaterStore } from '../common/HotWaterStore'
+import { HotWaterPayload } from '../common/HotWaterPayload'
 import {
   BillEntry,
   BillGrouping,
@@ -43,6 +44,9 @@ const LOW_BALANCE_WARNING_YUAN: number = 5
 const ALIPAY_RECHARGE_URI: string =
   'alipays://platformapi/startapp?appId=2018090661238647&page=pages%2Findex%2Findex'
 const MAX_CONFIG_FILE_BYTES: number = 128 * 1024
+const POST_CLOSE_RECONCILE_DELAY_MS: number = 2200
+const POST_CLOSE_RECONCILE_ATTEMPTS: number = 2
+const FOREGROUND_VALIDATION_MIN_INTERVAL_MS: number = 3000
 
 enum HomePage {
   OPERATIONS = 0,
@@ -92,7 +96,12 @@ struct Index {
   private usageTimerGeneration: number = 0
   private billCollapseInitialized: boolean = false
   private consumingLaunchAction: boolean = false
-  @State currentVersionLabel: string = '2.0.1'
+  private pageVisible: boolean = false
+  private initializationComplete: boolean = false
+  private credentialExpiryPromptVisible: boolean = false
+  private postCloseRefreshGeneration: number = 0
+  private lastCredentialValidationAtMillis: number = 0
+  @State currentVersionLabel: string = '2.1.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -120,6 +129,7 @@ struct Index {
   @StorageProp('colorMode') colorMode: ColorMode = ColorMode.LIGHT
 
   aboutToAppear(): void {
+    this.pageVisible = true
     this.hostContext = this.getUIContext().getHostContext() as common.Context
     this.store = new HotWaterStore(this.hostContext)
     this.repository = new HotWaterRepository(this.store)
@@ -128,6 +138,7 @@ struct Index {
   }
 
   onPageShow(): void {
+    this.pageVisible = true
     this.consumePendingLaunchAction()
     const pendingSnCode = ConfigFlowBridge.consumePendingSnCode()
     if (pendingSnCode.length > 0) {
@@ -135,13 +146,21 @@ struct Index {
       this.snCodeFormDirty = true
       this.snCodeEditGeneration++
     }
-    if (ConfigFlowBridge.consumeLoginConfigChanged()) {
+    const loginConfigChanged = ConfigFlowBridge.consumeLoginConfigChanged()
+    if (loginConfigChanged) {
       this.reloadConfigAfterLogin()
+    } else if (this.initializationComplete) {
+      this.refreshAfterForeground()
     }
     this.setupImmersiveWindow()
     if (this.busy) {
       this.startRingAnimation()
     }
+  }
+
+  onPageHide(): void {
+    this.pageVisible = false
+    this.postCloseRefreshGeneration++
   }
 
   private async setupImmersiveWindow(): Promise<void> {
@@ -177,10 +196,18 @@ struct Index {
     this.applySnapshot(this.placeholderSnapshot(config))
     await this.loadConsumptionRecords()
 
+    if (await this.store.isLoginCredentialExpired()) {
+      this.initializationComplete = true
+      await this.handleCredentialExpired()
+      this.checkForUpdates(true)
+      return
+    }
+
     const launchActionHandled = await this.consumePendingLaunchAction()
     if (config.isComplete() && !launchActionHandled) {
       await this.refreshBalance(false)
     }
+    this.initializationComplete = true
     this.checkForUpdates(true)
   }
 
@@ -233,7 +260,7 @@ struct Index {
     if (!this.store) {
       return
     }
-    this.consumptionRecords = await this.store.loadConsumptionRecords()
+    this.consumptionRecords = (await this.store.loadConsumptionRecords()).slice()
     this.initializeBillCollapseDefaults()
   }
 
@@ -625,11 +652,77 @@ struct Index {
       })
   }
 
+  private refreshAfterForeground(): void {
+    const nowMillis = Date.now()
+    if (!this.pageVisible || this.busy || this.refreshingBalance || this.configReloading ||
+      this.credentialExpiryPromptVisible ||
+      nowMillis - this.lastCredentialValidationAtMillis < FOREGROUND_VALIDATION_MIN_INTERVAL_MS) {
+      return
+    }
+    this.refreshBalance(false)
+  }
+
+  private async handleCredentialExpired(): Promise<void> {
+    if (this.credentialExpiryPromptVisible) {
+      return
+    }
+    this.credentialExpiryPromptVisible = true
+    this.postCloseRefreshGeneration++
+    this.loginCodeText = ''
+    this.liveStatus = '凭证已过期，请重新登录。'
+    try {
+      await this.store?.invalidateLoginCredential()
+    } catch (error) {
+    }
+
+    try {
+      AlertDialog.show({
+        title: '凭证已过期',
+        message: '登录凭证已失效，请重新登录趣智校园。',
+        autoCancel: false,
+        primaryButton: {
+          value: '重新登录',
+          action: () => {
+            this.credentialExpiryPromptVisible = false
+            this.openLogin()
+          }
+        }
+      })
+    } catch (error) {
+      this.credentialExpiryPromptVisible = false
+      await this.openLogin()
+    }
+  }
+
+  private schedulePostCloseReconciliation(): void {
+    const generation = ++this.postCloseRefreshGeneration
+    this.runPostCloseReconciliation(generation, 0)
+  }
+
+  private runPostCloseReconciliation(generation: number, attempt: number): void {
+    setTimeout(async () => {
+      if (generation !== this.postCloseRefreshGeneration || !this.pageVisible || this.busy ||
+        this.hasCachedOrder || this.credentialExpiryPromptVisible) {
+        return
+      }
+      await this.refreshBalance(false)
+      if (generation !== this.postCloseRefreshGeneration || !this.pageVisible || !this.store ||
+        attempt + 1 >= POST_CLOSE_RECONCILE_ATTEMPTS) {
+        return
+      }
+      const pendingSettlements = await this.store.loadPendingSettlements()
+      if (pendingSettlements.length > 0) {
+        this.runPostCloseReconciliation(generation, attempt + 1)
+      }
+    }, POST_CLOSE_RECONCILE_DELAY_MS)
+  }
+
   private async refreshBalance(
     showStatus: boolean = true,
     allowDuringConfigReload: boolean = false
   ): Promise<void> {
-    if (!this.repository || !this.store || (this.configReloading && !allowDuringConfigReload)) {
+    if (!this.repository || !this.store || this.busy || this.refreshingBalance ||
+      (this.configReloading && !allowDuringConfigReload)) {
       return
     }
     const config = await this.collectConfig()
@@ -639,6 +732,7 @@ struct Index {
       return
     }
     this.refreshingBalance = true
+    this.lastCredentialValidationAtMillis = Date.now()
     this.runRefreshIconAnimation()
     if (showStatus) {
       this.liveStatus = '正在刷新余额…'
@@ -649,6 +743,10 @@ struct Index {
       await this.loadConsumptionRecords()
       this.liveStatus = result.summary.split('\n')[0]
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        await this.handleCredentialExpired()
+        return
+      }
       this.liveStatus = `刷新失败：${String(error)}`
     } finally {
       this.refreshingBalance = false
@@ -670,17 +768,23 @@ struct Index {
       return
     }
     const closingHotWater = this.hasCachedOrder
+    this.postCloseRefreshGeneration++
     this.busy = true
     this.liveStatus = closingHotWater ? '正在关闭热水…' : '正在开启热水…'
     this.startRingAnimation()
     try {
       const result = closingHotWater ? await this.repository.close(config) : await this.repository.open(config)
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
-      if (result.usageDurationMillis >= 0 && this.store) {
-        await this.loadConsumptionRecords()
-      }
+      await this.loadConsumptionRecords()
       this.liveStatus = result.summary.split('\n')[0]
+      if (closingHotWater && result.usageDurationMillis >= 0) {
+        this.schedulePostCloseReconciliation()
+      }
     } catch (error) {
+      if (HotWaterPayload.isCredentialExpiredError(error)) {
+        await this.handleCredentialExpired()
+        return
+      }
       this.liveStatus = `操作失败：${String(error)}`
     } finally {
       this.busy = false
@@ -831,7 +935,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '2.0.1'
+      this.currentVersionLabel = '2.1.0'
     }
   }
 
@@ -1382,11 +1486,19 @@ struct Index {
           }
           .alignItems(HorizontalAlign.Start)
           .layoutWeight(1)
-          Text('⌄')
-            .fontSize(24)
-            .fontColor($r('app.color.text_secondary'))
-            .rotate({ angle: this.collapsedBillKeys.indexOf(group.key) >= 0 ? -90 : 0 })
-            .animation({ duration: 260, curve: Curve.EaseInOut })
+          Stack({ alignContent: Alignment.Center }) {
+            SymbolGlyph($r('sys.symbol.chevron_backward'))
+              .fontSize(18)
+              .fontColor([$r('app.color.text_secondary')])
+          }
+          .width(24)
+          .height(24)
+          .rotate({
+            angle: this.collapsedBillKeys.indexOf(group.key) >= 0 ? 180 : 270,
+            centerX: '50%',
+            centerY: '50%'
+          })
+          .animation({ duration: 260, curve: Curve.EaseInOut })
         }
         .width('100%')
         .padding({ left: 16, right: 16, top: 12, bottom: 12 })

@@ -53,17 +53,25 @@ class HotWaterWidgetActionWorker(
                     },
                     result = result,
                 )
+                if (action == WidgetHotWaterAction.CLOSE && result.historyId != null) {
+                    HotWaterSettlementSyncScheduler.enqueue(applicationContext)
+                }
                 val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
                     title = if (deviceBusyByOther) {
                         "设备正在使用中"
-                    } else when (action) {
-                        WidgetHotWaterAction.OPEN -> "开热水完成"
-                        WidgetHotWaterAction.CLOSE -> "关热水完成"
+                    } else {
+                        result.title
                     },
                     message = HotWaterUiText.summarizeWidgetResult(action, result),
                     isBusy = false,
-                    tone = if (deviceBusyByOther) "warning" else "success",
+                    tone = if (
+                        deviceBusyByOther || result.outcome != OperationOutcome.SUCCESS
+                    ) {
+                        "warning"
+                    } else {
+                        "success"
+                    },
                 )
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
                 if (!store.loadOrderNo().isNullOrBlank()) {

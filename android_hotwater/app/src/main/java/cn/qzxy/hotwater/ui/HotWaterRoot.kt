@@ -86,9 +86,14 @@ fun HotWaterRoot(
     val config by viewModel.config.collectAsStateWithLifecycle()
     val loginState by viewModel.qzxyLoginState.collectAsStateWithLifecycle()
     val snCodeSaveState by viewModel.snCodeSaveState.collectAsStateWithLifecycle()
+    val credentialExpired by viewModel.credentialExpired.collectAsStateWithLifecycle()
     val onboardingScanSaving = snCodeSaveState.loading
 
-    LaunchedEffect(onboardingRequired) {
+    LaunchedEffect(onboardingRequired, credentialExpired) {
+        if (credentialExpired) {
+            rootScreen = RootScreen.LOGIN
+            return@LaunchedEffect
+        }
         val onOnboardingScreen = rootScreen == RootScreen.ONBOARDING_QUOTE ||
             rootScreen == RootScreen.ONBOARDING_LOGIN ||
             rootScreen == RootScreen.ONBOARDING_SCANNER ||
@@ -136,6 +141,9 @@ fun HotWaterRoot(
     BackHandler(
         enabled = rootScreen != RootScreen.MAIN && rootScreen != RootScreen.ONBOARDING_QUOTE,
     ) {
+        if (rootScreen == RootScreen.LOGIN && credentialExpired) {
+            return@BackHandler
+        }
         if (rootScreen == RootScreen.ONBOARDING_SCANNER && onboardingScanSaving) {
             return@BackHandler
         }
@@ -195,6 +203,7 @@ fun HotWaterRoot(
                     initialTelephone = config.telephone,
                     loginState = loginState,
                     onLogin = viewModel::loginToQzxy,
+                    showBackButton = !credentialExpired,
                     onBack = {
                         viewModel.cancelQzxyLogin()
                         rootScreen = RootScreen.MAIN

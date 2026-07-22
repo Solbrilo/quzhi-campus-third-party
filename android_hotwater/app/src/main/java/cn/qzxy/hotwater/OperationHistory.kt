@@ -96,10 +96,11 @@ fun HotWaterConfigStore.saveOperationResultHistory(
     type: OperationHistory.OperationType,
     result: OperationResult,
 ): OperationHistory {
+    val acceptedClose = type == OperationHistory.OperationType.CLOSE && result.historyId != null
     val history = OperationHistory(
         id = result.historyId ?: System.currentTimeMillis(),
         type = type,
-        success = result.outcome == OperationOutcome.SUCCESS,
+        success = result.outcome == OperationOutcome.SUCCESS || acceptedClose,
         message = HotWaterUiText.firstMeaningfulLine(result.summary),
         consumptionYuan = result.consumptionYuan,
         usageDurationMillis = result.usageDurationMillis,

@@ -74,6 +74,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.qzxy.hotwater.AppUpdateCheckResult
 import cn.qzxy.hotwater.AppUpdateDownloadProgress
@@ -135,6 +138,7 @@ fun HotWaterApp(
     var showUpdateDialog by remember { mutableStateOf(false) }
     var downloadingUpdate by remember { mutableStateOf(false) }
     var updateDownloadJob by remember { mutableStateOf<Job?>(null) }
+    var resumeUpdateInstallJob by remember { mutableStateOf<Job?>(null) }
     var updateDownloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var installStatusMessage by remember { mutableStateOf<String?>(null) }
     var displayedFeedback by remember { mutableStateOf<FeedbackEvent?>(null) }
@@ -144,6 +148,7 @@ fun HotWaterApp(
     val saveableStateHolder = rememberSaveableStateHolder()
     val motionEnabled = environment.motionEnabled
     val haptic = LocalHapticFeedback.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
@@ -202,7 +207,7 @@ fun HotWaterApp(
                 }) {
                     AppUpdateInstallResult.InstallationLaunched -> Unit
                     AppUpdateInstallResult.SourcePermissionRequired -> {
-                        installStatusMessage = "请允许安装未知应用后，再次点击立即更新。"
+                        installStatusMessage = "请允许安装未知应用，返回后将自动继续安装。"
                     }
                     is AppUpdateInstallResult.Failed -> {
                         installStatusMessage = result.message
@@ -211,6 +216,35 @@ fun HotWaterApp(
             } finally {
                 downloadingUpdate = false
                 updateDownloadJob = null
+            }
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (resumeUpdateInstallJob?.isActive != true) {
+            resumeUpdateInstallJob = updateScope.launch {
+                try {
+                    updateDownloadJob?.join()
+                    val result = updateManager.resumePendingInstall {
+                        lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                    }
+                    when (result) {
+                        null -> Unit
+                        AppUpdateInstallResult.InstallationLaunched -> {
+                            installStatusMessage = null
+                            haptic.performGlassHapticFeedback(HapticFeedbackType.Confirm)
+                        }
+                        AppUpdateInstallResult.SourcePermissionRequired -> {
+                            installStatusMessage = "尚未获得安装权限；授权后返回应用将自动继续安装。"
+                        }
+                        is AppUpdateInstallResult.Failed -> {
+                            installStatusMessage = result.message
+                            haptic.performGlassHapticFeedback(HapticFeedbackType.Reject)
+                        }
+                    }
+                } finally {
+                    resumeUpdateInstallJob = null
+                }
             }
         }
     }

@@ -63,6 +63,7 @@ export class DashboardSnapshot {
   hasCachedOrder: boolean = false
   isDeviceBusyByOther: boolean = false
   remoteOrderConfirmed: boolean = false
+  remoteNoActiveOrderConfirmed: boolean = false
 }
 
 export class OperationResult {
@@ -98,6 +99,20 @@ export class PendingSettlement {
   activeBalanceYuan: number = -1
   confirmedConsumptionYuan: number = -1
   balanceFallbackEligible: boolean = false
+  closeConfirmed: boolean = false
+
+  shouldBlockOpen(nowMillis: number, maxAgeMillis: number): boolean {
+    if (this.closeConfirmed || this.confirmedConsumptionYuan >= 0 ||
+      this.orderNo.length === 0 || this.endedAtMillis <= 0 || maxAgeMillis <= 0) {
+      return false
+    }
+    const ageMillis = nowMillis - this.endedAtMillis
+    return ageMillis >= 0 && ageMillis < maxAgeMillis
+  }
+
+  matchesOrder(orderNo: string): boolean {
+    return orderNo.length > 0 && this.orderNo === orderNo
+  }
 }
 
 export class ConsumptionRecord {
