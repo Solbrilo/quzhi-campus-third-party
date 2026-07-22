@@ -1,9 +1,15 @@
 package cn.qzxy.hotwater
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -232,7 +238,7 @@ class HotWaterRepositoryTest {
         assertEquals(7, api.balanceCalls)
         assertEquals("--", result.snapshot?.balanceLabel)
         assertNull(result.consumptionYuan)
-        assertEquals(OperationOutcome.SUCCESS, result.outcome)
+        assertEquals(OperationOutcome.PENDING, result.outcome)
         assertEquals(1, store.pendingSettlements.size)
         assertTrue(store.usageSession == null)
         val history = OperationHistory(
@@ -430,6 +436,345 @@ class HotWaterRepositoryTest {
 
         assertEquals(1.25, result.consumptionYuan ?: -1.0, 0.001)
         assertEquals("--", result.snapshot?.balanceLabel)
+        assertEquals(1, store.pendingSettlements.size)
+        assertEquals(
+            1.25,
+            store.pendingSettlements.single().finalConsumptionYuan ?: -1.0,
+            0.001,
+        )
+    }
+
+    @Test
+    fun close_acceptedRequestReturnsWithoutBlockingOnConfirmationOrSettlement() = runBlocking {
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(
+                successPayload().apply {
+                    getJSONObject("data").put("orderNo", "order-fast-close")
+                },
+            ),
+            closeResponse = successPayload().apply {
+                getJSONObject("data").put("consumeMoney", 0)
+            },
+        )
+        val store = FakeSessionStore(
+            orderNo = "order-fast-close",
+            usageSession = UsageSession(
+                startedAtMillis = System.currentTimeMillis() - 20_000L,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+
+        val result = HotWaterRepository(api, store).close(completeConfig)
+
+        assertEquals(0, api.closeResultCalls)
+        assertEquals(0, api.consumeResultCalls)
+        assertTrue(result.summary.contains("已受理"))
+        assertNull(result.consumptionYuan)
+        assertNull(store.loadOrderNo())
+        assertEquals(1, store.pendingSettlements.size)
+        assertTrue(!store.pendingSettlements.single().closeConfirmed)
+        assertTrue(store.pendingSettlements.single().zeroConsumptionReported)
+    }
+
+    @Test
+    fun close_unacceptedRequestUsesBoundedPollingUntilConfirmed() = runBlocking {
+        val notAccepted = JSONObject()
+            .put("success", false)
+            .put("errorCode", 500)
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(
+                successPayload().apply {
+                    getJSONObject("data").put("orderNo", "order-confirm-later")
+                },
+            ),
+            closeResponse = notAccepted,
+            closeResultResponses = listOf(notAccepted, successPayload()),
+        )
+        val store = FakeSessionStore(orderNo = "order-confirm-later")
+
+        val result = HotWaterRepository(api, store).close(
+            config = completeConfig,
+            pollAttempts = 3,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(2, api.closeResultCalls)
+        assertEquals("关热水完成", result.title)
+        assertNull(store.loadOrderNo())
+        assertTrue(store.pendingSettlements.single().closeConfirmed)
+    }
+
+    @Test
+    fun open_isBlockedBrieflyWhileAcceptedCloseStillLacksConfirmation() = runBlocking {
+        val notConfirmed = JSONObject()
+            .put("success", false)
+            .put("errorCode", 500)
+        val pending = pendingSettlement(
+            historyId = 46L,
+            orderNo = "order-gate",
+            closedAtMillis = System.currentTimeMillis(),
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        ).copy(balanceFallbackAllowed = false)
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(successPayload()),
+            closeResultResponse = notConfirmed,
+        )
+        val store = FakeSessionStore(pendingSettlements = listOf(pending))
+
+        val result = HotWaterRepository(api, store).open(completeConfig)
+
+        assertEquals("关水确认中", result.title)
+        assertEquals(0, api.openCalls)
+        assertTrue(result.outcome == OperationOutcome.PENDING)
+    }
+
+    @Test
+    fun open_neverResurrectsTheSameOrderWhileItsSettlementIsPending() = runBlocking {
+        val pending = pendingSettlement(
+            historyId = 48L,
+            orderNo = "order-stale-open-status",
+            closedAtMillis = System.currentTimeMillis() - 30_000L,
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        ).copy(closeConfirmed = true)
+        val staleActiveStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", pending.orderNo)
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(staleActiveStatus),
+        )
+        val store = FakeSessionStore(pendingSettlements = listOf(pending))
+
+        val result = HotWaterRepository(api, store).open(completeConfig)
+
+        assertEquals("账单同步中", result.title)
+        assertEquals(0, api.openCalls)
+        assertNull(store.loadOrderNo())
+        assertTrue(result.outcome == OperationOutcome.PENDING)
+    }
+
+    @Test
+    fun closeAndSettlementReconciliationAreSerializedAcrossRepositories() = runBlocking {
+        val closeRequestStarted = CompletableDeferred<Unit>()
+        val releaseCloseRequest = CompletableDeferred<Unit>()
+        val checkAuthenticationCompleted = CompletableDeferred<Unit>()
+        val activeStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", "order-concurrent-close")
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(activeStatus),
+            onCloseRequest = {
+                closeRequestStarted.complete(Unit)
+                releaseCloseRequest.await()
+            },
+            onUserInfoRequest = {
+                checkAuthenticationCompleted.complete(Unit)
+            },
+        )
+        val store = FakeSessionStore(orderNo = "order-concurrent-close")
+        val foregroundRepository = HotWaterRepository(api, store)
+        val workerRepository = HotWaterRepository(api, store)
+
+        val closeResult = async(Dispatchers.Default) {
+            foregroundRepository.close(completeConfig)
+        }
+        withTimeout(1_000L) { closeRequestStarted.await() }
+
+        val checkResult = async(Dispatchers.Default) {
+            workerRepository.check(completeConfig)
+        }
+        withTimeout(1_000L) { checkAuthenticationCompleted.await() }
+        delay(50L)
+        assertFalse(checkResult.isCompleted)
+
+        releaseCloseRequest.complete(Unit)
+        withTimeout(2_000L) {
+            closeResult.await()
+            checkResult.await()
+        }
+        assertNull(store.loadOrderNo())
+        assertEquals(1, store.pendingSettlements.size)
+    }
+
+    @Test
+    fun close_waitForBackgroundReconciliationIsBounded() = runBlocking {
+        val reconciliationStarted = CompletableDeferred<Unit>()
+        val neverComplete = CompletableDeferred<Unit>()
+        val oldPending = pendingSettlement(
+            historyId = 50L,
+            orderNo = "order-old-pending",
+            closedAtMillis = System.currentTimeMillis(),
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        )
+        val activeStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", "order-active-close")
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(activeStatus),
+            onCloseResultRequest = {
+                reconciliationStarted.complete(Unit)
+                neverComplete.await()
+            },
+        )
+        val store = FakeSessionStore(
+            orderNo = "order-active-close",
+            usageSession = UsageSession(
+                startedAtMillis = System.currentTimeMillis() - 1_000L,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+            pendingSettlements = listOf(oldPending),
+        )
+        val workerCheck = async(Dispatchers.Default) {
+            HotWaterRepository(api, store).check(completeConfig)
+        }
+        withTimeout(1_000L) { reconciliationStarted.await() }
+
+        val closeResult = withTimeout(4_000L) {
+            HotWaterRepository(api, store).close(completeConfig)
+        }
+
+        assertEquals("order-active-close", store.pendingSettlements.maxBy { it.closedAtMillis }.orderNo)
+        assertEquals(1, api.closeCalls)
+        assertTrue(closeResult.historyId != null)
+        withTimeout(2_000L) { workerCheck.await() }
+        Unit
+    }
+
+    @Test
+    fun close_isIdempotentWhenASecondEntryUsesTheSameOrder() = runBlocking {
+        val activeStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", "order-duplicate-close")
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(activeStatus),
+        )
+        val store = FakeSessionStore(
+            orderNo = "order-duplicate-close",
+            usageSession = UsageSession(
+                startedAtMillis = System.currentTimeMillis() - 1_000L,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+        val repository = HotWaterRepository(api, store)
+
+        val first = repository.close(completeConfig)
+        val second = repository.close(completeConfig)
+
+        assertEquals(1, api.closeCalls)
+        assertEquals(first.historyId, second.historyId)
+        assertEquals(1, store.pendingSettlements.size)
+    }
+
+    @Test
+    fun close_doesNotPersistAfterAccountGenerationChanges() = runBlocking {
+        lateinit var store: FakeSessionStore
+        val activeStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", "order-old-account")
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(activeStatus),
+            onCloseRequest = {
+                store.replaceRuntimeStateForNewGeneration(
+                    orderNo = "order-new-account",
+                    usageStartedAtMillis = 999L,
+                )
+            },
+        )
+        store = FakeSessionStore(
+            orderNo = "order-old-account",
+            usageSession = UsageSession(
+                startedAtMillis = 100L,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+
+        var cancelled = false
+        try {
+            HotWaterRepository(api, store).close(completeConfig)
+        } catch (_: CancellationException) {
+            cancelled = true
+        }
+
+        assertTrue(cancelled)
+        assertEquals("order-new-account", store.loadOrderNo())
+        assertEquals(999L, store.loadUsageSession()?.startedAtMillis)
+        assertTrue(store.pendingSettlements.isEmpty())
+    }
+
+    @Test
+    fun check_doesNotReconcileNewGenerationWithOldConfig() = runBlocking {
+        lateinit var store: FakeSessionStore
+        val newPending = pendingSettlement(
+            historyId = 49L,
+            orderNo = "order-new-generation",
+            closedAtMillis = System.currentTimeMillis(),
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        )
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(successPayload()),
+            onUserInfoRequest = {
+                store.replaceRuntimeStateForNewGeneration(
+                    orderNo = null,
+                    usageStartedAtMillis = null,
+                    pending = newPending,
+                )
+            },
+        )
+        store = FakeSessionStore()
+
+        var cancelled = false
+        try {
+            HotWaterRepository(api, store).check(completeConfig)
+        } catch (_: CancellationException) {
+            cancelled = true
+        }
+
+        assertTrue(cancelled)
+        assertEquals(listOf("order-new-generation"), store.pendingSettlements.map { it.orderNo })
+        assertEquals(0, api.consumeResultCalls)
+        assertEquals(0, api.closeResultCalls)
+    }
+
+    @Test
+    fun open_doesNotSendControlAfterAccountGenerationChanges() = runBlocking {
+        lateinit var store: FakeSessionStore
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(20.0)),
+            statusResponses = listOf(successPayload()),
+            onBalanceRequest = {
+                store.replaceRuntimeStateForNewGeneration(
+                    orderNo = null,
+                    usageStartedAtMillis = null,
+                )
+            },
+        )
+        store = FakeSessionStore()
+
+        var cancelled = false
+        try {
+            HotWaterRepository(api, store).open(completeConfig)
+        } catch (_: CancellationException) {
+            cancelled = true
+        }
+
+        assertTrue(cancelled)
+        assertEquals(0, api.openCalls)
         assertTrue(store.pendingSettlements.isEmpty())
     }
 
@@ -622,6 +967,73 @@ class HotWaterRepositoryTest {
     }
 
     @Test
+    fun check_updatesFinalAmountButHidesWalletUntilPreauthorizationSettles() = runBlocking {
+        val pending = pendingSettlement(
+            historyId = 44L,
+            orderNo = "order-wallet-guard",
+            closedAtMillis = System.currentTimeMillis() - 5_000L,
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        )
+        val finalConsumeResult = successPayload().apply {
+            getJSONObject("data").put("consumeMoney", 1_250)
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(
+                balancePayload(15.0),
+                balancePayload(15.0),
+                balancePayload(18.75),
+                balancePayload(18.75),
+            ),
+            statusResponses = listOf(successPayload()),
+            consumeResultResponses = listOf(finalConsumeResult),
+        )
+        val store = FakeSessionStore(pendingSettlements = listOf(pending))
+        val repository = HotWaterRepository(api, store)
+
+        val staleWalletResult = repository.check(completeConfig)
+
+        assertEquals(1.25, store.updatedHistorySettlements[44L] ?: -1.0, 0.001)
+        assertEquals(1.25, store.pendingSettlements.single().finalConsumptionYuan ?: -1.0, 0.001)
+        assertNull(staleWalletResult.snapshot?.balanceYuan)
+        assertEquals("--", staleWalletResult.snapshot?.balanceLabel)
+
+        val settledWalletResult = repository.check(completeConfig)
+
+        assertTrue(store.pendingSettlements.isEmpty())
+        assertEquals(18.75, settledWalletResult.snapshot?.balanceYuan ?: -1.0, 0.001)
+    }
+
+    @Test
+    fun check_neverResurrectsTheSameOrderWhileItsCloseIsPending() = runBlocking {
+        val notConfirmed = JSONObject()
+            .put("success", false)
+            .put("errorCode", 500)
+        val pending = pendingSettlement(
+            historyId = 47L,
+            orderNo = "order-stale-status",
+            closedAtMillis = System.currentTimeMillis() - 30_000L,
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        )
+        val staleActiveStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", pending.orderNo)
+        }
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(staleActiveStatus),
+            closeResultResponse = notConfirmed,
+        )
+        val store = FakeSessionStore(pendingSettlements = listOf(pending))
+
+        val result = HotWaterRepository(api, store).check(completeConfig)
+
+        assertNull(store.loadOrderNo())
+        assertTrue(result.snapshot?.hasCachedOrder == false)
+        assertEquals(1, store.pendingSettlements.size)
+    }
+
+    @Test
     fun check_balanceFallbackOnlyRepairsNewestFreshPendingSettlement() = runBlocking {
         val now = System.currentTimeMillis()
         val olderPending = pendingSettlement(
@@ -681,6 +1093,31 @@ class HotWaterRepositoryTest {
         assertTrue(store.updatedHistorySettlements.isEmpty())
         // Only the normal dashboard refresh reads the wallet; reconciliation skips it.
         assertEquals(1, api.balanceCalls)
+    }
+
+    @Test
+    fun check_expiredFinalAmountDropsOnlyTheStaleWalletGuard() = runBlocking {
+        val expiredPending = pendingSettlement(
+            historyId = 45L,
+            orderNo = "order-expired-final",
+            closedAtMillis = System.currentTimeMillis() - 11 * 60 * 1_000L,
+            startBalanceYuan = 20.0,
+            activeBalanceYuan = 15.0,
+        ).copy(
+            finalConsumptionYuan = 1.25,
+            closeConfirmed = true,
+        )
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(26.5)),
+            statusResponses = listOf(successPayload()),
+        )
+        val store = FakeSessionStore(pendingSettlements = listOf(expiredPending))
+
+        val result = HotWaterRepository(api, store).check(completeConfig)
+
+        assertEquals(1.25, store.updatedHistorySettlements[45L] ?: -1.0, 0.001)
+        assertTrue(store.pendingSettlements.isEmpty())
+        assertEquals(26.5, result.snapshot?.balanceYuan ?: -1.0, 0.001)
     }
 
     @Test
@@ -765,8 +1202,15 @@ class HotWaterRepositoryTest {
         var usageSession: UsageSession? = null,
         pendingSettlements: List<PendingSettlement> = emptyList(),
     ) : HotWaterSessionStore {
-        val pendingSettlements = pendingSettlements.toMutableList()
+        var stateGeneration: Long = 0L
+        val pendingSettlements = pendingSettlements
+            .map { pending ->
+                if (pending.stateGeneration == -1L) pending.copy(stateGeneration = stateGeneration) else pending
+            }
+            .toMutableList()
         val updatedHistorySettlements = mutableMapOf<Long, Double>()
+
+        override fun loadStateGeneration(): Long = stateGeneration
 
         override fun loadOrderNo(): String? = orderNo
 
@@ -774,8 +1218,34 @@ class HotWaterRepositoryTest {
             this.orderNo = orderNo
         }
 
+        override fun saveOrderNoForGeneration(orderNo: String, expectedStateGeneration: Long): Boolean {
+            if (stateGeneration != expectedStateGeneration) return false
+            this.orderNo = orderNo
+            return true
+        }
+
+        override fun saveOrderNoUnlessPending(orderNo: String, expectedStateGeneration: Long?): Boolean {
+            if (expectedStateGeneration != null && stateGeneration != expectedStateGeneration) return false
+            if (pendingSettlements.any { it.orderNo == orderNo }) return false
+            this.orderNo = orderNo
+            return true
+        }
+
         override fun clearOrderNo() {
             orderNo = null
+        }
+
+        override fun clearActiveUsageForGeneration(expectedStateGeneration: Long): Boolean {
+            if (stateGeneration != expectedStateGeneration) return false
+            orderNo = null
+            usageSession = null
+            return true
+        }
+
+        override fun clearUsageSessionForGeneration(expectedStateGeneration: Long): Boolean {
+            if (stateGeneration != expectedStateGeneration) return false
+            usageSession = null
+            return true
         }
 
         override fun loadUsageSession(): UsageSession? = usageSession
@@ -783,7 +1253,9 @@ class HotWaterRepositoryTest {
         override fun startUsageSessionIfAbsent(
             startBalanceYuan: Double?,
             startBalanceIsBeforePreauthorization: Boolean,
-        ): UsageSession {
+            expectedStateGeneration: Long?,
+        ): UsageSession? {
+            if (expectedStateGeneration != null && stateGeneration != expectedStateGeneration) return null
             val existing = usageSession
             if (existing?.startBalanceYuan != null) return existing
             if (existing != null && startBalanceYuan == null) return existing
@@ -806,10 +1278,27 @@ class HotWaterRepositoryTest {
 
         override fun savePendingSettlement(settlement: PendingSettlement) {
             pendingSettlements.removeAll { it.orderNo == settlement.orderNo }
-            pendingSettlements.add(settlement)
+            pendingSettlements.add(
+                if (settlement.stateGeneration == -1L) {
+                    settlement.copy(stateGeneration = stateGeneration)
+                } else {
+                    settlement
+                },
+            )
         }
 
-        override fun removePendingSettlement(orderNo: String) {
+        override fun savePendingSettlementAndEndUsage(
+            settlement: PendingSettlement,
+            expectedStateGeneration: Long,
+        ): Boolean {
+            if (stateGeneration != expectedStateGeneration) return false
+            savePendingSettlement(settlement.copy(stateGeneration = expectedStateGeneration))
+            orderNo = null
+            usageSession = null
+            return true
+        }
+
+        override fun removePendingSettlement(orderNo: String, expectedStateGeneration: Long?) {
             pendingSettlements.removeAll { it.orderNo == orderNo }
         }
 
@@ -818,6 +1307,23 @@ class HotWaterRepositoryTest {
             consumptionYuan: Double,
         ) {
             updatedHistorySettlements[settlement.historyId] = consumptionYuan
+        }
+
+        fun replaceRuntimeStateForNewGeneration(
+            orderNo: String?,
+            usageStartedAtMillis: Long?,
+            pending: PendingSettlement? = null,
+        ) {
+            stateGeneration += 1L
+            this.orderNo = orderNo
+            usageSession = usageStartedAtMillis?.let {
+                UsageSession(
+                    startedAtMillis = it,
+                    startBalanceYuan = null,
+                )
+            }
+            pendingSettlements.clear()
+            pending?.let { pendingSettlements.add(it.copy(stateGeneration = stateGeneration)) }
         }
     }
 
@@ -828,20 +1334,33 @@ class HotWaterRepositoryTest {
         private val openResultResponse: JSONObject = successPayload(),
         private val closeResponse: JSONObject = successPayload(),
         private val closeResultResponse: JSONObject = successPayload(),
+        closeResultResponses: List<JSONObject>? = null,
         consumeResultResponses: List<JSONObject> = listOf(JSONObject()),
         private val failFirstBalanceRequest: Boolean = false,
         private val balanceFailureAtCall: Int? = null,
         private val balanceFailure: Throwable = IOException("Balance unavailable"),
+        private val onCloseRequest: suspend () -> Unit = {},
+        private val onUserInfoRequest: () -> Unit = {},
+        private val onBalanceRequest: suspend () -> Unit = {},
+        private val onCloseResultRequest: suspend () -> Unit = {},
     ) : HotWaterRemoteDataSource {
         private val balances = ArrayDeque(balanceResponses)
         private val statuses = ArrayDeque(statusResponses)
         private val consumeResults = ArrayDeque(consumeResultResponses)
+        private val closeResults = ArrayDeque(closeResultResponses ?: listOf(closeResultResponse))
         var balanceCalls: Int = 0
             private set
         var openCalls: Int = 0
             private set
+        var closeCalls: Int = 0
+            private set
+        var closeResultCalls: Int = 0
+            private set
+        var consumeResultCalls: Int = 0
+            private set
 
         override suspend fun userInfo(config: HotWaterConfig): JSONObject {
+            onUserInfoRequest()
             return JSONObject().put(
                 "data",
                 JSONObject().put("telephone", config.telephone),
@@ -859,6 +1378,7 @@ class HotWaterRepositoryTest {
 
         override suspend fun balance(config: HotWaterConfig): JSONObject {
             balanceCalls += 1
+            onBalanceRequest()
             if (balanceFailureAtCall == balanceCalls) {
                 throw balanceFailure
             }
@@ -880,14 +1400,19 @@ class HotWaterRepositoryTest {
         }
 
         override suspend fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject {
+            closeCalls += 1
+            onCloseRequest()
             return closeResponse
         }
 
         override suspend fun closeResult(config: HotWaterConfig, orderNo: String): JSONObject {
-            return closeResultResponse
+            closeResultCalls += 1
+            onCloseResultRequest()
+            return nextOrLast(closeResults)
         }
 
         override suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
+            consumeResultCalls += 1
             return nextOrLast(consumeResults)
         }
 

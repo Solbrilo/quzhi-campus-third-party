@@ -1,6 +1,6 @@
 # HarmonyOS 热水应用
 
-这是趣智校园第三方热水控制项目的 HarmonyOS NEXT 客户端，使用 ArkTS、ArkUI、Network Kit 和 Scan Kit 实现。当前版本为 `2.0.1 (2000001)`，兼容 HarmonyOS SDK `6.1.0(23)`，目标 SDK 为 `6.1.1(24)`。
+这是趣智校园第三方热水控制项目的 HarmonyOS NEXT 客户端，使用 ArkTS、ArkUI、Network Kit 和 Scan Kit 实现。当前版本为 `2.1.0 (2001000)`，兼容 HarmonyOS SDK `6.1.0(23)`，目标 SDK 为 `6.1.1(24)`。
 
 ## 当前功能
 
@@ -89,7 +89,7 @@ $hvigor = Join-Path $deveco 'tools\hvigor\bin\hvigorw.bat'
 & $hvigor --mode module -p product=default -p buildMode=release assembleHap --no-daemon --no-incremental --parallel
 ```
 
-本次改动的单元测试为 44/44 通过，Release HAP 构建成功。签名产物输出到：
+本次改动的单元测试为 49/49 通过，Release HAP 构建成功。签名产物输出到：
 
 ```text
 entry/build/default/outputs/default/entry-default-signed.hap

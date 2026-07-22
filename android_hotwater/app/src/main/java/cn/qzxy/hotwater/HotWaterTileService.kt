@@ -100,6 +100,9 @@ class HotWaterTileService : TileService() {
                     },
                     result = result,
                 )
+                if (shouldClose && result.historyId != null) {
+                    HotWaterSettlementSyncScheduler.enqueue(applicationContext)
+                }
 
                 // 操作成功
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
@@ -117,7 +120,13 @@ class HotWaterTileService : TileService() {
                     } else {
                         state = if (shouldClose) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
                         label = if (shouldClose) "开热水" else "关热水"
-                        setSubtitleCompat(if (shouldClose) "已关闭" else "已开启")
+                        setSubtitleCompat(
+                            when {
+                                shouldClose && result.outcome == OperationOutcome.PENDING -> "已受理，确认中"
+                                shouldClose -> "已关闭"
+                                else -> "已开启"
+                            },
+                        )
                     }
                     updateTile()
                 }

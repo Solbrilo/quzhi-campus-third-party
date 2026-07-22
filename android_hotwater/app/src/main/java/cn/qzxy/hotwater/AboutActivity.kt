@@ -44,6 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
 import cn.qzxy.hotwater.designsystem.theme.GlassIntensityPreferences
@@ -89,6 +92,7 @@ private fun StandaloneAboutPage(
     val environment = LocalGlassEnvironment.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val slideDirection = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
     val motionEnabled = environment.motionEnabled
     val visibility = remember { MutableTransitionState(false) }
@@ -96,6 +100,7 @@ private fun StandaloneAboutPage(
     var checking by remember { mutableStateOf(false) }
     var installing by remember { mutableStateOf(false) }
     var installJob by remember { mutableStateOf<Job?>(null) }
+    var resumeInstallJob by remember { mutableStateOf<Job?>(null) }
     var downloadProgress by remember { mutableStateOf<AppUpdateDownloadProgress?>(null) }
     var checkResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var installResult by remember { mutableStateOf<AppUpdateInstallResult?>(null) }
@@ -147,6 +152,7 @@ private fun StandaloneAboutPage(
         if (!closing) {
             closing = true
             installJob?.cancel()
+            resumeInstallJob?.cancel()
             visibility.targetState = false
         }
     }
@@ -154,6 +160,28 @@ private fun StandaloneAboutPage(
     LaunchedEffect(Unit) {
         visibility.targetState = true
         checkForUpdate(false)
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (resumeInstallJob?.isActive != true) {
+            resumeInstallJob = scope.launch {
+                try {
+                    installJob?.join()
+                    val result = updateManager.resumePendingInstall {
+                        lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                    } ?: return@launch
+                    installResult = result
+                    haptic.performGlassHapticFeedback(
+                        when (result) {
+                            AppUpdateInstallResult.InstallationLaunched -> HapticFeedbackType.Confirm
+                            AppUpdateInstallResult.SourcePermissionRequired -> HapticFeedbackType.SegmentTick
+                            is AppUpdateInstallResult.Failed -> HapticFeedbackType.Reject
+                        },
+                    )
+                } finally {
+                    resumeInstallJob = null
+                }
+            }
+        }
     }
     LaunchedEffect(closing, visibility.isIdle, visibility.currentState) {
         if (closing && visibility.isIdle && !visibility.currentState) {

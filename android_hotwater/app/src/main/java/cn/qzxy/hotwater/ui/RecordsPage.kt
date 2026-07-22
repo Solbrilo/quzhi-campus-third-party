@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -415,7 +416,9 @@ private fun BillGroupSection(
     val collapseDuration = if (motionEnabled) 180 else 0
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassMaterial(GlassMaterial.Panel, 18.dp),
     ) {
         BillGroupHeader(
             group = group,
@@ -441,13 +444,20 @@ private fun BillGroupSection(
             ),
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                group.entries.forEach { entry ->
-                    ConsumptionRecordCard(entry = entry)
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    color = LocalGlassTokens.current.borderLo,
+                )
+                group.entries.forEachIndexed { index, entry ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = LocalGlassTokens.current.borderLo,
+                        )
+                    }
+                    ConsumptionRecordRow(entry = entry)
                 }
             }
         }
@@ -471,9 +481,9 @@ private fun BillGroupHeader(
     GlassPressable(
         onClick = onClick,
         onClickLabel = if (expanded) "收起${group.label}" else "展开${group.label}",
-        material = GlassMaterial.Control,
-        cornerRadius = 14.dp,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        material = null,
+        cornerRadius = 0.dp,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
@@ -556,7 +566,7 @@ private fun EmptyFilteredBillState() {
 }
 
 @Composable
-private fun ConsumptionRecordCard(entry: BillEntry) {
+private fun ConsumptionRecordRow(entry: BillEntry) {
     val tokens = LocalGlassTokens.current
     val record = entry.history
     val amountLabel = record.getConsumptionAmountLabel() ?: "待同步"
@@ -565,8 +575,7 @@ private fun ConsumptionRecordCard(entry: BillEntry) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 18.dp)
-            .padding(18.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {

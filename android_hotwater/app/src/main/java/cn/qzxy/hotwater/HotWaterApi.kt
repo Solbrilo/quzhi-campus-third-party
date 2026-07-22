@@ -150,14 +150,22 @@ class HotWaterApi : HotWaterRemoteDataSource {
                     response.use {
                         if (!continuation.isCancelled) {
                             try {
+                                val body = response.body?.string().orEmpty()
+                                if (
+                                    CredentialExpiryDetector.isExpiredHttpResponse(
+                                        response.code,
+                                        body,
+                                    )
+                                ) {
+                                    continuation.resumeWithException(CredentialExpiredException())
+                                    return
+                                }
                                 if (!response.isSuccessful) {
-                                    val body = response.body?.string().orEmpty()
                                     continuation.resumeWithException(
                                         IOException("HTTP ${response.code}: $body")
                                     )
                                     return
                                 }
-                                val body = response.body?.string().orEmpty()
                                 val json = if (body.isBlank()) {
                                     JSONObject()
                                 } else {
@@ -169,6 +177,10 @@ class HotWaterApi : HotWaterRemoteDataSource {
                                         )
                                         return
                                     }
+                                }
+                                if (CredentialExpiryDetector.isExpiredServiceResponse(json)) {
+                                    continuation.resumeWithException(CredentialExpiredException())
+                                    return
                                 }
                                 continuation.resume(json)
                             } catch (e: Exception) {

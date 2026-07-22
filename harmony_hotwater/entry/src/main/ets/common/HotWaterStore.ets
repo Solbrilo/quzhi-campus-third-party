@@ -53,11 +53,28 @@ export class HotWaterStore {
       await store.put('macAddress', config.macAddress)
       await store.put('phoneSystem', config.phoneSystem)
       await store.put('version', config.version)
+      if (config.loginCode.trim().length > 0) {
+        await store.delete('credentialExpired')
+      }
       if (identityChanged) {
         await this.clearAccountRuntimeStateUnlocked(store)
       }
       await store.flush()
     })
+  }
+
+  async invalidateLoginCredential(): Promise<void> {
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const store = await this.getStore()
+      await store.put('loginCode', '')
+      await store.put('credentialExpired', true)
+      await store.flush()
+    })
+  }
+
+  async isLoginCredentialExpired(): Promise<boolean> {
+    const store = await this.getStore()
+    return Boolean(await store.get('credentialExpired', false))
   }
 
   private async hasConfigIdentityChanged(
@@ -86,6 +103,9 @@ export class HotWaterStore {
       await store.put('macAddress', config.macAddress)
       await store.put('phoneSystem', config.phoneSystem)
       await store.put('version', config.version)
+      if (config.loginCode.trim().length > 0) {
+        await store.delete('credentialExpired')
+      }
       if (identityChanged) {
         await this.clearAccountRuntimeStateUnlocked(store)
       }
@@ -343,6 +363,7 @@ export class HotWaterStore {
           ? parsedConfirmedConsumptionYuan
           : -1
         pending.balanceFallbackEligible = Boolean(item['balanceFallbackEligible'])
+        pending.closeConfirmed = Boolean(item['closeConfirmed'])
         if (pending.orderNo.length > 0 && pending.recordId > 0) {
           pendingSettlements.push(pending)
         }
@@ -351,6 +372,38 @@ export class HotWaterStore {
     } catch (error) {
       return []
     }
+  }
+
+  async markPendingCloseConfirmed(orderNo: string): Promise<void> {
+    if (orderNo.length === 0) {
+      return
+    }
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      const pendingSettlements = await this.loadPendingSettlements()
+      let changed = false
+      for (let index = 0; index < pendingSettlements.length; index++) {
+        if (pendingSettlements[index].orderNo === orderNo && !pendingSettlements[index].closeConfirmed) {
+          pendingSettlements[index].closeConfirmed = true
+          changed = true
+        }
+      }
+      if (changed) {
+        await this.writePendingSettlements(pendingSettlements)
+      }
+    })
+  }
+
+  async hasPendingSettlementForOrder(orderNo: string): Promise<boolean> {
+    if (orderNo.length === 0) {
+      return false
+    }
+    const pendingSettlements = await this.loadPendingSettlements()
+    for (let index = 0; index < pendingSettlements.length; index++) {
+      if (pendingSettlements[index].matchesOrder(orderNo)) {
+        return true
+      }
+    }
+    return false
   }
 
   async savePendingSettlement(pending: PendingSettlement): Promise<void> {
@@ -415,6 +468,9 @@ export class HotWaterStore {
       }
       if (existingPending.confirmedConsumptionYuan >= 0) {
         pending.confirmedConsumptionYuan = existingPending.confirmedConsumptionYuan
+      }
+      if (existingPending.closeConfirmed) {
+        pending.closeConfirmed = true
       }
       for (let recordIndex = 0; recordIndex < records.length; recordIndex++) {
         if (records[recordIndex].id === existingPending.recordId) {
@@ -561,6 +617,7 @@ export class HotWaterStore {
       if (matchesSettlement && persistedRecord.settlementVerified && keepPendingForBalance) {
         pending.confirmedConsumptionYuan = persistedRecord.consumptionYuan
         pending.balanceFallbackEligible = false
+        pending.closeConfirmed = true
         retainedPendingSettlements.push(pending)
       } else if (!matchesSettlement || !persistedRecord.settlementVerified) {
         retainedPendingSettlements.push(pending)

@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (hasEnteredForeground) {
-            viewModel.refreshBalance(announce = false)
+            viewModel.onAppForegrounded()
         } else {
             hasEnteredForeground = true
         }

@@ -1,6 +1,6 @@
 import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
 import { ConsumptionSettlement } from '../main/ets/common/ConsumptionSettlement';
-import { ConsumptionRecord, HotWaterConfig, UsageSession } from '../main/ets/common/HotWaterModels';
+import { ConsumptionRecord, HotWaterConfig, PendingSettlement, UsageSession } from '../main/ets/common/HotWaterModels';
 import { HotWaterPayload } from '../main/ets/common/HotWaterPayload';
 import { QrCodeParser } from '../main/ets/common/QrCodeParser';
 import { OnboardingVersionGate } from '../main/ets/common/OnboardingVersionGate';
@@ -131,7 +131,7 @@ export default function localUnitTest() {
       expect(imported.loginCode).assertEqual('login-code');
       expect(imported.telephone).assertEqual('13800138000');
       expect(imported.snCode).assertEqual('C47F0EDA85D8');
-      expect(exported).assertContain('"appVersion":"2.0.1"');
+      expect(exported).assertContain('"appVersion":"2.1.0"');
       expect(HotWaterConfigTransfer.generateFileName()).assertEqual('hotwater_config.json');
     });
     it('rejectsIncompleteImportedConfiguration', 0, () => {
@@ -287,6 +287,37 @@ export default function localUnitTest() {
       expect(HotWaterPayload.extractConsumptionYuan('{"data":{"consumeMoney":0}}')).assertEqual(-1);
       expect(HotWaterPayload.extractConsumptionYuan('{"data":{"consumeMoney":0.4}}')).assertEqual(-1);
     });
+    it('recognizesHttpAndBusinessCredentialExpiry', 0, () => {
+      expect(HotWaterPayload.isCredentialExpiredResponse('', 401)).assertTrue();
+      expect(HotWaterPayload.isCredentialExpiredResponse(
+        '{"success":true,"errorCode":401,"data":null}',
+        200
+      )).assertTrue();
+      expect(HotWaterPayload.isCredentialExpiredResponse(
+        '{"success":false,"errorCode":403,"errorMessage":"loginCode 已失效"}',
+        403
+      )).assertTrue();
+    });
+    it('doesNotTreatLockedOrDeviceBusyResponsesAsCredentialExpiry', 0, () => {
+      expect(HotWaterPayload.isCredentialExpiredResponse(
+        '{"success":false,"errorCode":403,"errorMessage":"账号已被锁定"}',
+        403
+      )).assertFalse();
+      expect(HotWaterPayload.isCredentialExpiredResponse(
+        '{"success":false,"errorCode":307,"errorMessage":"设备正在使用"}',
+        200
+      )).assertFalse();
+    });
+    it('requiresAnExplicitFailureForCredentialKeywords', 0, () => {
+      expect(HotWaterPayload.isCredentialExpiredResponse(
+        '{"success":true,"errorCode":0,"data":{"notice":"auth token invalid 示例"}}',
+        200
+      )).assertFalse();
+      expect(HotWaterPayload.isCredentialExpiredResponse(
+        '{"success":false,"errorCode":12,"errorMessage":"请重新登录"}',
+        200
+      )).assertTrue();
+    });
     it('acceptsFinalOrderAmountWithoutABalanceBaseline', 0, () => {
       expect(ConsumptionSettlement.resolveConsumption(1.25, -1, 15, true)).assertEqual(1.25);
       expect(ConsumptionSettlement.resolveConsumption(-1, -1, 15, true)).assertEqual(-1);
@@ -343,6 +374,29 @@ export default function localUnitTest() {
       expect(session.isExpiredProvisionalOpening(121_000, 120_000)).assertTrue();
       session.provisionalOpening = false;
       expect(session.isExpiredProvisionalOpening(121_000, 120_000)).assertFalse();
+    });
+    it('blocksReopenOnlyForAFreshUnconfirmedClose', 0, () => {
+      const pending = new PendingSettlement();
+      pending.orderNo = 'closed-order';
+      pending.recordId = 1;
+      pending.endedAtMillis = 1_000;
+
+      expect(pending.shouldBlockOpen(15_999, 15_000)).assertTrue();
+      expect(pending.shouldBlockOpen(16_000, 15_000)).assertFalse();
+      expect(pending.shouldBlockOpen(999, 15_000)).assertFalse();
+
+      pending.closeConfirmed = true;
+      expect(pending.shouldBlockOpen(2_000, 15_000)).assertFalse();
+      pending.closeConfirmed = false;
+      pending.confirmedConsumptionYuan = 0;
+      expect(pending.shouldBlockOpen(2_000, 15_000)).assertFalse();
+    });
+    it('matchesOnlyTheClosedOrderDuringSnapshotRecovery', 0, () => {
+      const pending = new PendingSettlement();
+      pending.orderNo = 'closed-order';
+      expect(pending.matchesOrder('closed-order')).assertTrue();
+      expect(pending.matchesOrder('new-order')).assertFalse();
+      expect(pending.matchesOrder('')).assertFalse();
     });
     it('keepsConfirmedBalanceGuardWhenTheBaselineIsUnknown', 0, () => {
       expect(ConsumptionSettlement.shouldKeepConfirmedBalanceGuard(

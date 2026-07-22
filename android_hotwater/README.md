@@ -1,6 +1,6 @@
 # Android 热水应用
 
-这是趣智校园第三方热水控制项目的 Android 客户端。应用使用 Kotlin、Jetpack Compose 和 Material 3，最低支持 Android 8.0（API 26），compile/target SDK 为 36，当前版本为 `2.0.1 (21)`，构建使用 JDK 17。
+这是趣智校园第三方热水控制项目的 Android 客户端。应用使用 Kotlin、Jetpack Compose 和 Material 3，最低支持 Android 8.0（API 26），compile/target SDK 为 36，当前版本为 `2.1.0 (22)`，构建使用 JDK 17。
 
 ## 当前功能
 
@@ -81,7 +81,7 @@ KLCXKJ-Water,M,C47F0EDA85D8
 .\gradlew.bat assembleRelease
 ```
 
-本次改动的 Debug 与 Release 单元测试均为 89/89 通过。Release APK 输出到：
+本次改动的 Debug 与 Release 单元测试均为 107/107 通过。Release APK 输出到：
 
 ```text
 app/build/outputs/apk/release/app-release.apk

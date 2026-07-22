@@ -72,6 +72,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _snCodeSaveState = MutableStateFlow(SnCodeSaveState())
     val snCodeSaveState: StateFlow<SnCodeSaveState> = _snCodeSaveState.asStateFlow()
+
+    private val _credentialExpired = MutableStateFlow(store.requiresReauthentication())
+    val credentialExpired: StateFlow<Boolean> = _credentialExpired.asStateFlow()
+
     private var initialized = false
     private var qzxyLoginJob: Job? = null
     private var qzxyLoginGeneration: Long = 0L
@@ -79,6 +83,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var operationGeneration: Long = 0L
     private var snCodeSaveJob: Job? = null
     private var snCodeSaveGeneration: Long = 0L
+    private var settlementSyncJob: Job? = null
     private var busyOwner: BusyOwner? = null
 
     fun initialize() {
@@ -89,7 +94,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
         syncNotificationState()
 
-        if (preparedConfig.isComplete()) {
+        if (store.requiresReauthentication()) {
+            showCredentialExpiryPrompt()
+        } else if (preparedConfig.isComplete()) {
             refreshBalance(announce = false)
         } else {
             _statusMessage.value = "请先到配置页填写参数。"
@@ -131,6 +138,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveConfig(rawConfig: HotWaterConfig) {
+        settlementSyncJob?.cancel()
+        settlementSyncJob = null
         val previous = persistRuntimeInfoIfNeeded(store.loadConfig())
         val prepared = persistRuntimeInfoIfNeeded(rawConfig)
         if (previous.hasDifferentIdentityFrom(prepared)) {
@@ -158,6 +167,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun onAppForegrounded() {
+        if (store.requiresReauthentication()) {
+            showCredentialExpiryPrompt()
+            return
+        }
+        refreshBalance(announce = false)
+    }
+
     fun saveSnCode(snCode: String) {
         val normalized = snCode.trim().replace(":", "").uppercase(Locale.ROOT)
         if (normalized.isBlank()) {
@@ -176,6 +193,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         previousOperation?.cancel()
         previousSave?.cancel()
+        settlementSyncJob?.cancel()
+        settlementSyncJob = null
         acquireBusy(BusyOwner.SN_CODE_SAVE)
         _snCodeSaveState.value = SnCodeSaveState(loading = true, snCode = normalized)
         val saveJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
@@ -252,7 +271,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearQzxyLoginState() {
-        _qzxyLoginState.value = QzxyLoginState()
+        _qzxyLoginState.value = if (_credentialExpired.value) {
+            QzxyLoginState(message = CREDENTIAL_EXPIRED_MESSAGE)
+        } else {
+            QzxyLoginState()
+        }
     }
 
     fun cancelQzxyLogin() {
@@ -260,7 +283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         qzxyLoginJob?.cancel()
         qzxyLoginJob = null
         releaseBusy(BusyOwner.QZXY_LOGIN)
-        _qzxyLoginState.value = QzxyLoginState()
+        clearQzxyLoginState()
     }
 
     fun loginToQzxy(telephone: String, password: String) {
@@ -271,12 +294,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        HotWaterSettlementSyncScheduler.cancel(getApplication())
+
         val previousOperation = operationJob
         val previousSave = snCodeSaveJob
         ++operationGeneration
         ++snCodeSaveGeneration
         previousOperation?.cancel()
         previousSave?.cancel()
+        settlementSyncJob?.cancel()
+        settlementSyncJob = null
         _snCodeSaveState.value = SnCodeSaveState()
         val generation = ++qzxyLoginGeneration
         acquireBusy(BusyOwner.QZXY_LOGIN)
@@ -304,10 +331,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (existing.hasDifferentIdentityFrom(prepared)) {
                     store.clearActiveUsageState()
                 }
+                HotWaterSettlementSyncScheduler.cancel(getApplication())
                 store.saveConfig(prepared)
+                store.clearCredentialsExpired()
+                _credentialExpired.value = false
                 _config.value = prepared
                 _snapshot.value = buildPlaceholderSnapshot(prepared)
                 syncNotificationState()
+                if (store.loadPendingSettlements().isNotEmpty()) {
+                    HotWaterSettlementSyncScheduler.enqueue(getApplication())
+                }
 
                 if (prepared.snCode.isBlank()) {
                     val message = "登录成功，账号字段已自动填充；还需填写或选择该账号的 snCode。"
@@ -371,6 +404,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         announceSuccess: Boolean,
         block: suspend (HotWaterConfig) -> OperationResult,
     ) {
+        if (store.requiresReauthentication()) {
+            showCredentialExpiryPrompt()
+            return
+        }
         if (_busy.value) return
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         if (!preparedConfig.isComplete()) {
@@ -382,6 +419,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        settlementSyncJob?.cancel()
+        settlementSyncJob = null
         acquireBusy(BusyOwner.OPERATION)
         _statusMessage.value = busyMessage
 
@@ -408,10 +447,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 store.saveOperationResultHistory(operationType, result)
                 _history.value = store.loadHistory()
+                if (store.loadPendingSettlements().isNotEmpty()) {
+                    HotWaterSettlementSyncScheduler.enqueue(getApplication())
+                }
+                if (
+                    operationType == OperationHistory.OperationType.CLOSE &&
+                    result.historyId != null
+                ) {
+                    schedulePostCloseSync(
+                        config = preparedConfig,
+                        operationGenerationAtClose = generation,
+                        historyId = result.historyId,
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (generation != operationGeneration) return@launch
+                if (error is CredentialExpiredException) {
+                    showCredentialExpiryPrompt()
+                    return@launch
+                }
                 _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
                 val message = HotWaterUiText.summarizeError(error)
                 _statusMessage.value = message
@@ -440,6 +496,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         operationJob = job
         job.start()
+    }
+
+    private fun schedulePostCloseSync(
+        config: HotWaterConfig,
+        operationGenerationAtClose: Long,
+        historyId: Long,
+    ) {
+        settlementSyncJob?.cancel()
+        settlementSyncJob = viewModelScope.launch {
+            for (delayMs in POST_CLOSE_SYNC_DELAYS_MS) {
+                delay(delayMs)
+                if (operationGenerationAtClose != operationGeneration) return@launch
+
+                val result = try {
+                    repository.check(config)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: CredentialExpiredException) {
+                    showCredentialExpiryPrompt()
+                    return@launch
+                } catch (_: Exception) {
+                    continue
+                }
+                if (operationGenerationAtClose != operationGeneration) return@launch
+
+                result.snapshot?.let { _snapshot.value = it }
+                _history.value = store.loadHistory()
+                syncNotificationState()
+                if (store.loadPendingSettlements().none { it.historyId == historyId }) {
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun showCredentialExpiryPrompt() {
+        store.markCredentialsExpired()
+        val expiredConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
+        _config.value = expiredConfig
+        _snapshot.value = buildPlaceholderSnapshot(expiredConfig)
+        _credentialExpired.value = true
+        _statusMessage.value = CREDENTIAL_EXPIRED_MESSAGE
+        _qzxyLoginState.value = QzxyLoginState(message = CREDENTIAL_EXPIRED_MESSAGE)
+        _feedbackEvent.value = FeedbackEvent(
+            type = FeedbackEvent.FeedbackType.WARNING,
+            message = CREDENTIAL_EXPIRED_MESSAGE,
+        )
     }
 
     private fun acquireBusy(owner: BusyOwner) {
@@ -503,5 +606,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val LOW_BALANCE_WARNING_YUAN = 5.0
+        private val POST_CLOSE_SYNC_DELAYS_MS = longArrayOf(
+            350L,
+            900L,
+            1_800L,
+            3_200L,
+        )
     }
 }

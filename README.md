@@ -109,9 +109,9 @@ cd .\android_hotwater
 
 HarmonyOS 的可复现 Hvigor 命令见 [HarmonyOS README](./harmony_hotwater/README.md)。当前实现已完成以下验证：
 
-- Android Debug 单元测试：89/89 通过。
-- Android Release 单元测试：89/89 通过。
-- HarmonyOS 单元测试：44/44 通过。
+- Android Debug 单元测试：107/107 通过。
+- Android Release 单元测试：107/107 通过。
+- HarmonyOS 单元测试：49/49 通过。
 - Android Release APK 与 HarmonyOS Release HAP 均已构建成功。
 - `qzxy_hotwater.py` 通过 `py_compile`，项目中的 `1.chls`、`2.chls`、`3.chls` 均可解析。
 
