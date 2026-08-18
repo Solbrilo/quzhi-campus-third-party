@@ -27,7 +27,7 @@ data class HotWaterConfig(
             appendLine("accountId: ${accountId ?: "-"}")
             appendLine("telephone: ${maskMiddle(telephone, 3, 4)}")
             appendLine("loginCode: ${maskMiddle(loginCode, 6, 4)}")
-            appendLine("snCode: $snCode")
+            appendLine("snCode: ${maskMiddle(snCode, 0, 0)}")
             appendLine("macAddress: ${if (macAddress.isBlank()) "-" else macAddress}")
             appendLine("phoneSystem: ${if (phoneSystem.isBlank()) "-" else phoneSystem}")
             append("version: ${if (version.isBlank()) "-" else version}")

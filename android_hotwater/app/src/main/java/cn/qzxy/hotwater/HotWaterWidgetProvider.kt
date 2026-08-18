@@ -47,7 +47,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
             }
 
             HotWaterWidgetUi.ACTION_REFRESH -> {
-                HotWaterWidgetUi.updateAllWidgets(context)
+                enqueueAction(context, WidgetHotWaterAction.REFRESH)
                 return
             }
         }
@@ -74,6 +74,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
             message = when (action) {
                 WidgetHotWaterAction.OPEN -> "正在开启热水…"
                 WidgetHotWaterAction.CLOSE -> "正在关闭热水…"
+                WidgetHotWaterAction.REFRESH -> "正在同步余额和热水器状态…"
             },
             isBusy = true,
             tone = "busy",

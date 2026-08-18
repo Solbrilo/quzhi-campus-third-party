@@ -471,6 +471,7 @@ export class HotWaterRepository {
     snapshot.orderNo = cachedOrderNo
     snapshot.hasCachedOrder = cachedOrderNo.length > 0
     snapshot.isDeviceBusyByOther = busyByOther
+    snapshot.isDeviceOnline = this.isDeviceOnline(statusText)
     if (busyByOther) {
       snapshot.statusLabel = DEVICE_BUSY_BY_OTHER_MESSAGE
     } else if (cachedOrderNo.length > 0) {
@@ -893,6 +894,36 @@ export class HotWaterRepository {
       return true
     }
     return errorMessage.indexOf('设备正在使用') >= 0
+  }
+
+  private isDeviceOnline(statusText: string): boolean | null {
+    const reportedState = this.reportedDeviceOnlineState(statusText)
+    if (reportedState !== null) {
+      return reportedState
+    }
+    if ((this.extractSuccess(statusText) && this.extractErrorCode(statusText) === 0) ||
+      this.isDeviceBusyByOther(statusText)) {
+      return true
+    }
+    return null
+  }
+
+  private reportedDeviceOnlineState(text: string): boolean | null {
+    const keys: string[] = ['isOnline', 'online', 'deviceOnline', 'onlineStatus', 'tcpDeviceOnline']
+    for (let index = 0; index < keys.length; index++) {
+      const value = this.extractFirstOrEmpty(text, keys[index]).trim().toLowerCase()
+      if (value === 'online' || value === 'connected' || value === 'true' || value === '1') {
+        return true
+      }
+      if (value === 'offline' || value === 'disconnected' || value === 'false' || value === '0') {
+        return false
+      }
+    }
+    const errorMessage = this.extractFirstOrEmpty(text, 'errorMessage')
+    if (errorMessage.indexOf('设备离线') >= 0 || errorMessage.indexOf('设备不在线') >= 0) {
+      return false
+    }
+    return null
   }
 
   private extractBooleanValue(text: string, key: string): boolean | null {

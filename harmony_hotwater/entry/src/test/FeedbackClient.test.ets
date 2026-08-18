@@ -8,18 +8,30 @@ import {
 export default function feedbackClientTest() {
   describe('feedbackClient', () => {
     it('serializesOnlyContractFields', 0, () => {
-      const json = FeedbackClient.buildPayloadForTest('1.4.1', FeedbackCategory.BUG, '余额没有刷新')
+      const json = FeedbackClient.buildPayloadForTest(
+        '1.4.1',
+        FeedbackCategory.BUG,
+        'user@example.com',
+        '余额没有刷新'
+      )
       const payload = JSON.parse(json) as Record<string, Object>
       const keys = Object.keys(payload).sort().join(',')
-      expect(keys).assertEqual('appVersion,category,message,platform,schemaVersion')
+      expect(keys).assertEqual('appVersion,category,email,message,platform,schemaVersion')
       expect(String(payload['platform'])).assertEqual('harmonyos')
       expect(String(payload['category'])).assertEqual('bug')
+      expect(String(payload['email'])).assertEqual('user@example.com')
     })
 
     it('countsUnicodeCodePoints', 0, () => {
       expect(FeedbackClient.countUnicodeCharacters('😀好')).assertEqual(2)
       expect(FeedbackClient.validationError('😀')).assertEqual('请至少填写 2 个字。')
       expect(FeedbackClient.validationError('😀好')).assertEqual('')
+    })
+
+    it('requiresAValidContactEmail', 0, () => {
+      expect(FeedbackClient.emailValidationError('')).assertEqual('请填写联系邮箱。')
+      expect(FeedbackClient.emailValidationError('not-an-email')).assertEqual('请输入有效的联系邮箱。')
+      expect(FeedbackClient.emailValidationError('user@example.com')).assertEqual('')
     })
 
     it('returnsFeedbackIdOnCreated', 0, () => {

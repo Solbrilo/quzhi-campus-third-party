@@ -31,6 +31,14 @@ data class AppUpdateInfo(
     val apkUrl: String,
 )
 
+/** A published release entry shown in the in-app update history. */
+data class AppReleaseNote(
+    val versionName: String,
+    val title: String,
+    val body: String,
+    val publishedAt: String?,
+)
+
 data class AppUpdateDownloadProgress(
     val downloadedBytes: Long,
     val totalBytes: Long?,
@@ -48,6 +56,71 @@ sealed interface AppUpdateCheckResult {
     data class InvalidRelease(val message: String) : AppUpdateCheckResult
     data class Failed(val message: String) : AppUpdateCheckResult
 }
+
+sealed interface AppReleaseNotesResult {
+    data class Success(val releases: List<AppReleaseNote>) : AppReleaseNotesResult
+    data class Failed(val message: String) : AppReleaseNotesResult
+}
+
+private const val UPDATE_MANIFEST_SCHEMA_VERSION = 1
+
+/** Returns true when [manifest] follows the versioned cross-platform update contract. */
+internal fun isSupportedUpdateManifest(manifest: JSONObject): Boolean =
+    manifest.optInt("schemaVersion", -1) == UPDATE_MANIFEST_SCHEMA_VERSION
+
+/**
+ * Parses the Android-specific latest release from the shared static update manifest.
+ *
+ * The expected APK name is retained here so the manifest cannot accidentally point Android at
+ * another platform's package. The downloaded archive is still verified against the installed
+ * package name, version code, and signing certificate before installation.
+ */
+internal fun parseAndroidLatestUpdate(manifest: JSONObject): AppUpdateInfo? {
+    if (!isSupportedUpdateManifest(manifest)) return null
+    val latest = manifest.optJSONObject("android")?.optJSONObject("latest") ?: return null
+    val versionName = parseReleaseVersionTag(latest.optString("tagName")) ?: return null
+    val expectedName = "hotwater-android-v$versionName.apk"
+    val apkUrl = latest.optString("url").trim()
+    if (!apkUrl.startsWith("https://") || !apkUrl.substringBefore('?').endsWith("/$expectedName")) {
+        return null
+    }
+    return AppUpdateInfo(
+        versionName = versionName,
+        releaseNotes = latest.optString("body").trim(),
+        apkUrl = apkUrl,
+    )
+}
+
+/** Parses static manifest release history and ignores draft or malformed entries. */
+internal fun parseReleaseNotesPayload(manifest: JSONObject): List<AppReleaseNote> {
+    if (!isSupportedUpdateManifest(manifest)) return emptyList()
+    val releaseArray = manifest.optJSONArray("releases") ?: return emptyList()
+    return buildList {
+        for (index in 0 until releaseArray.length()) {
+            val release = releaseArray.optJSONObject(index) ?: continue
+            if (release.optBoolean("draft", false)) continue
+            val versionName = parseReleaseVersionTag(release.optString("tagName")) ?: continue
+            val title = release.optString("title").trim()
+            val publishedAt = release.optString("publishedAt").trim()
+                .ifBlank { null }
+            add(
+                AppReleaseNote(
+                    versionName = versionName,
+                    title = title,
+                    body = release.optString("body").trim(),
+                    publishedAt = publishedAt,
+                ),
+            )
+        }
+    }
+}
+
+private fun parseReleaseVersionTag(tag: String): String? {
+    val match = RELEASE_TAG_PATTERN.matchEntire(tag.trim()) ?: return null
+    return "${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}"
+}
+
+private val RELEASE_TAG_PATTERN = Regex("^v(\\d+)\\.(\\d+)\\.(\\d+)$")
 
 sealed interface AppUpdateInstallResult {
     data object InstallationLaunched : AppUpdateInstallResult
@@ -69,11 +142,7 @@ class AppUpdateManager(context: Context) {
     @OptIn(InternalCoroutinesApi::class)
     suspend fun checkForUpdate(): AppUpdateCheckResult = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(LATEST_RELEASE_URL)
-                .header("Accept", "application/json")
-                .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
-                .build()
+            val request = updateManifestRequest()
             val call = client.newCall(request)
             val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
                 onCancelling = true,
@@ -91,24 +160,20 @@ class AppUpdateManager(context: Context) {
                 }
 
                 val payload = response.body?.string().orEmpty()
-                val release = runCatching { JSONObject(payload) }.getOrElse {
+                val manifest = runCatching { JSONObject(payload) }.getOrElse {
                     return@withContext AppUpdateCheckResult.InvalidRelease("更新服务返回的数据格式无效")
                 }
-                val versionName = parseReleaseVersion(release.optString("tag_name"))
-                    ?: return@withContext AppUpdateCheckResult.InvalidRelease("Release 标签必须使用 vX.Y.Z 格式")
-                if (compareVersions(versionName, BuildConfig.VERSION_NAME) <= 0) {
+                if (!isSupportedUpdateManifest(manifest)) {
+                    return@withContext AppUpdateCheckResult.InvalidRelease("更新服务返回的数据格式无效")
+                }
+                val update = parseAndroidLatestUpdate(manifest)
+                    ?: return@withContext AppUpdateCheckResult.InvalidRelease(
+                        "更新清单缺少有效的 Android Release 信息",
+                    )
+                if (compareVersions(update.versionName, BuildConfig.VERSION_NAME) <= 0) {
                     return@withContext AppUpdateCheckResult.UpToDate
                 }
-
-                val apkUrl = findApkUrl(release.optJSONArray("assets"), versionName)
-                    ?: return@withContext AppUpdateCheckResult.InvalidRelease("Release 中未找到 Android APK")
-                AppUpdateCheckResult.UpdateAvailable(
-                    AppUpdateInfo(
-                        versionName = versionName,
-                        releaseNotes = release.optString("body").trim(),
-                        apkUrl = apkUrl,
-                    ),
-                )
+                AppUpdateCheckResult.UpdateAvailable(update)
                 }
             } finally {
                 cancellationHandle.dispose()
@@ -119,6 +184,57 @@ class AppUpdateManager(context: Context) {
             AppUpdateCheckResult.Failed("网络连接失败，请稍后重试")
         } catch (error: Exception) {
             AppUpdateCheckResult.Failed("检查更新失败：${error.message ?: "未知错误"}")
+        }
+    }
+
+    /**
+     * Loads all published release logs from the shared update manifest. This is kept separate
+     * from [checkForUpdate] so opening the history never starts an installation flow.
+     */
+    @OptIn(InternalCoroutinesApi::class)
+    suspend fun fetchReleaseNotes(): AppReleaseNotesResult = withContext(Dispatchers.IO) {
+        try {
+            val request = updateManifestRequest()
+            val call = client.newCall(request)
+            val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
+                onCancelling = true,
+                invokeImmediately = true,
+            ) { cause ->
+                if (cause is CancellationException) call.cancel()
+            }
+            try {
+                val result = runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
+                    if (response.code == 404) {
+                        AppReleaseNotesResult.Success(emptyList())
+                    } else if (!response.isSuccessful) {
+                        AppReleaseNotesResult.Failed("获取更新日志失败：HTTP ${response.code}")
+                    } else {
+                        val manifest = runCatching {
+                            JSONObject(response.body?.string().orEmpty())
+                        }.getOrNull()
+                        if (manifest == null || !isSupportedUpdateManifest(manifest)) {
+                            AppReleaseNotesResult.Failed("更新日志格式无效")
+                        } else {
+                            AppReleaseNotesResult.Success(
+                                parseReleaseNotesPayload(manifest)
+                                    .distinctBy { it.versionName }
+                                    .sortedWith { left, right ->
+                                        compareVersions(right.versionName, left.versionName)
+                                    },
+                            )
+                        }
+                    }
+                }
+                result
+            } finally {
+                cancellationHandle.dispose()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: IOException) {
+            AppReleaseNotesResult.Failed("网络连接失败，请稍后重试")
+        } catch (error: Exception) {
+            AppReleaseNotesResult.Failed("获取更新日志失败：${error.message ?: "未知错误"}")
         }
     }
 
@@ -432,24 +548,11 @@ class AppUpdateManager(context: Context) {
         appContext.startActivity(intent)
     }
 
-    private fun findApkUrl(assets: JSONArray?, versionName: String): String? {
-        if (assets == null) return null
-        val expectedName = "hotwater-android-v$versionName.apk"
-        for (index in 0 until assets.length()) {
-            val asset = assets.optJSONObject(index) ?: continue
-            val name = asset.optString("name")
-            val url = asset.optString("browser_download_url")
-                .ifBlank { asset.optString("download_url") }
-            if (url.isBlank() || !url.startsWith("https://")) continue
-            if (name == expectedName) return url
-        }
-        return null
-    }
-
-    private fun parseReleaseVersion(tag: String): String? {
-        val match = VERSION_PATTERN.matchEntire(tag.trim()) ?: return null
-        return "${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}"
-    }
+    private fun updateManifestRequest(): Request = Request.Builder()
+        .url(UPDATE_MANIFEST_URL)
+        .header("Accept", "application/json")
+        .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
+        .build()
 
     private fun compareVersions(left: String, right: String): Int {
         val leftParts = left.split('.').map { it.toInt() }
@@ -461,16 +564,15 @@ class AppUpdateManager(context: Context) {
     }
 
     private companion object {
-        const val LATEST_RELEASE_URL =
-            "https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases/latest"
+        const val UPDATE_MANIFEST_URL =
+            "https://gitee.com/Solbrilo/quzhi-campus-third-party/raw/main/update-manifest.json"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val PROGRESS_REPORT_INTERVAL_BYTES = 256L * 1024L
         const val PENDING_INSTALL_PREFERENCES = "app_update_install"
         const val PENDING_INSTALL_VERSION = "pending_version"
-        val VERSION_PATTERN = Regex("^v(\\d+)\\.(\\d+)\\.(\\d+)$")
         val RELEASE_VERSION_PATTERN = Regex("^\\d+\\.\\d+\\.\\d+$")
 
-        // MainActivity and AboutActivity own separate managers but share update files and state.
+        // App entry points share update files and installation state through this mutex.
         val updateInstallMutex = Mutex()
     }
 }

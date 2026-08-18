@@ -26,6 +26,7 @@ class FeedbackPayload {
   platform: string = 'harmonyos'
   appVersion: string = ''
   category: string = ''
+  email: string = ''
   message: string = ''
 }
 
@@ -39,8 +40,17 @@ export class FeedbackClient {
     }
   }
 
-  async submit(appVersion: string, category: string, message: string): Promise<FeedbackSubmitResult> {
+  async submit(appVersion: string, category: string, email: string,
+    message: string): Promise<FeedbackSubmitResult> {
+    const normalizedEmail = email.trim()
     const normalizedMessage = message.trim()
+    const emailValidationMessage = FeedbackClient.emailValidationError(normalizedEmail)
+    if (emailValidationMessage.length > 0) {
+      const rejected = new FeedbackSubmitResult()
+      rejected.state = FeedbackSubmitState.REJECTED
+      rejected.message = emailValidationMessage
+      return rejected
+    }
     const validationMessage = FeedbackClient.validationError(normalizedMessage)
     if (validationMessage.length > 0) {
       const rejected = new FeedbackSubmitResult()
@@ -52,6 +62,7 @@ export class FeedbackClient {
     const payload = new FeedbackPayload()
     payload.appVersion = appVersion
     payload.category = category
+    payload.email = normalizedEmail
     payload.message = normalizedMessage
 
     const client = http.createHttp()
@@ -117,10 +128,23 @@ export class FeedbackClient {
     return ''
   }
 
-  static buildPayloadForTest(appVersion: string, category: string, message: string): string {
+  static emailValidationError(email: string): string {
+    const normalized = email.trim()
+    if (normalized.length === 0) {
+      return '请填写联系邮箱。'
+    }
+    if (normalized.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      return '请输入有效的联系邮箱。'
+    }
+    return ''
+  }
+
+  static buildPayloadForTest(appVersion: string, category: string, email: string,
+    message: string): string {
     const payload = new FeedbackPayload()
     payload.appVersion = appVersion
     payload.category = category
+    payload.email = email.trim()
     payload.message = message
     return JSON.stringify(payload)
   }

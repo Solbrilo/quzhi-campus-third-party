@@ -115,7 +115,6 @@ class MainActivity : ComponentActivity() {
                         glassIntensity = DEFAULT_GLASS_INTENSITY
                         GlassIntensityPreferences.write(this, glassIntensity)
                     },
-                    onOpenAbout = { startActivity(Intent(this, AboutActivity::class.java)) },
                     onExportConfig = { exportConfig() },
                     onImportConfig = { importConfig() },
                     onOpenAlipayRecharge = { openAlipayForRecharge() },

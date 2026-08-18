@@ -298,6 +298,46 @@ class HotWaterRepositoryTest {
     }
 
     @Test
+    fun check_preservesExplicitDeviceOnlineStateAndLeavesUnknownStatusUnset() = runBlocking {
+        val offlineStatus = successPayload().apply {
+            getJSONObject("data").put("online", false)
+        }
+        val offlineResult = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(offlineStatus),
+            ),
+            FakeSessionStore(),
+        ).check(completeConfig)
+
+        assertEquals(false, offlineResult.snapshot?.isDeviceOnline)
+
+        val onlineResult = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+            ),
+            FakeSessionStore(),
+        ).check(completeConfig)
+
+        assertEquals(true, onlineResult.snapshot?.isDeviceOnline)
+
+        val unknownResult = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(
+                    JSONObject()
+                        .put("success", false)
+                        .put("errorCode", 503),
+                ),
+            ),
+            FakeSessionStore(),
+        ).check(completeConfig)
+
+        assertNull(unknownResult.snapshot?.isDeviceOnline)
+    }
+
+    @Test
     fun open_existingOwnedOrderDoesNotSendDuplicateOpenAndRepairsBaseline() = runBlocking {
         val activeStatus = successPayload().apply {
             getJSONObject("data").put("orderNo", "order-existing")

@@ -18,10 +18,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.QrCodeScanner
-import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,7 +38,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -46,6 +45,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,22 +55,15 @@ import cn.qzxy.hotwater.designsystem.component.GlassButton
 import cn.qzxy.hotwater.designsystem.component.GlassInput
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
-import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 @Composable
 fun ConfigPage(
     config: HotWaterConfig,
     busy: Boolean,
-    glassIntensity: Float,
-    onGlassIntensityChange: (Float) -> Unit,
-    onGlassIntensityChangeFinished: () -> Unit,
-    onResetGlassIntensity: () -> Unit,
     onSave: (HotWaterConfig) -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
@@ -96,6 +90,12 @@ fun ConfigPage(
     var loginCode by rememberSaveable(config.loginCode) { mutableStateOf(config.loginCode) }
     var telephone by rememberSaveable(config.telephone) { mutableStateOf(config.telephone) }
     var snCode by rememberSaveable(config.snCode) { mutableStateOf(config.snCode) }
+    var projectIdVisible by rememberSaveable { mutableStateOf(false) }
+    var userIdVisible by rememberSaveable { mutableStateOf(false) }
+    var accountIdVisible by rememberSaveable { mutableStateOf(false) }
+    var loginCodeVisible by rememberSaveable { mutableStateOf(false) }
+    var telephoneVisible by rememberSaveable { mutableStateOf(false) }
+    var snCodeVisible by rememberSaveable { mutableStateOf(false) }
     var showValidationErrors by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(scannedSnCode) {
@@ -129,6 +129,8 @@ fun ConfigPage(
     val doneActions = KeyboardActions(
         onDone = { focusManager.clearFocus() },
     )
+    fun sensitiveTransformation(isVisible: Boolean): VisualTransformation =
+        if (isVisible) VisualTransformation.None else PasswordVisualTransformation()
 
     Column(
         modifier = Modifier
@@ -177,6 +179,14 @@ fun ConfigPage(
                     imeAction = ImeAction.Next,
                 ),
                 keyboardActions = nextActions,
+                visualTransformation = sensitiveTransformation(projectIdVisible),
+                trailingContent = {
+                    SensitiveFieldVisibilityButton(
+                        visible = projectIdVisible,
+                        fieldLabel = "项目 ID",
+                        onToggle = { projectIdVisible = !projectIdVisible },
+                    )
+                },
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -192,6 +202,14 @@ fun ConfigPage(
                     imeAction = ImeAction.Next,
                 ),
                 keyboardActions = nextActions,
+                visualTransformation = sensitiveTransformation(userIdVisible),
+                trailingContent = {
+                    SensitiveFieldVisibilityButton(
+                        visible = userIdVisible,
+                        fieldLabel = "用户 ID",
+                        onToggle = { userIdVisible = !userIdVisible },
+                    )
+                },
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -207,6 +225,14 @@ fun ConfigPage(
                     imeAction = ImeAction.Next,
                 ),
                 keyboardActions = nextActions,
+                visualTransformation = sensitiveTransformation(accountIdVisible),
+                trailingContent = {
+                    SensitiveFieldVisibilityButton(
+                        visible = accountIdVisible,
+                        fieldLabel = "账户 ID",
+                        onToggle = { accountIdVisible = !accountIdVisible },
+                    )
+                },
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -222,6 +248,14 @@ fun ConfigPage(
                     imeAction = ImeAction.Next,
                 ),
                 keyboardActions = nextActions,
+                visualTransformation = sensitiveTransformation(loginCodeVisible),
+                trailingContent = {
+                    SensitiveFieldVisibilityButton(
+                        visible = loginCodeVisible,
+                        fieldLabel = "登录凭据",
+                        onToggle = { loginCodeVisible = !loginCodeVisible },
+                    )
+                },
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -237,6 +271,14 @@ fun ConfigPage(
                     imeAction = ImeAction.Next,
                 ),
                 keyboardActions = nextActions,
+                visualTransformation = sensitiveTransformation(telephoneVisible),
+                trailingContent = {
+                    SensitiveFieldVisibilityButton(
+                        visible = telephoneVisible,
+                        fieldLabel = "手机号",
+                        onToggle = { telephoneVisible = !telephoneVisible },
+                    )
+                },
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -252,22 +294,31 @@ fun ConfigPage(
                     imeAction = ImeAction.Done,
                 ),
                 keyboardActions = doneActions,
+                visualTransformation = sensitiveTransformation(snCodeVisible),
+                trailingContentWidth = 88.dp,
                 trailingContent = {
-                    GlassPressable(
-                        onClick = onScanSnCode,
-                        enabled = !busy,
-                        material = GlassMaterial.EmbeddedControl,
-                        cornerRadius = 18.dp,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .semantics { contentDescription = "扫描设备二维码" },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.QrCodeScanner,
-                            contentDescription = null,
-                            tint = tokens.textPrimary,
-                            modifier = Modifier.size(22.dp),
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SensitiveFieldVisibilityButton(
+                            visible = snCodeVisible,
+                            fieldLabel = "设备序列号",
+                            onToggle = { snCodeVisible = !snCodeVisible },
                         )
+                        GlassPressable(
+                            onClick = onScanSnCode,
+                            enabled = !busy,
+                            material = GlassMaterial.EmbeddedControl,
+                            cornerRadius = 18.dp,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .semantics { contentDescription = "扫描设备二维码" },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.QrCodeScanner,
+                                contentDescription = null,
+                                tint = tokens.textPrimary,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
                     }
                 },
             )
@@ -365,108 +416,34 @@ fun ConfigPage(
             )
         }
 
-        GlassIntensityPanel(
-            glassIntensity = glassIntensity,
-            onGlassIntensityChange = onGlassIntensityChange,
-            onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
-            onResetGlassIntensity = onResetGlassIntensity,
-        )
-
         // 底部间距
         Spacer(modifier = Modifier.height(bottomDockClearance()))
     }
 }
 
 @Composable
-internal fun GlassIntensityPanel(
-    glassIntensity: Float,
-    onGlassIntensityChange: (Float) -> Unit,
-    onGlassIntensityChangeFinished: () -> Unit,
-    onResetGlassIntensity: () -> Unit,
-    modifier: Modifier = Modifier,
+private fun SensitiveFieldVisibilityButton(
+    visible: Boolean,
+    fieldLabel: String,
+    onToggle: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
-    val normalizedIntensity = glassIntensity
-        .takeIf { it.isFinite() }
-        ?.coerceIn(0f, 1f)
-        ?: DEFAULT_GLASS_INTENSITY
-    val percentage = (normalizedIntensity * 100f).roundToInt()
-    val percentageText = "$percentage%"
-    val resetEnabled = abs(normalizedIntensity - DEFAULT_GLASS_INTENSITY) > 0.0001f
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag(GlassIntensityPanelTag)
-            .glassMaterial(GlassMaterial.Panel, 28.dp)
-            .padding(18.dp),
+    GlassPressable(
+        onClick = onToggle,
+        material = GlassMaterial.EmbeddedControl,
+        cornerRadius = 18.dp,
+        modifier = Modifier
+            .size(40.dp)
+            .semantics {
+                contentDescription = if (visible) "隐藏$fieldLabel" else "显示$fieldLabel"
+            },
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "液态玻璃效果",
-                color = tokens.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = percentageText,
-                color = tokens.textPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                modifier = Modifier.testTag(GlassIntensityValueTag),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Slider(
-                value = normalizedIntensity,
-                onValueChange = { onGlassIntensityChange(it.coerceIn(0f, 1f)) },
-                onValueChangeFinished = onGlassIntensityChangeFinished,
-                valueRange = 0f..1f,
-                steps = 0,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag(GlassIntensitySliderTag)
-                    .semantics {
-                        contentDescription = GlassIntensitySliderDescription
-                        stateDescription = percentageText
-                    },
-            )
-            GlassPressable(
-                onClick = onResetGlassIntensity,
-                enabled = resetEnabled,
-                cornerRadius = 24.dp,
-                modifier = Modifier
-                    .size(48.dp)
-                    .testTag(GlassIntensityResetTag)
-                    .semantics {
-                        contentDescription = GlassIntensityResetDescription
-                        stateDescription = if (resetEnabled) {
-                            "可恢复为默认强度 75%"
-                        } else {
-                            "当前已是默认强度 75%"
-                        }
-                    },
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Restore,
-                    contentDescription = null,
-                    tint = tokens.textPrimary,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-        }
+        Icon(
+            imageVector = if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+            contentDescription = null,
+            tint = tokens.textPrimary,
+            modifier = Modifier.size(21.dp),
+        )
     }
 }
 
@@ -583,19 +560,13 @@ private fun ConfigTransferButton(
 
 private const val ExportConfigLabel = "导出配置"
 private const val ImportConfigLabel = "导入配置"
-internal const val GlassIntensityPanelTag = "glass_intensity_panel"
-internal const val GlassIntensitySliderTag = "glass_intensity_slider"
-internal const val GlassIntensityValueTag = "glass_intensity_value"
-internal const val GlassIntensityResetTag = "glass_intensity_reset"
-internal const val GlassIntensitySliderDescription = "液态玻璃效果强度"
-internal const val GlassIntensityResetDescription = "恢复默认液态玻璃强度"
 
 private fun buildConfigSummary(config: HotWaterConfig): String {
     return if (config.isComplete()) {
         buildString {
             appendLine("配置已完成")
             appendLine("账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}")
-            append("设备 snCode: ${config.snCode}")
+            append("设备 snCode：已隐藏")
         }
     } else {
         "还没完成配置。请填写上方所有字段后点击保存。"

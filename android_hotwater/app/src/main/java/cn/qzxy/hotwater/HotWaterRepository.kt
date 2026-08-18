@@ -21,6 +21,7 @@ data class DashboardSnapshot(
     val orderNo: String?,
     val hasCachedOrder: Boolean,
     val isDeviceBusyByOther: Boolean = false,
+    val isDeviceOnline: Boolean? = null,
     val usageStartedAtMillis: Long? = null,
 )
 
@@ -996,6 +997,7 @@ class HotWaterRepository(
             orderNo = cachedOrderNo,
             hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
             isDeviceBusyByOther = busyByOther,
+            isDeviceOnline = deviceOnlineState(statusPayload),
             usageStartedAtMillis = if (cachedOrderNo.isNullOrBlank()) null else store.loadUsageSession()?.startedAtMillis,
         )
     }
@@ -1145,6 +1147,30 @@ class HotWaterRepository(
         }
     }
 
+    private fun deviceOnlineState(payload: JSONObject): Boolean? {
+        reportedDeviceOnlineState(payload)?.let { return it }
+        return if (isAcceptedResponse(payload) || isDeviceBusyByOther(payload)) {
+            true
+        } else {
+            null
+        }
+    }
+
+    private fun reportedDeviceOnlineState(payload: JSONObject): Boolean? {
+        ONLINE_STATE_KEYS.forEach { key ->
+            val rawValue = findNestedValue(payload, key) ?: return@forEach
+            when (rawValue) {
+                is Boolean -> return rawValue
+                is Number -> return rawValue.toInt() != 0
+                else -> when (rawValue.toString().trim().lowercase()) {
+                    "online", "connected", "true", "1" -> return true
+                    "offline", "disconnected", "false", "0" -> return false
+                }
+            }
+        }
+        return null
+    }
+
     companion object {
         private const val DEVICE_BUSY_ERROR_CODE = 307
         private const val DEVICE_BUSY_BY_OTHER_MESSAGE = "已有他人正在使用这台设备，请稍后再试。"
@@ -1153,6 +1179,13 @@ class HotWaterRepository(
         private const val MAX_PENDING_BALANCE_FALLBACK_AGE_MS = 10 * 60 * 1_000L
         private const val MAX_UNCONFIRMED_CLOSE_GATE_MS = 15_000L
         private const val MAX_RECONCILIATION_LOCK_MS = 1_500L
+        private val ONLINE_STATE_KEYS = listOf(
+            "isOnline",
+            "online",
+            "deviceOnline",
+            "onlineStatus",
+            "tcpDeviceOnline",
+        )
         private val DEVICE_CONTROL_MUTEX = Mutex()
         private val SETTLEMENT_RECONCILIATION_MUTEX = Mutex()
     }

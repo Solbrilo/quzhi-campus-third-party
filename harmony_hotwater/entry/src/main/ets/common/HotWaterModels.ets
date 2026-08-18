@@ -62,6 +62,7 @@ export class DashboardSnapshot {
   orderNo: string = ''
   hasCachedOrder: boolean = false
   isDeviceBusyByOther: boolean = false
+  isDeviceOnline: boolean | null = null
   remoteOrderConfirmed: boolean = false
   remoteNoActiveOrderConfirmed: boolean = false
 }
