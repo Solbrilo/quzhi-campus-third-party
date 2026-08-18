@@ -47,6 +47,8 @@ object HotWaterUiText {
                     "关热水请求已发送，等待设备确认。"
                 }
             }
+
+            WidgetHotWaterAction.REFRESH -> result.summary.replace('\n', ' ')
         }
     }
 

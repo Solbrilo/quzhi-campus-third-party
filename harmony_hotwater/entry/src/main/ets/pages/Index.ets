@@ -7,8 +7,7 @@ import { Want } from '@kit.AbilityKit'
 import { buffer } from '@kit.ArkTS'
 import { SymbolGlyphModifier } from '@kit.ArkUI'
 import { vibrator } from '@kit.SensorServiceKit'
-import { BlurStrategy, DividerMode, HdsTabs } from '@hms.hds.hdsBaseComponent'
-import { hdsMaterial } from '@hms.hds.hdsMaterial'
+import { BlurStrategy, DividerMode, HdsTabs, hdsMaterial } from '@kit.UIDesignKit'
 import {
   ConsumptionRecord,
   DashboardSnapshot,
@@ -39,6 +38,10 @@ import { ConfigFlowBridge } from '../common/ConfigFlowBridge'
 import { HotWaterConfigTransfer } from '../common/HotWaterConfigTransfer'
 import { RuntimeDeviceInfoResolver } from '../common/RuntimeDeviceInfoResolver'
 import { GiteeUpdateRepository, UpdateCheckState } from '../common/AppUpdate'
+import {
+  AppearanceMaterialLevel,
+  AppearanceMaterialType
+} from '../common/AppAppearance'
 
 const LOW_BALANCE_WARNING_YUAN: number = 5
 const ALIPAY_RECHARGE_URI: string =
@@ -60,6 +63,7 @@ interface FieldInputParams {
   text: string
   placeholder: string
   inputType?: InputType
+  isSensitive?: boolean
   onChange: (value: string) => void
 }
 
@@ -85,6 +89,7 @@ struct Index {
   @State locationLabel: string = '先完成配置再刷新'
   @State statusLabel: string = '当前配置还不完整。'
   @State hasCachedOrder: boolean = false
+  @State deviceOnline: boolean | null = null
   @State usageStartedAtMillis: number = 0
   @State usageElapsedMillis: number = 0
   @State consumptionRecords: ConsumptionRecord[] = []
@@ -101,7 +106,7 @@ struct Index {
   private credentialExpiryPromptVisible: boolean = false
   private postCloseRefreshGeneration: number = 0
   private lastCredentialValidationAtMillis: number = 0
-  @State currentVersionLabel: string = '2.1.0'
+  @State currentVersionLabel: string = '2.2.0'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -127,12 +132,20 @@ struct Index {
   @StorageProp('statusBarHeight') statusBarHeight: number = 0
   @StorageProp('bottomSafeHeight') bottomSafeHeight: number = 0
   @StorageProp('colorMode') colorMode: ColorMode = ColorMode.LIGHT
+  @StorageProp('networkAvailable') networkAvailable: boolean = false
+  @StorageProp('networkStatusKnown') networkStatusKnown: boolean = false
+  @StorageProp('appearanceMaterialType') appearanceMaterialType: string =
+    AppearanceMaterialType.ADAPTIVE
+  @StorageProp('appearanceMaterialLevel') appearanceMaterialLevel: string =
+    AppearanceMaterialLevel.ADAPTIVE
+  @State immersiveMaterialSupported: boolean = false
 
   aboutToAppear(): void {
     this.pageVisible = true
     this.hostContext = this.getUIContext().getHostContext() as common.Context
     this.store = new HotWaterStore(this.hostContext)
     this.repository = new HotWaterRepository(this.store)
+    this.immersiveMaterialSupported = this.supportsImmersiveMaterial()
     this.initialize()
     this.setupImmersiveWindow()
   }
@@ -223,6 +236,7 @@ struct Index {
     this.deviceName = snapshot.deviceName
     this.locationLabel = snapshot.locationLabel
     this.hasCachedOrder = snapshot.hasCachedOrder
+    this.deviceOnline = snapshot.isDeviceOnline
     this.statusLabel = snapshot.statusLabel
     this.syncUsageTimer()
   }
@@ -238,7 +252,7 @@ struct Index {
 
   private applyConfigSummary(config: HotWaterConfig): void {
     if (config.isComplete()) {
-      this.configSummary = `配置已完成\n账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}\nsnCode: ${config.snCode}`
+      this.configSummary = `配置已完成\n账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}\nsnCode：已隐藏`
     } else {
       this.configSummary = '登录趣智校园会自动填充账号字段；首次使用仍需补充 snCode。'
     }
@@ -437,7 +451,7 @@ struct Index {
       config.snCode = this.snCodeText
       if (this.snCodeFormDirty) {
         this.configSummary = `设备码已回填，点击“保存配置”完成绑定。\n` +
-          `账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}\nsnCode: ${config.snCode || '-'}`
+          `账号: ${HotWaterConfig.maskMiddle(config.telephone, 3, 4)}\nsnCode：已隐藏`
       } else {
         this.applyConfigSummary(config)
       }
@@ -935,7 +949,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '2.1.0'
+      this.currentVersionLabel = '2.2.0'
     }
   }
 
@@ -943,7 +957,7 @@ struct Index {
     try {
       await this.getUIContext().getRouter().pushUrl({ url: 'pages/About' })
     } catch (error) {
-      this.liveStatus = '暂时无法打开关于页面。'
+      this.liveStatus = '暂时无法打开更多页面。'
     }
   }
 
@@ -986,6 +1000,27 @@ struct Index {
             .fontSize(26)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.text_primary'))
+          if (this.shouldShowConnectionStatus()) {
+            Row({ space: 6 }) {
+              Text('●')
+                .fontSize(12)
+                .fontColor(!this.networkAvailable
+                  ? $r('app.color.widget_status_error')
+                  : (this.deviceOnline === true
+                    ? $r('app.color.widget_status_open')
+                    : $r('app.color.widget_status_close')))
+              Text(this.getConnectionStatusLabel())
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(!this.networkAvailable
+                  ? $r('app.color.widget_status_error')
+                  : (this.deviceOnline === true
+                    ? $r('app.color.widget_status_open')
+                    : $r('app.color.widget_status_close')))
+            }
+            .alignItems(VerticalAlign.Center)
+            .accessibilityText(this.getConnectionStatusLabel())
+          }
           Text(this.activePage === HomePage.OPERATIONS
             ? '用水控制'
             : (this.activePage === HomePage.RECORDS ? '账单' : '设备与账号'))
@@ -1002,18 +1037,59 @@ struct Index {
           .height(40)
           .textAlign(TextAlign.Center)
           .accessibilityText('更多')
-          .bindMenu([{
-            value: '关于',
-            action: () => {
-              this.openAbout()
-            }
-          }])
+          .onClick(() => {
+            this.openAbout()
+          })
       }
       .width('100%')
       .alignItems(VerticalAlign.Top)
     }
     .width('100%')
     .padding({ top: this.statusBarHeight > 0 ? this.statusBarHeight : 0 })
+  }
+
+  private shouldShowConnectionStatus(): boolean {
+    return this.networkStatusKnown && (!this.networkAvailable || this.deviceOnline !== null)
+  }
+
+  private getConnectionStatusLabel(): string {
+    if (!this.networkAvailable) {
+      return '用户未联网'
+    }
+    return this.deviceOnline === true ? '热水器在线' : '热水器不在线'
+  }
+
+  private supportsImmersiveMaterial(): boolean {
+    try {
+      const supportedTypes = hdsMaterial.getSystemMaterialTypes()
+      return supportedTypes.indexOf(hdsMaterial.MaterialType.IMMERSIVE) >= 0
+    } catch (error) {
+      return false
+    }
+  }
+
+  private resolveBottomMaterialType(): hdsMaterial.MaterialType {
+    if (this.appearanceMaterialType === AppearanceMaterialType.NONE) {
+      return hdsMaterial.MaterialType.NONE
+    }
+    if (this.appearanceMaterialType === AppearanceMaterialType.IMMERSIVE &&
+      this.immersiveMaterialSupported) {
+      return hdsMaterial.MaterialType.IMMERSIVE
+    }
+    return hdsMaterial.MaterialType.ADAPTIVE
+  }
+
+  private resolveBottomMaterialLevel(): hdsMaterial.MaterialLevel {
+    switch (this.appearanceMaterialLevel) {
+      case AppearanceMaterialLevel.EXQUISITE:
+        return hdsMaterial.MaterialLevel.EXQUISITE
+      case AppearanceMaterialLevel.GENTLE:
+        return hdsMaterial.MaterialLevel.GENTLE
+      case AppearanceMaterialLevel.SMOOTH:
+        return hdsMaterial.MaterialLevel.SMOOTH
+      default:
+        return hdsMaterial.MaterialLevel.ADAPTIVE
+    }
   }
 
   @Builder
@@ -1032,7 +1108,8 @@ struct Index {
       .width('100%')
 
       TextInput({ text: params.text, placeholder: params.placeholder })
-        .type(params.inputType ?? InputType.Normal)
+        .type(params.inputType ?? (params.isSensitive ? InputType.Password : InputType.Normal))
+        .showPasswordIcon(params.isSensitive === true)
         .fontSize(16)
         .fontColor($r('app.color.text_primary'))
         .placeholderColor($r('app.color.text_secondary'))
@@ -1641,6 +1718,8 @@ struct Index {
           description: 'projectId',
           text: this.projectIdText,
           placeholder: 'projectId',
+          inputType: InputType.NUMBER_PASSWORD,
+          isSensitive: true,
           onChange: (value: string) => {
             this.projectIdText = value
           }
@@ -1650,6 +1729,8 @@ struct Index {
           description: 'userId',
           text: this.userIdText,
           placeholder: 'userId',
+          inputType: InputType.NUMBER_PASSWORD,
+          isSensitive: true,
           onChange: (value: string) => {
             this.userIdText = value
           }
@@ -1659,6 +1740,8 @@ struct Index {
           description: 'accountId',
           text: this.accountIdText,
           placeholder: 'accountId',
+          inputType: InputType.NUMBER_PASSWORD,
+          isSensitive: true,
           onChange: (value: string) => {
             this.accountIdText = value
           }
@@ -1668,6 +1751,7 @@ struct Index {
           description: 'loginCode',
           text: this.loginCodeText,
           placeholder: 'loginCode',
+          isSensitive: true,
           onChange: (value: string) => {
             this.loginCodeText = value
           }
@@ -1677,6 +1761,8 @@ struct Index {
           description: 'telephone',
           text: this.telephoneText,
           placeholder: 'telephone',
+          inputType: InputType.NUMBER_PASSWORD,
+          isSensitive: true,
           onChange: (value: string) => {
             this.telephoneText = value
           }
@@ -1688,6 +1774,7 @@ struct Index {
               description: 'snCode',
               text: this.snCodeText,
               placeholder: 'snCode',
+              isSensitive: true,
               onChange: (value: string) => {
                 this.snCodeText = value
                 this.snCodeFormDirty = true
@@ -1799,6 +1886,7 @@ struct Index {
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
       }
+      .width('100%')
       .padding(18)
       .borderRadius(24)
       .backgroundColor($r('app.color.card_background'))
@@ -1820,20 +1908,33 @@ struct Index {
     .padding({ bottom: 96 + this.bottomSafeHeight })
   }
 
-  build() {
-    Column({ space: 8 }) {
-      this.TopHeader()
+  private handlePageChange(index: number): void {
+    if (index !== this.activePage) {
+      this.triggerHaptic()
+    }
+    this.activePage = index
+    if (index === HomePage.RECORDS) {
+      this.loadConsumptionRecords()
+    }
+  }
 
-      HdsTabs({ index: this.activePage }) {
-        TabContent() {
+  build() {
+    HdsTabs({ index: this.activePage }) {
+      TabContent() {
+        Column({ space: 8 }) {
+          this.TopHeader()
           Scroll() {
             this.OperationsPage()
           }
           .scrollBar(BarState.Off)
+          .layoutWeight(1)
           .width('100%')
-          .height('100%')
           .edgeEffect(EdgeEffect.Spring)
         }
+        .width('100%')
+        .height('100%')
+        .padding({ left: 16, right: 16 })
+      }
         .tabBar(
           BottomTabBarStyle.of({
             normal: new SymbolGlyphModifier($r('sys.symbol.drop'))
@@ -1851,15 +1952,21 @@ struct Index {
             })
         )
 
-        TabContent() {
+      TabContent() {
+        Column({ space: 8 }) {
+          this.TopHeader()
           Scroll() {
             this.RecordsPage()
           }
           .scrollBar(BarState.Off)
+          .layoutWeight(1)
           .width('100%')
-          .height('100%')
           .edgeEffect(EdgeEffect.Spring)
         }
+        .width('100%')
+        .height('100%')
+        .padding({ left: 16, right: 16 })
+      }
         .tabBar(
           BottomTabBarStyle.of({
             normal: new SymbolGlyphModifier($r('sys.symbol.list_square_bill'))
@@ -1877,15 +1984,21 @@ struct Index {
             })
         )
 
-        TabContent() {
+      TabContent() {
+        Column({ space: 8 }) {
+          this.TopHeader()
           Scroll() {
             this.ConfigPage()
           }
           .scrollBar(BarState.Off)
+          .layoutWeight(1)
           .width('100%')
-          .height('100%')
           .edgeEffect(EdgeEffect.Spring)
         }
+        .width('100%')
+        .height('100%')
+        .padding({ left: 16, right: 16 })
+      }
         .tabBar(
           BottomTabBarStyle.of({
             normal: new SymbolGlyphModifier($r('sys.symbol.person_badge_gearshape'))
@@ -1902,43 +2015,35 @@ struct Index {
               unselectedColor: $r('app.color.text_secondary')
             })
         )
-      }
-      .barPosition(BarPosition.End)
-      .barMode(BarMode.Fixed)
-      .barHeight(64)
-      .barOverlap(true)
-      .divider({ mode: DividerMode.NONE })
-      .barBackgroundColor($r('app.color.card_background'))
-      .barBackgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
-      .blurStrategy(BlurStrategy.ENABLE)
-      .barFloatingStyle({
-        barSideMargin: 10,
-        barBottomMargin: this.bottomSafeHeight > 0 ? this.bottomSafeHeight + 6 : 8,
-        lightColor: $r('app.color.accent'),
-        systemMaterialEffect: {
-          materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.EXQUISITE
-        },
-        thermoCtrl: true,
-        barOpacity: 0.96
-      })
-      .animationDuration(300)
-      .onChange((index: number) => {
-        if (index !== this.activePage) {
-          this.triggerHaptic()
-        }
-        this.activePage = index
-        if (index === HomePage.RECORDS) {
-          this.loadConsumptionRecords()
-        }
-      })
-      .layoutWeight(1)
-      .width('100%')
-      .height('100%')
     }
+    .vertical(false)
+    .barPosition(BarPosition.End)
+    .barMode(BarMode.Fixed)
+    .barHeight(64)
+    .barOverlap(true)
+    .blurStrategy(BlurStrategy.ENABLE)
+    .divider({ mode: DividerMode.NONE })
+    .barFloatingStyle({
+      barSideMargin: 10,
+      barBottomMargin: 28,
+      lightColor: $r('app.color.accent'),
+      gradientMask: {
+        maskColor: $r('app.color.app_background'),
+        maskHeight: 92
+      },
+      systemMaterialEffect: {
+        materialType: this.resolveBottomMaterialType(),
+        materialLevel: this.resolveBottomMaterialLevel()
+      },
+      thermoCtrl: true,
+      barOpacity: 0.96
+    })
+    .animationDuration(300)
+    .onChange((index: number) => {
+      this.handlePageChange(index)
+    })
     .width('100%')
     .height('100%')
-    .padding({ left: 16, right: 16 })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .backgroundColor($r('app.color.app_background'))
   }

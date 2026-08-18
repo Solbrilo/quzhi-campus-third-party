@@ -131,7 +131,7 @@ export default function localUnitTest() {
       expect(imported.loginCode).assertEqual('login-code');
       expect(imported.telephone).assertEqual('13800138000');
       expect(imported.snCode).assertEqual('C47F0EDA85D8');
-      expect(exported).assertContain('"appVersion":"2.1.0"');
+      expect(exported).assertContain('"appVersion":"2.2.0"');
       expect(HotWaterConfigTransfer.generateFileName()).assertEqual('hotwater_config.json');
     });
     it('rejectsIncompleteImportedConfiguration', 0, () => {

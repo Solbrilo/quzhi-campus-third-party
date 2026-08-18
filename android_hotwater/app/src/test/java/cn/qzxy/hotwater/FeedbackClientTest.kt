@@ -12,7 +12,12 @@ class FeedbackClientTest {
     @Test
     fun payloadContainsOnlyContractFields() {
         val payload = JSONObject(
-            FeedbackClient.buildPayload("1.4.1", FeedbackCategory.Bug, "余额没有刷新"),
+            FeedbackClient.buildPayload(
+                "1.4.1",
+                FeedbackCategory.Bug,
+                "feedback@example.com",
+                "余额没有刷新",
+            ),
         )
 
         val keys = mutableSetOf<String>()
@@ -21,13 +26,14 @@ class FeedbackClientTest {
             keys += keyIterator.next()
         }
         assertEquals(
-            setOf("schemaVersion", "platform", "appVersion", "category", "message"),
+            setOf("schemaVersion", "platform", "appVersion", "category", "email", "message"),
             keys,
         )
         assertEquals(1, payload.getInt("schemaVersion"))
         assertEquals("android", payload.getString("platform"))
         assertEquals("1.4.1", payload.getString("appVersion"))
         assertEquals("bug", payload.getString("category"))
+        assertEquals("feedback@example.com", payload.getString("email"))
     }
 
     @Test
@@ -35,6 +41,13 @@ class FeedbackClientTest {
         assertEquals("请至少填写 2 个字。", FeedbackClient.validationError("😀"))
         assertNull(FeedbackClient.validationError("😀好"))
         assertEquals(2, FeedbackClient.countUnicodeCharacters("😀好"))
+    }
+
+    @Test
+    fun emailMustBePresentAndWellFormed() {
+        assertEquals("请填写联系邮箱。", FeedbackClient.emailValidationError("   "))
+        assertEquals("请输入有效的邮箱地址。", FeedbackClient.emailValidationError("not-an-email"))
+        assertNull(FeedbackClient.emailValidationError(" feedback+test@example.com "))
     }
 
     @Test

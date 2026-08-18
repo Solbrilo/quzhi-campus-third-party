@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.sp
@@ -50,6 +52,7 @@ fun GlassInput(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingContent: (@Composable () -> Unit)? = null,
+    trailingContentWidth: Dp = 48.dp,
 ) {
     val tokens = LocalGlassTokens.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -118,7 +121,13 @@ fun GlassInput(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (trailingContent == null) Modifier else Modifier.padding(end = 48.dp))
+                    .then(
+                        if (trailingContent == null) {
+                            Modifier
+                        } else {
+                            Modifier.padding(end = trailingContentWidth)
+                        },
+                    )
                     .height(52.dp)
                     .then(
                         if (focusRequester != null) Modifier.focusRequester(focusRequester)
@@ -133,7 +142,8 @@ fun GlassInput(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .size(48.dp),
+                        .width(trailingContentWidth)
+                        .height(48.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     trailingContent()

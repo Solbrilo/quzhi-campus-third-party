@@ -1,5 +1,10 @@
 package cn.qzxy.hotwater.ui
 
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -14,6 +19,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
@@ -32,22 +38,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,11 +61,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -83,6 +89,8 @@ import cn.qzxy.hotwater.AppUpdateDownloadProgress
 import cn.qzxy.hotwater.AppUpdateInfo
 import cn.qzxy.hotwater.AppUpdateInstallResult
 import cn.qzxy.hotwater.AppUpdateManager
+import cn.qzxy.hotwater.AppReleaseNote
+import cn.qzxy.hotwater.AppReleaseNotesResult
 import cn.qzxy.hotwater.FeedbackEvent
 import cn.qzxy.hotwater.MainViewModel
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
@@ -116,7 +124,6 @@ fun HotWaterApp(
     onGlassIntensityChange: (Float) -> Unit,
     onGlassIntensityChangeFinished: () -> Unit,
     onResetGlassIntensity: () -> Unit,
-    onOpenAbout: () -> Unit,
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
     onOpenAlipayRecharge: () -> Unit,
@@ -131,10 +138,16 @@ fun HotWaterApp(
     val layoutDirection = LocalLayoutDirection.current
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.OPERATIONS) }
     var dockDragging by remember { mutableStateOf(false) }
-    var showOverflowMenu by remember { mutableStateOf(false) }
+    var moreDestination by rememberSaveable { mutableStateOf<MorePageDestination?>(null) }
+    var renderedMoreDestination by rememberSaveable {
+        mutableStateOf(MorePageDestination.OVERVIEW)
+    }
     var showLowBalanceDialog by remember { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateCheckResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
+    var releaseNotes by remember { mutableStateOf<List<AppReleaseNote>?>(null) }
+    var releaseNotesLoading by remember { mutableStateOf(false) }
+    var releaseNotesError by remember { mutableStateOf<String?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var downloadingUpdate by remember { mutableStateOf(false) }
     var updateDownloadJob by remember { mutableStateOf<Job?>(null) }
@@ -149,19 +162,37 @@ fun HotWaterApp(
     val motionEnabled = environment.motionEnabled
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val uriHandler = LocalUriHandler.current
 
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
+    val networkValidated = rememberValidatedNetworkState()
+    val connectionStatus = resolveAppConnectionStatus(
+        networkValidated = networkValidated,
+        deviceOnline = snapshot?.isDeviceOnline,
+    )
     val performToggleHaptic: (Boolean) -> Unit = { turningOn ->
         haptic.performGlassHapticFeedback(
             if (turningOn) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff,
         )
     }
 
-    BackHandler(enabled = currentScreen != AppScreen.OPERATIONS) {
+    BackHandler(enabled = moreDestination != null) {
+        moreDestination = when (moreDestination) {
+            MorePageDestination.OVERVIEW -> null
+            null -> null
+            else -> MorePageDestination.OVERVIEW.also {
+                renderedMoreDestination = MorePageDestination.OVERVIEW
+            }
+        }
+    }
+
+    BackHandler(
+        enabled = moreDestination == null && currentScreen != AppScreen.OPERATIONS,
+    ) {
         dockDragging = false
         currentScreen = AppScreen.OPERATIONS
     }
@@ -216,6 +247,22 @@ fun HotWaterApp(
             } finally {
                 downloadingUpdate = false
                 updateDownloadJob = null
+            }
+        }
+    }
+    val loadReleaseNotes: () -> Unit = {
+        if (!releaseNotesLoading && (releaseNotes == null || releaseNotesError != null)) {
+            updateScope.launch {
+                releaseNotesLoading = true
+                releaseNotesError = null
+                try {
+                    when (val result = updateManager.fetchReleaseNotes()) {
+                        is AppReleaseNotesResult.Success -> releaseNotes = result.releases
+                        is AppReleaseNotesResult.Failed -> releaseNotesError = result.message
+                    }
+                } finally {
+                    releaseNotesLoading = false
+                }
             }
         }
     }
@@ -382,13 +429,10 @@ fun HotWaterApp(
                 .glassHazeSource(zIndex = 1f),
         ) {
             AppHeader(
-                themeMode = themeMode,
-                onThemeModeChange = onThemeModeChange,
-                overflowExpanded = showOverflowMenu,
-                onOverflowExpandedChange = { showOverflowMenu = it },
-                onOpenAbout = {
-                    showOverflowMenu = false
-                    onOpenAbout()
+                connectionStatus = connectionStatus,
+                onOpenMore = {
+                    renderedMoreDestination = MorePageDestination.OVERVIEW
+                    moreDestination = MorePageDestination.OVERVIEW
                 },
                 modifier = Modifier
                     .windowInsetsPadding(
@@ -464,10 +508,6 @@ fun HotWaterApp(
                         AppScreen.CONFIG -> ConfigPage(
                             config = config,
                             busy = busy,
-                            glassIntensity = glassIntensity,
-                            onGlassIntensityChange = onGlassIntensityChange,
-                            onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
-                            onResetGlassIntensity = onResetGlassIntensity,
                             onSave = { viewModel.saveConfig(it) },
                             onExport = onExportConfig,
                             onImport = onImportConfig,
@@ -539,7 +579,141 @@ fun HotWaterApp(
                 )
             }
         }
+
+        AnimatedVisibility(
+            visible = moreDestination != null,
+            enter = if (motionEnabled) {
+                slideInHorizontally(tween(280)) { width -> width / 6 } + fadeIn(tween(190))
+            } else {
+                fadeIn(tween(90))
+            },
+            exit = if (motionEnabled) {
+                slideOutHorizontally(tween(220)) { width -> width / 8 } + fadeOut(tween(160))
+            } else {
+                fadeOut(tween(70))
+            },
+            label = "more_page_visibility",
+        ) {
+            val destination = moreDestination ?: renderedMoreDestination
+            MorePage(
+                destination = destination,
+                motionEnabled = motionEnabled,
+                checkResult = updateCheckResult,
+                checking = checkingUpdate,
+                installing = downloadingUpdate,
+                releaseNotes = releaseNotes,
+                releaseNotesLoading = releaseNotesLoading,
+                releaseNotesError = releaseNotesError,
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
+                glassIntensity = glassIntensity,
+                onGlassIntensityChange = onGlassIntensityChange,
+                onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
+                onResetGlassIntensity = onResetGlassIntensity,
+                onCheckForUpdate = { checkForUpdate(true) },
+                onLoadReleaseNotes = loadReleaseNotes,
+                onNavigate = { nextDestination ->
+                    renderedMoreDestination = nextDestination
+                    moreDestination = nextDestination
+                },
+                onOpenExternal = { url ->
+                    runCatching { uriHandler.openUri(url) }
+                        .onFailure {
+                            viewModel.reportFeedback(
+                                FeedbackEvent.FeedbackType.ERROR,
+                                "无法打开链接，请检查浏览器后重试。",
+                            )
+                        }
+                },
+                onBack = {
+                    moreDestination = if (destination == MorePageDestination.OVERVIEW) {
+                        null
+                    } else {
+                        MorePageDestination.OVERVIEW.also {
+                            renderedMoreDestination = MorePageDestination.OVERVIEW
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(tokens.meshBase)
+                    .glassHazeSource(zIndex = 3f)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+            )
+        }
     }
+}
+
+@Composable
+private fun rememberValidatedNetworkState(): Boolean {
+    val context = LocalContext.current
+    val connectivityManager = remember(context) {
+        context.applicationContext.getSystemService(ConnectivityManager::class.java)
+    }
+    var networkValidated by remember(connectivityManager) {
+        mutableStateOf(connectivityManager?.isDefaultNetworkValidated() == true)
+    }
+
+    DisposableEffect(connectivityManager) {
+        if (connectivityManager == null) {
+            networkValidated = false
+            onDispose { }
+        } else {
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    networkValidated = connectivityManager.isDefaultNetworkValidated()
+                }
+
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    networkCapabilities: NetworkCapabilities,
+                ) {
+                    networkValidated = if (network == connectivityManager.activeNetwork) {
+                        networkCapabilities.hasValidatedInternet()
+                    } else {
+                        connectivityManager.isDefaultNetworkValidated()
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    networkValidated = connectivityManager.isDefaultNetworkValidated()
+                }
+
+                override fun onUnavailable() {
+                    networkValidated = false
+                }
+            }
+            var registered = false
+            try {
+                connectivityManager.registerDefaultNetworkCallback(
+                    callback,
+                    Handler(Looper.getMainLooper()),
+                )
+                registered = true
+            } catch (_: SecurityException) {
+                networkValidated = false
+            }
+
+            onDispose {
+                if (registered) {
+                    runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+                }
+            }
+        }
+    }
+
+    return networkValidated
+}
+
+private fun ConnectivityManager.isDefaultNetworkValidated(): Boolean {
+    val network = activeNetwork ?: return false
+    return getNetworkCapabilities(network)?.hasValidatedInternet() == true
+}
+
+private fun NetworkCapabilities.hasValidatedInternet(): Boolean {
+    return hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
 
 @Composable
@@ -605,21 +779,16 @@ private fun FeedbackBanner(
 
 @Composable
 internal fun AppHeader(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
-    overflowExpanded: Boolean,
-    onOverflowExpandedChange: (Boolean) -> Unit,
-    onOpenAbout: () -> Unit,
+    connectionStatus: AppConnectionStatus = AppConnectionStatus.UNKNOWN,
+    onOpenMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGlassTokens.current
-    val nextThemeMode = themeMode.next()
-    val currentThemeLabel = themeMode.accessibilityLabel()
-    val nextThemeLabel = nextThemeMode.accessibilityLabel()
-    val themeIcon = when (themeMode) {
-        ThemeMode.SYSTEM -> Icons.Outlined.BrightnessAuto
-        ThemeMode.LIGHT -> Icons.Outlined.LightMode
-        ThemeMode.DARK -> Icons.Outlined.DarkMode
+    val connectionStatusColor = when (connectionStatus) {
+        AppConnectionStatus.USER_OFFLINE -> tokens.accentError
+        AppConnectionStatus.DEVICE_OFFLINE -> tokens.accentWarning
+        AppConnectionStatus.DEVICE_ONLINE -> tokens.accentSuccess
+        AppConnectionStatus.UNKNOWN -> Color.Transparent
     }
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -633,83 +802,50 @@ internal fun AppHeader(
                 fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(6.dp))
+            if (connectionStatus != AppConnectionStatus.UNKNOWN) {
+                Row(
+                    modifier = Modifier.semantics(mergeDescendants = true) {
+                        contentDescription = connectionStatus.label.orEmpty()
+                        stateDescription = connectionStatus.accessibilityDescription.orEmpty()
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(connectionStatusColor),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = connectionStatus.label.orEmpty(),
+                        color = connectionStatusColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             Text(
                 text = "一键控制你的校园热水",
                 color = tokens.textSecondary,
                 fontSize = 14.sp,
             )
         }
-        Box {
-            GlassPressable(
-                onClick = { onOverflowExpandedChange(!overflowExpanded) },
-                material = GlassMaterial.Control,
-                cornerRadius = 24.dp,
-                modifier = Modifier
-                    .size(48.dp)
-                    .testTag(OverflowMenuButtonTag)
-                    .semantics {
-                        contentDescription = "更多选项"
-                        stateDescription = if (overflowExpanded) "菜单已展开" else "菜单已收起"
-                    },
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.MoreVert,
-                    contentDescription = null,
-                    tint = tokens.textPrimary,
-                )
-            }
-            DropdownMenu(
-                expanded = overflowExpanded,
-                onDismissRequest = { onOverflowExpandedChange(false) },
-                modifier = Modifier.testTag(OverflowMenuHostTag),
-                shape = RoundedCornerShape(0.dp),
-                containerColor = Color.Transparent,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .width(112.dp)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                ) {
-                    GlassPressable(
-                        onClick = onOpenAbout,
-                        material = GlassMaterial.Control,
-                        cornerRadius = 24.dp,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag(OverflowAboutButtonTag)
-                            .semantics { contentDescription = "关于" },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Info,
-                            contentDescription = null,
-                            tint = tokens.textPrimary,
-                        )
-                    }
-                    GlassPressable(
-                        onClick = { onThemeModeChange(nextThemeMode) },
-                        onClickLabel = "切换为${nextThemeLabel}主题",
-                        material = GlassMaterial.Control,
-                        cornerRadius = 24.dp,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag(OverflowThemeButtonTag)
-                            .semantics {
-                                contentDescription = "主题模式"
-                                stateDescription =
-                                    "当前${currentThemeLabel}主题，下一模式为${nextThemeLabel}主题"
-                            },
-                    ) {
-                        Icon(
-                            imageVector = themeIcon,
-                            contentDescription = null,
-                            tint = tokens.textPrimary,
-                        )
-                    }
-                }
-            }
+        GlassPressable(
+            onClick = onOpenMore,
+            material = GlassMaterial.Control,
+            cornerRadius = 24.dp,
+            modifier = Modifier
+                .size(48.dp)
+                .testTag(OverflowMenuButtonTag)
+                .semantics { contentDescription = "打开更多页面" },
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.MoreVert,
+                contentDescription = null,
+                tint = tokens.textPrimary,
+            )
         }
     }
 }
@@ -721,16 +857,7 @@ internal fun bottomDockClearance(): Dp {
     return 76.dp + with(density) { bottomSafeInset.toDp() }
 }
 
-private fun ThemeMode.accessibilityLabel(): String = when (this) {
-    ThemeMode.SYSTEM -> "系统"
-    ThemeMode.LIGHT -> "明亮"
-    ThemeMode.DARK -> "暗夜"
-}
-
 internal const val OverflowMenuButtonTag = "overflow_menu_button"
-internal const val OverflowMenuHostTag = "overflow_menu_host"
-internal const val OverflowAboutButtonTag = "overflow_about_button"
-internal const val OverflowThemeButtonTag = "overflow_theme_button"
 
 @Composable
 private fun GlassDialogAction(

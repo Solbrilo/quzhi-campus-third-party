@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 enum class WidgetHotWaterAction {
     OPEN,
     CLOSE,
+    REFRESH,
 }
 
 class HotWaterWidgetActionWorker(
@@ -45,14 +46,21 @@ class HotWaterWidgetActionWorker(
             when (action) {
                 WidgetHotWaterAction.OPEN -> repository.open(config)
                 WidgetHotWaterAction.CLOSE -> repository.close(config)
+                WidgetHotWaterAction.REFRESH -> repository.check(config)
             }.also { result ->
-                store.saveOperationResultHistory(
-                    type = when (action) {
-                        WidgetHotWaterAction.OPEN -> OperationHistory.OperationType.OPEN
-                        WidgetHotWaterAction.CLOSE -> OperationHistory.OperationType.CLOSE
-                    },
-                    result = result,
-                )
+                when (action) {
+                    WidgetHotWaterAction.OPEN -> store.saveOperationResultHistory(
+                        type = OperationHistory.OperationType.OPEN,
+                        result = result,
+                    )
+
+                    WidgetHotWaterAction.CLOSE -> store.saveOperationResultHistory(
+                        type = OperationHistory.OperationType.CLOSE,
+                        result = result,
+                    )
+
+                    WidgetHotWaterAction.REFRESH -> Unit
+                }
                 if (action == WidgetHotWaterAction.CLOSE && result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(applicationContext)
                 }
@@ -63,7 +71,11 @@ class HotWaterWidgetActionWorker(
                     } else {
                         result.title
                     },
-                    message = HotWaterUiText.summarizeWidgetResult(action, result),
+                    message = if (action == WidgetHotWaterAction.REFRESH) {
+                        result.summary.replace('\n', ' ').replace("  ", " ")
+                    } else {
+                        HotWaterUiText.summarizeWidgetResult(action, result)
+                    },
                     isBusy = false,
                     tone = if (
                         deviceBusyByOther || result.outcome != OperationOutcome.SUCCESS
@@ -89,6 +101,7 @@ class HotWaterWidgetActionWorker(
                 title = when (action) {
                     WidgetHotWaterAction.OPEN -> "开热水失败"
                     WidgetHotWaterAction.CLOSE -> "关热水失败"
+                    WidgetHotWaterAction.REFRESH -> "刷新失败"
                 },
                 message = HotWaterUiText.summarizeError(error),
                 isBusy = false,

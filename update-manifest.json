@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "android": {
+    "latest": {
+      "tagName": "v2.1.0",
+      "title": "water",
+      "body": "# v2.1.0\n\n亲爱的用户，本次更新了以下内容：\n- 优化了使用体验\n- 修复了已知问题",
+      "publishedAt": "2026-07-22T11:23:20+08:00",
+      "url": "https://gitee.com/Solbrilo/quzhi-campus-third-party/releases/download/v2.1.0/hotwater-android-v2.1.0.apk"
+    }
+  },
+  "harmony": {
+    "latest": {
+      "tagName": "v2.0.1",
+      "title": "water",
+      "body": "v2.0.1\n\n- 应用更新后保留已保存的登录与设备配置\n- 完整配置用户从更新引导直接返回主界面\n- 仅缺 snCode 时直接恢复扫码流程\n- Android 与 HarmonyOS Release 产物同步更新",
+      "publishedAt": "2026-07-20T19:30:02+08:00",
+      "url": "https://gitee.com/Solbrilo/quzhi-campus-third-party/releases/download/v2.0.1/hotwater-harmony-v2.0.1.hap"
+    }
+  },
+  "releases": [
+    {
+      "tagName": "v1.2.0",
+      "title": "v1.2.0",
+      "body": "## v1.2.0\n\n- Android: 增加操作、记录、配置三页导航，消费记录包含金额与开启时长。\n- 双端: 增加开启时长、低余额充值提醒、关于页与启动更新检查。\n- Android: 支持 Gitee Release APK 更新、独立关于页及毛玻璃悬浮底栏。\n- HarmonyOS: 增加独立消费记录与关于页，并支持更新信息检查。",
+      "publishedAt": "2026-07-13T01:15:41+08:00"
+    },
+    {
+      "tagName": "v1.3.0",
+      "title": "water",
+      "body": "## v1.3.0\n\n- Android 底部导航调整为悬浮玻璃效果，支持 Android 12 的实时背景模糊。\n- 优化导航栏选中态、系统手势提示条与页面滚动留白。\n- 双端更新检查统一校验 Android APK 发布资产。\n- Android 与 HarmonyOS 版本同步更新至 1.3.0。",
+      "publishedAt": "2026-07-13T11:31:15+08:00"
+    },
+    {
+      "tagName": "v1.3.1",
+      "title": "water",
+      "body": "Android 更新：点击更新后会显示实时下载进度；未知文件大小时显示加载状态。下载完成后自动进入系统安装流程。",
+      "publishedAt": "2026-07-13T11:59:36+08:00"
+    },
+    {
+      "tagName": "v1.4.0",
+      "title": "water",
+      "body": "Android 更新：\n\n- 全面优化玻璃界面的导航、按钮与输入交互，操作反馈更清晰。\n- 改进配置页保存、导入导出及异常提示。\n- 优化通知权限、快速设置磁贴和应用前后台状态处理。\n- 新增“减少动态效果”适配并完善无障碍语义。\n- 支持取消更新检查与下载，提升网络异常场景下的稳定性。",
+      "publishedAt": "2026-07-14T09:14:22+08:00"
+    },
+    {
+      "tagName": "v1.4.1",
+      "title": "water",
+      "body": "Android v1.4.1 更新：\n\n- 统一液态玻璃材质，覆盖面板、浮层、控件与输入区域。\n- 底栏支持跟手、可中断的拖拽与速度吸附手势。\n- 完善无障碍、减少动态效果及触觉反馈降级。\n- 本版本仅发布 Android；Harmony 客户端会忽略 Android APK 附件，不触发跨端更新。",
+      "publishedAt": "2026-07-14T11:25:51+08:00"
+    },
+    {
+      "tagName": "v1.4.2",
+      "title": "water",
+      "body": "Android v1.4.2 更新：\n\n- 将应用主色从青色调整为明亮淡蓝，统一背景、玻璃面板与强调色。\n- 同步优化日间与夜间模式，提升夜间层次与文字对比。\n- 更新桌面小组件的日夜表面与开启状态配色。\n- 本版本仅发布 Android；Harmony 客户端会忽略 Android APK 附件，不触发跨端更新。",
+      "publishedAt": "2026-07-14T15:45:01+08:00"
+    },
+    {
+      "tagName": "v1.4.3",
+      "title": "water",
+      "body": "Android v1.4.3\n\n- 右上角菜单改为统一圆形按钮，新增系统、明亮、暗夜三态主题并持久化。\n- 配置导入/导出按钮根据可用宽度与字体缩放自适应横排或纵排，标签保持单行。\n- 修复底部安全区与内容裁切，最后内容可完整滚动到 Dock 上方。\n- 优化底栏连续磁吸、速度继承和动画中重新抓取体验。\n\n仅发布 Android。",
+      "publishedAt": "2026-07-14T18:02:40+08:00"
+    },
+    {
+      "tagName": "v1.4.4",
+      "title": "water",
+      "body": "Android v1.4.4\n\n- 恢复 Dock 栏液态玻璃材质与页面内容实时采样，保留拖拽、吸附和触觉反馈。\n- 配置页新增全局液态玻璃强度调节，支持 0%–100% 实时预览与持久化，默认 75% 复现历史观感。\n- 兼容低版本 Android 与高对比度模式，并补充材质和渲染回归测试。\n- 本版本仅发布 Android，不包含 HarmonyOS 安装包。",
+      "publishedAt": "2026-07-14T19:42:27+08:00"
+    },
+    {
+      "tagName": "v1.5.0",
+      "title": "water",
+      "body": "# v1.5.0\n\n本版本同步发布 Android 与 HarmonyOS 客户端。\n\n- 修复存在实际消费时，消费记录仍可能显示 0 元的问题，优化订单结算、余额变化与本地记录的校验逻辑。\n- 关水完成后重新刷新账户状态，显示退回系统预扣费用后的真实余额。\n- Android 与 HarmonyOS 新增问题反馈入口，反馈直接提交至 Nebularive 服务器。\n- HarmonyOS 使用沉浸光感组件重构页面关系与底部导航，加入系统图标、玻璃材质和页面背景模糊效果。\n- HarmonyOS 恢复圆形开关水按钮，并优化安全区、色彩与页面切换体验。",
+      "publishedAt": "2026-07-17T15:28:27+08:00"
+    },
+    {
+      "tagName": "v1.6.0",
+      "title": "water",
+      "body": "# v1.6.0\n\n本版本同步发布 Android 与 HarmonyOS 客户端。\n\n- 双端消费记录升级为账单，支持按年或按月筛选、汇总和折叠查看。\n- Android 增加后台用水控制通知，底部导航改为“用水”，并精简操作页开关下方的信息栏。\n- HarmonyOS 优化账单折叠卡片的层级、圆角、左对齐和展开动画，增强关键操作的震动反馈。\n- HarmonyOS 移除需要上架权益的实况窗调用，保留热水控制和桌面卡片功能。",
+      "publishedAt": "2026-07-19T10:40:48+08:00"
+    },
+    {
+      "tagName": "v2.0.0",
+      "title": "water",
+      "body": "## v2.0.0\n趣智校园热水迎来一次重磅更新，继续将极简贯彻始终！欢迎您立刻更新使用，本次更新带来以下内容：\n- 新增登录趣智校园账号的功能，现在您可以不通过抓包，直接登录账号来实现字段获取！；\n- 新增扫码添加设备的功能，您可以直接通过应用内扫描热水器的二维码来绑定设备；\n- 新增充值跳转，您可以更方便地跳转到支付宝小程序进行充值；\n- 新增新用户引导界面，无需任何专业知识，2步即可完成配置；\n- 优化了使用体验；\n- 修复了已知问题\n\n> 鸿蒙端应用从此版本开始不提供release版本，请下载源码后自行调试",
+      "publishedAt": "2026-07-20T15:34:57+08:00"
+    },
+    {
+      "tagName": "v2.0.1",
+      "title": "water",
+      "body": "v2.0.1\n\n- 应用更新后保留已保存的登录与设备配置\n- 完整配置用户从更新引导直接返回主界面\n- 仅缺 snCode 时直接恢复扫码流程\n- Android 与 HarmonyOS Release 产物同步更新",
+      "publishedAt": "2026-07-20T19:30:02+08:00"
+    },
+    {
+      "tagName": "v2.1.0",
+      "title": "water",
+      "body": "# v2.1.0\n\n亲爱的用户，本次更新了以下内容：\n- 优化了使用体验\n- 修复了已知问题",
+      "publishedAt": "2026-07-22T11:23:20+08:00"
+    }
+  ]
+}

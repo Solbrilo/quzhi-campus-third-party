@@ -1,6 +1,6 @@
 # HarmonyOS 热水应用
 
-这是趣智校园第三方热水控制项目的 HarmonyOS NEXT 客户端，使用 ArkTS、ArkUI、Network Kit 和 Scan Kit 实现。当前版本为 `2.1.0 (2001000)`，兼容 HarmonyOS SDK `6.1.0(23)`，目标 SDK 为 `6.1.1(24)`。
+这是趣智校园第三方热水控制项目的 HarmonyOS NEXT 客户端，使用 ArkTS、ArkUI、Network Kit 和 Scan Kit 实现。当前版本为 `2.2.0 (2002000)`，兼容 HarmonyOS SDK `6.1.0(23)`，目标 SDK 为 `6.1.1(24)`。
 
 ## 当前功能
 

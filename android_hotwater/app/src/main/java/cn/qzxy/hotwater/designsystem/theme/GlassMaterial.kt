@@ -151,6 +151,14 @@ fun Modifier.glassMaterial(
             } else {
                 resolved.highlight
             }
+            // Panels keep a finer light catch than controls without weakening high-contrast mode.
+            val highlightStrokeWidth = if (
+                material == GlassMaterial.Panel && !environment.preferOpaqueMaterials
+            ) {
+                0.65.dp.toPx()
+            } else {
+                strokeWidth
+            }
 
             onDrawWithContent {
                 drawContent()
@@ -161,9 +169,15 @@ fun Modifier.glassMaterial(
                 )
                 drawLine(
                     color = highlight,
-                    start = Offset(cornerRadius.toPx() * 0.55f, if (pressed) size.height - strokeWidth else strokeWidth),
-                    end = Offset(size.width - cornerRadius.toPx() * 0.55f, if (pressed) size.height - strokeWidth else strokeWidth),
-                    strokeWidth = strokeWidth,
+                    start = Offset(
+                        cornerRadius.toPx() * 0.55f,
+                        if (pressed) size.height - highlightStrokeWidth else highlightStrokeWidth,
+                    ),
+                    end = Offset(
+                        size.width - cornerRadius.toPx() * 0.55f,
+                        if (pressed) size.height - highlightStrokeWidth else highlightStrokeWidth,
+                    ),
+                    strokeWidth = highlightStrokeWidth,
                 )
             }
         }

@@ -36,17 +36,22 @@ class FeedbackClient(
     suspend fun submit(
         appVersion: String,
         category: FeedbackCategory,
+        email: String,
         message: String,
     ): FeedbackSubmitResult {
         val normalizedMessage = message.trim()
+        val normalizedEmail = email.trim()
         validationError(normalizedMessage)?.let { error ->
+            return FeedbackSubmitResult.Rejected(error)
+        }
+        emailValidationError(normalizedEmail)?.let { error ->
             return FeedbackSubmitResult.Rejected(error)
         }
 
         val request = Request.Builder()
             .url(endpoint)
             .post(
-                buildPayload(appVersion, category, normalizedMessage)
+                buildPayload(appVersion, category, normalizedEmail, normalizedMessage)
                     .toRequestBody(JSON_MEDIA_TYPE),
             )
             .header("Accept", "application/json")
@@ -112,15 +117,27 @@ class FeedbackClient(
             }
         }
 
+        internal fun emailValidationError(email: String): String? {
+            val normalizedEmail = email.trim()
+            return when {
+                normalizedEmail.isEmpty() -> "请填写联系邮箱。"
+                normalizedEmail.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.matches(normalizedEmail) ->
+                    "请输入有效的邮箱地址。"
+                else -> null
+            }
+        }
+
         internal fun buildPayload(
             appVersion: String,
             category: FeedbackCategory,
+            email: String,
             message: String,
         ): String = JSONObject()
             .put("schemaVersion", 1)
             .put("platform", "android")
             .put("appVersion", appVersion)
             .put("category", category.apiValue)
+            .put("email", email)
             .put("message", message)
             .toString()
 
@@ -146,7 +163,7 @@ class FeedbackClient(
                 )
             }
             val message = when (statusCode) {
-                400, 413, 415, 422 -> "反馈内容未通过校验，请检查后手动重试。"
+                400, 413, 415, 422 -> "反馈信息未通过校验，请检查后手动重试。"
                 403 -> "当前请求无法提交，请稍后手动重试。"
                 500, 503 -> "反馈服务暂时不可用，内容已保留，请稍后手动重试。"
                 else -> "提交失败（HTTP $statusCode），内容已保留，请稍后手动重试。"
@@ -168,5 +185,11 @@ class FeedbackClient(
                 ceil((retryAt - nowMillis).coerceAtLeast(0) / 1000.0).toLong()
             }.getOrNull()
         }
+
+        private const val MAX_EMAIL_LENGTH = 254
+        private val EMAIL_PATTERN = Regex(
+            "^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
+            RegexOption.IGNORE_CASE,
+        )
     }
 }
