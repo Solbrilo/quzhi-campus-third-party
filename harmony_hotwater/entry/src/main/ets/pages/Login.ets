@@ -92,6 +92,7 @@ struct Login {
     this.busy = true
     this.statusText = ''
     const generation = ++this.loginGeneration
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     try {
       const result = await this.client.login(
         this.telephone.trim(),
@@ -107,7 +108,10 @@ struct Login {
         return
       }
       const config = RuntimeDeviceInfoResolver.enrichConfig(result.mergeInto(existing))
-      await this.store.applyQzxyLogin(config)
+      const persisted = await this.store.applyQzxyLogin(config, dataClearGeneration)
+      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return
+      }
       ConfigFlowBridge.markLoginConfigChanged()
       this.password = ''
       if (!this.pageVisible || generation !== this.loginGeneration) {
@@ -132,6 +136,23 @@ struct Login {
         this.password = ''
         this.busy = false
       }
+    }
+  }
+
+  private skipLogin(): void {
+    if (this.busy || !this.pageVisible) {
+      return
+    }
+    ConfigFlowBridge.markLoginSkipped()
+    this.password = ''
+    this.statusText = ''
+    try {
+      this.getUIContext().getPromptAction().showToast({
+        message: '已跳过登录，可在配置页导入或补充配置'
+      })
+      this.getUIContext().getRouter().back()
+    } catch (error) {
+      this.statusText = '已跳过登录，请返回配置页导入或补充配置'
     }
   }
 
@@ -207,6 +228,15 @@ struct Login {
             .fontColor($r('app.color.accent_button_text'))
             .enabled(!this.busy && this.telephone.trim().length > 0 && this.password.length > 0)
             .onClick(() => this.login())
+
+          Button('跳过登录')
+            .type(ButtonType.Capsule)
+            .width('100%')
+            .height(46)
+            .backgroundColor($r('app.color.input_background'))
+            .fontColor($r('app.color.text_secondary'))
+            .enabled(!this.busy)
+            .onClick(() => this.skipLogin())
         }
         .width('100%')
         .padding(20)

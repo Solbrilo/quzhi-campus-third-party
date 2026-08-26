@@ -1,6 +1,6 @@
 # Android 热水应用
 
-这是趣智校园第三方热水控制项目的 Android 客户端。应用使用 Kotlin、Jetpack Compose 和 Material 3，最低支持 Android 8.0（API 26），compile/target SDK 为 36，当前版本为 `2.2.0 (24)`，构建使用 JDK 17。
+这是趣智校园第三方热水控制项目的 Android 客户端。应用使用 Kotlin、Jetpack Compose 和 Material 3，最低支持 Android 8.0（API 26），compile/target SDK 为 36，当前版本为 `2.2.1 (25)`，构建使用 JDK 17。
 
 ## 当前功能
 

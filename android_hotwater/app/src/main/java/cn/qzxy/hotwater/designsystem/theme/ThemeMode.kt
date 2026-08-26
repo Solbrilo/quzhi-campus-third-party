@@ -76,4 +76,9 @@ object ThemeModePreferences {
     fun get(context: Context): ThemeMode = read(context)
 
     fun set(context: Context, mode: ThemeMode) = write(context, mode)
+
+    /** Removes the theme and glass-strength preferences during a full data clear. */
+    fun clear(context: Context) {
+        preferences(context).edit().clear().commit()
+    }
 }

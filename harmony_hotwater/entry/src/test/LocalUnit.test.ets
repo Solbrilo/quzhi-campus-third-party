@@ -10,6 +10,23 @@ import { OnboardingQuoteMotion } from '../main/ets/common/OnboardingQuoteMotion'
 import { OnboardingResumeGate, OnboardingResumeTarget } from '../main/ets/common/OnboardingResumeGate';
 import { HotWaterConfigTransfer } from '../main/ets/common/HotWaterConfigTransfer';
 import { ScannerSessionCoordinator } from '../main/ets/common/ScannerSessionCoordinator';
+import {
+  BillGrouping,
+  BillScope,
+  buildBillEntries,
+  filterBillEntries,
+  getBillGroupRenderKey,
+  groupBillEntries
+} from '../main/ets/common/BillPresentation';
+
+function createBillingRecord(id: number, endedAtMillis: number): ConsumptionRecord {
+  const record = new ConsumptionRecord();
+  record.id = id;
+  record.endedAtMillis = endedAtMillis;
+  record.usageDurationMillis = 60_000;
+  record.consumptionYuan = 1;
+  return record;
+}
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -131,7 +148,7 @@ export default function localUnitTest() {
       expect(imported.loginCode).assertEqual('login-code');
       expect(imported.telephone).assertEqual('13800138000');
       expect(imported.snCode).assertEqual('C47F0EDA85D8');
-      expect(exported).assertContain('"appVersion":"2.2.0"');
+      expect(exported).assertContain('"appVersion":"2.2.1"');
       expect(HotWaterConfigTransfer.generateFileName()).assertEqual('hotwater_config.json');
     });
     it('rejectsIncompleteImportedConfiguration', 0, () => {
@@ -229,6 +246,41 @@ export default function localUnitTest() {
         false,
         ''
       )).assertFalse();
+    });
+    it('consumesTheCredentialExpiryLoginSkipOnlyOnce', 0, () => {
+      ConfigFlowBridge.markLoginSkipped();
+      expect(ConfigFlowBridge.consumeLoginSkipped()).assertTrue();
+      expect(ConfigFlowBridge.consumeLoginSkipped()).assertFalse();
+    });
+    it('invalidatesStaleConfigurationWorkBeforeDataIsCleared', 0, () => {
+      const previousGeneration = ConfigFlowBridge.getDataClearGeneration();
+      const currentGeneration = ConfigFlowBridge.beginDataClear();
+      expect(currentGeneration === previousGeneration + 1).assertTrue();
+      expect(ConfigFlowBridge.isDataClearGenerationCurrent(previousGeneration)).assertFalse();
+      expect(ConfigFlowBridge.isDataClearGenerationCurrent(currentGeneration)).assertTrue();
+      ConfigFlowBridge.markDataCleared();
+      expect(ConfigFlowBridge.consumeDataCleared()).assertTrue();
+      expect(ConfigFlowBridge.consumeDataCleared()).assertFalse();
+    });
+    it('showsEveryMonthAfterSwitchingFromMonthlyToYearlyBills', 0, () => {
+      const entries = buildBillEntries([
+        createBillingRecord(1, new Date(2026, 5, 20).getTime()),
+        createBillingRecord(2, new Date(2026, 6, 20).getTime()),
+        createBillingRecord(3, new Date(2026, 7, 20).getTime())
+      ]);
+      const monthlyEntries = filterBillEntries(entries, BillScope.MONTH, 2026, 8);
+      const yearlyEntries = filterBillEntries(entries, BillScope.YEAR, 2026);
+      const monthlyGroups = groupBillEntries(monthlyEntries, BillGrouping.YEAR);
+      const yearlyGroups = groupBillEntries(yearlyEntries, BillGrouping.YEAR);
+
+      expect(monthlyEntries.length).assertEqual(1);
+      expect(yearlyEntries.length).assertEqual(3);
+      expect(yearlyGroups[0].entries.length).assertEqual(3);
+      expect(getBillGroupRenderKey(
+        monthlyGroups[0], BillScope.MONTH, 2026, 8, BillGrouping.YEAR
+      ) !== getBillGroupRenderKey(
+        yearlyGroups[0], BillScope.YEAR, 2026, 0, BillGrouping.YEAR
+      )).assertTrue();
     });
     it('usesBalanceBeforePreauthorizationAsSettlementBaseline', 0, () => {
       expect(ConsumptionSettlement.recoverStartBalance(7.31)).assertEqual(12.31);

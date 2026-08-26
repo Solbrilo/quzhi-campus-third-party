@@ -94,4 +94,37 @@ class AppReleaseNotesParserTest {
         )
         assertNull(parseAndroidLatestUpdate(wrongPackage))
     }
+
+    @Test
+    fun includesPlatformLatestWhenSharedHistoryHasNotCaughtUp() {
+        val releases = parseReleaseNotesPayload(
+            JSONObject(
+                """
+                {
+                  "schemaVersion": 1,
+                  "android": {
+                    "latest": {
+                      "tagName": "v2.2.0",
+                      "title": "当前版本",
+                      "body": "修复登录流程",
+                      "publishedAt": "2026-08-24T00:00:00+08:00"
+                    }
+                  },
+                  "releases": [
+                    { "tagName": "v2.1.0", "body": "历史版本" }
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(listOf("2.1.0", "2.2.0"), releases.map { it.versionName })
+        assertEquals("当前版本", releases.last().title)
+    }
+
+    @Test
+    fun currentVersionFallbackBodyDescribesTheCurrentRelease() {
+        assertTrue(LOCAL_CURRENT_RELEASE_BODY.contains("非配置页清空所有信息"))
+        assertTrue(LOCAL_CURRENT_RELEASE_BODY.contains("在途配置写入"))
+    }
 }

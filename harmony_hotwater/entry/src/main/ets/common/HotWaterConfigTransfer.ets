@@ -18,7 +18,7 @@ export class HotWaterConfigTransfer {
   static serialize(
     config: HotWaterConfig,
     exportedAt: number = Date.now(),
-    appVersion: string = '2.2.0'
+    appVersion: string = '2.2.1'
   ): string {
     const validationError = HotWaterConfigTransfer.validate(config)
     if (validationError.length > 0) {

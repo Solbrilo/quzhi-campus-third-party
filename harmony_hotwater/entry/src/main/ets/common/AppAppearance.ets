@@ -59,6 +59,12 @@ export class AppAppearanceStore {
     await store.flush()
     return normalized
   }
+
+  async clear(): Promise<void> {
+    const store = await preferences.getPreferences(this.context, AppAppearanceStore.STORE_NAME)
+    await store.clear()
+    await store.flush()
+  }
 }
 
 export function publishAppearance(appearance: AppAppearance): void {

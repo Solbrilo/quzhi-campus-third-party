@@ -149,6 +149,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             store.clearActiveUsageState()
         }
         store.saveConfig(prepared)
+        if (prepared.isComplete()) {
+            // A complete imported/manual configuration is an explicit replacement for an expired
+            // credential. Keep the user in the app and let the next request validate it normally.
+            store.clearCredentialsExpired()
+            _credentialExpired.value = false
+        }
         _config.value = prepared
         _snapshot.value = buildPlaceholderSnapshot(prepared)
         store.saveWidgetState(
@@ -284,6 +290,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         qzxyLoginJob = null
         releaseBusy(BusyOwner.QZXY_LOGIN)
         clearQzxyLoginState()
+    }
+
+    /**
+     * Leaves the expired-credential screen without clearing the persisted marker. This lets the
+     * user import a replacement configuration; an operation that still needs the old credential
+     * will show the login screen again.
+     */
+    fun skipCredentialExpiry() {
+        qzxyLoginGeneration++
+        qzxyLoginJob?.cancel()
+        qzxyLoginJob = null
+        releaseBusy(BusyOwner.QZXY_LOGIN)
+        _credentialExpired.value = false
+        _qzxyLoginState.value = QzxyLoginState()
+        _statusMessage.value = "已跳过登录，可在配置页导入配置。"
+    }
+
+    /**
+     * Clears every user-owned value persisted by the Android app.
+     *
+     * The caller is responsible for clearing activity-owned preferences such as
+     * the theme and onboarding marker. This method handles the view-model's
+     * encrypted account store, feedback history, runtime jobs and all observable
+     * state so a cancelled request cannot repopulate data after confirmation.
+     */
+    fun clearAllUserData(): Boolean {
+        val appContext = getApplication<Application>()
+
+        // Invalidate every in-flight operation before removing its backing state.
+        ++operationGeneration
+        ++qzxyLoginGeneration
+        ++snCodeSaveGeneration
+        operationJob?.cancel()
+        operationJob = null
+        qzxyLoginJob?.cancel()
+        qzxyLoginJob = null
+        snCodeSaveJob?.cancel()
+        snCodeSaveJob = null
+        settlementSyncJob?.cancel()
+        settlementSyncJob = null
+        HotWaterSettlementSyncScheduler.cancel(appContext)
+        HotWaterWidgetProvider.cancelPendingActions(appContext)
+        busyOwner = null
+        _busy.value = false
+
+        val storeCleared = store.clearAll()
+        val feedbackStoreCleared = runCatching {
+            FeedbackHistoryStore(appContext).clear()
+        }.getOrDefault(false)
+        val allStoresCleared = storeCleared && feedbackStoreCleared
+
+        val emptyConfig = HotWaterConfig()
+        _config.value = emptyConfig
+        _history.value = emptyList()
+        _snapshot.value = buildPlaceholderSnapshot(emptyConfig)
+        _credentialExpired.value = false
+        _qzxyLoginState.value = QzxyLoginState()
+        _snCodeSaveState.value = SnCodeSaveState()
+        _feedbackEvent.value = null
+        _statusMessage.value = if (allStoresCleared) {
+            "已清空所有信息，请重新配置。"
+        } else {
+            "未能完整清空本机信息，请重试。"
+        }
+
+        // Refresh surfaces after the persisted state is gone. The notification
+        // service will stop itself because there is no active order anymore.
+        HotWaterNotificationService.dismiss(appContext)
+        HotWaterWidgetUi.updateAllWidgets(appContext)
+        return allStoresCleared
     }
 
     fun loginToQzxy(telephone: String, password: String) {

@@ -63,6 +63,11 @@ sealed interface AppReleaseNotesResult {
 }
 
 private const val UPDATE_MANIFEST_SCHEMA_VERSION = 1
+private const val LOCAL_CURRENT_RELEASE_VERSION = "2.2.1"
+internal const val LOCAL_CURRENT_RELEASE_BODY =
+    "# v2.2.1\n\n" +
+        "- 修复从非配置页清空所有信息后，配置表单仍可能恢复旧字段的问题。\n" +
+        "- 清空操作会同步失效旧页面状态和在途配置写入，确保账号、设备、账单、反馈和设置数据不再回写。"
 
 /** Returns true when [manifest] follows the versioned cross-platform update contract. */
 internal fun isSupportedUpdateManifest(manifest: JSONObject): Boolean =
@@ -94,25 +99,40 @@ internal fun parseAndroidLatestUpdate(manifest: JSONObject): AppUpdateInfo? {
 /** Parses static manifest release history and ignores draft or malformed entries. */
 internal fun parseReleaseNotesPayload(manifest: JSONObject): List<AppReleaseNote> {
     if (!isSupportedUpdateManifest(manifest)) return emptyList()
-    val releaseArray = manifest.optJSONArray("releases") ?: return emptyList()
-    return buildList {
-        for (index in 0 until releaseArray.length()) {
-            val release = releaseArray.optJSONObject(index) ?: continue
-            if (release.optBoolean("draft", false)) continue
-            val versionName = parseReleaseVersionTag(release.optString("tagName")) ?: continue
-            val title = release.optString("title").trim()
-            val publishedAt = release.optString("publishedAt").trim()
-                .ifBlank { null }
-            add(
-                AppReleaseNote(
-                    versionName = versionName,
-                    title = title,
-                    body = release.optString("body").trim(),
-                    publishedAt = publishedAt,
-                ),
-            )
+    val releaseArray = manifest.optJSONArray("releases")
+    val releases = buildList {
+        releaseArray?.let { array ->
+            for (index in 0 until array.length()) {
+                val release = array.optJSONObject(index) ?: continue
+                if (release.optBoolean("draft", false)) continue
+                val versionName = parseReleaseVersionTag(release.optString("tagName")) ?: continue
+                val title = release.optString("title").trim()
+                val publishedAt = release.optString("publishedAt").trim()
+                    .ifBlank { null }
+                add(
+                    AppReleaseNote(
+                        versionName = versionName,
+                        title = title,
+                        body = release.optString("body").trim(),
+                        publishedAt = publishedAt,
+                    ),
+                )
+            }
         }
     }
+    // Older manifests occasionally update the platform-specific latest entry before appending
+    // it to the shared history. Keep the current Android version visible in that case.
+    val latestAndroid = manifest.optJSONObject("android")?.optJSONObject("latest")
+    val latestVersion = latestAndroid?.let { parseReleaseVersionTag(it.optString("tagName")) }
+    if (latestAndroid != null && latestVersion != null && releases.none { it.versionName == latestVersion }) {
+        return releases + AppReleaseNote(
+            versionName = latestVersion,
+            title = latestAndroid.optString("title").trim(),
+            body = latestAndroid.optString("body").trim(),
+            publishedAt = latestAndroid.optString("publishedAt").trim().ifBlank { null },
+        )
+    }
+    return releases
 }
 
 private fun parseReleaseVersionTag(tag: String): String? {
@@ -205,18 +225,21 @@ class AppUpdateManager(context: Context) {
             try {
                 val result = runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
                     if (response.code == 404) {
-                        AppReleaseNotesResult.Success(emptyList())
+                        localReleaseNotesResult()
                     } else if (!response.isSuccessful) {
-                        AppReleaseNotesResult.Failed("获取更新日志失败：HTTP ${response.code}")
+                        // The manifest is published independently of the app. Keep the installed
+                        // package's own notes available when that service is temporarily stale or
+                        // unavailable, instead of replacing the changelog with an empty error.
+                        localReleaseNotesResult()
                     } else {
                         val manifest = runCatching {
                             JSONObject(response.body?.string().orEmpty())
                         }.getOrNull()
                         if (manifest == null || !isSupportedUpdateManifest(manifest)) {
-                            AppReleaseNotesResult.Failed("更新日志格式无效")
+                            localReleaseNotesResult()
                         } else {
                             AppReleaseNotesResult.Success(
-                                parseReleaseNotesPayload(manifest)
+                                mergeCurrentReleaseNote(parseReleaseNotesPayload(manifest))
                                     .distinctBy { it.versionName }
                                     .sortedWith { left, right ->
                                         compareVersions(right.versionName, left.versionName)
@@ -232,10 +255,59 @@ class AppUpdateManager(context: Context) {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: IOException) {
-            AppReleaseNotesResult.Failed("网络连接失败，请稍后重试")
-        } catch (error: Exception) {
-            AppReleaseNotesResult.Failed("获取更新日志失败：${error.message ?: "未知错误"}")
+            localReleaseNotesResult()
+        } catch (_: Exception) {
+            localReleaseNotesResult()
         }
+    }
+
+    /**
+     * The manifest is published separately from the app package. Keep this package's own release
+     * visible while that shared history catches up, so a newly installed build never shows a
+     * changelog that stops at the previous release.
+     */
+    private fun mergeCurrentReleaseNote(releases: List<AppReleaseNote>): List<AppReleaseNote> {
+        val merged = releases.toMutableList()
+        mergeReleaseNote(merged, localCurrentReleaseNote(LOCAL_CURRENT_RELEASE_VERSION))
+
+        // Keep a future build's own entry visible as well, while still showing the latest
+        // packaged release when an older installed build reads a stale remote manifest.
+        val installedVersion = BuildConfig.VERSION_NAME.trim()
+        if (installedVersion != LOCAL_CURRENT_RELEASE_VERSION &&
+            RELEASE_VERSION_PATTERN.matches(installedVersion)
+        ) {
+            mergeReleaseNote(merged, localCurrentReleaseNote(installedVersion))
+        }
+        return merged
+    }
+
+    private fun localReleaseNotesResult(): AppReleaseNotesResult.Success =
+        AppReleaseNotesResult.Success(mergeCurrentReleaseNote(emptyList()))
+
+    private fun localCurrentReleaseNote(versionName: String): AppReleaseNote = AppReleaseNote(
+        versionName = versionName,
+        title = if (versionName == LOCAL_CURRENT_RELEASE_VERSION) "当前版本" else "已安装版本",
+        body = if (versionName == LOCAL_CURRENT_RELEASE_VERSION) {
+            LOCAL_CURRENT_RELEASE_BODY
+        } else {
+            "本版本更新说明暂未同步到远端更新清单。"
+        },
+        publishedAt = null,
+    )
+
+    private fun mergeReleaseNote(target: MutableList<AppReleaseNote>, fallback: AppReleaseNote) {
+        val index = target.indexOfFirst { it.versionName == fallback.versionName }
+        if (index < 0) {
+            target += fallback
+            return
+        }
+        val current = target[index]
+        if (current.title.isNotBlank() && current.body.isNotBlank()) return
+        target[index] = current.copy(
+            title = current.title.ifBlank { fallback.title },
+            body = current.body.ifBlank { fallback.body },
+            publishedAt = current.publishedAt ?: fallback.publishedAt,
+        )
     }
 
     @OptIn(InternalCoroutinesApi::class)

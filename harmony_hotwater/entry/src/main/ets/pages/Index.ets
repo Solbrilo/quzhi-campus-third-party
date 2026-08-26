@@ -27,6 +27,7 @@ import {
   filterBillEntries,
   formatBillAmount,
   formatBillDuration,
+  getBillGroupRenderKey,
   getBillMonths as getBillMonthsForYear,
   getBillYears as getAvailableBillYears,
   groupBillEntries,
@@ -104,9 +105,10 @@ struct Index {
   private pageVisible: boolean = false
   private initializationComplete: boolean = false
   private credentialExpiryPromptVisible: boolean = false
+  private appliedDataClearGeneration: number = 0
   private postCloseRefreshGeneration: number = 0
   private lastCredentialValidationAtMillis: number = 0
-  @State currentVersionLabel: string = '2.2.0'
+  @State currentVersionLabel: string = '2.2.1'
 
   @State systemInfoLabel: string = 'HarmonyOS 设备'
   @State macAddressLabel: string = '系统已隐藏'
@@ -146,13 +148,32 @@ struct Index {
     this.store = new HotWaterStore(this.hostContext)
     this.repository = new HotWaterRepository(this.store)
     this.immersiveMaterialSupported = this.supportsImmersiveMaterial()
+    const completedDataClearGeneration = ConfigFlowBridge.getCompletedDataClearGeneration()
+    if (completedDataClearGeneration > 0 &&
+      completedDataClearGeneration !== this.appliedDataClearGeneration) {
+      this.resetAfterDataCleared(completedDataClearGeneration)
+    }
     this.initialize()
     this.setupImmersiveWindow()
   }
 
   onPageShow(): void {
     this.pageVisible = true
+    const dataCleared = ConfigFlowBridge.consumeDataCleared()
+    const completedDataClearGeneration = ConfigFlowBridge.getCompletedDataClearGeneration()
+    if (dataCleared || (completedDataClearGeneration > 0 &&
+      completedDataClearGeneration !== this.appliedDataClearGeneration)) {
+      this.resetAfterDataCleared(completedDataClearGeneration)
+      this.setupImmersiveWindow()
+      return
+    }
     this.consumePendingLaunchAction()
+    const loginSkipped = ConfigFlowBridge.consumeLoginSkipped()
+    if (loginSkipped) {
+      this.credentialExpiryPromptVisible = false
+      this.liveStatus = '已跳过登录，可在配置页导入或补充配置。'
+      this.switchPage(HomePage.CONFIG)
+    }
     const pendingSnCode = ConfigFlowBridge.consumePendingSnCode()
     if (pendingSnCode.length > 0) {
       this.snCodeText = pendingSnCode
@@ -162,13 +183,45 @@ struct Index {
     const loginConfigChanged = ConfigFlowBridge.consumeLoginConfigChanged()
     if (loginConfigChanged) {
       this.reloadConfigAfterLogin()
-    } else if (this.initializationComplete) {
+    } else if (this.initializationComplete && !loginSkipped) {
       this.refreshAfterForeground()
     }
     this.setupImmersiveWindow()
     if (this.busy) {
       this.startRingAnimation()
     }
+  }
+
+  private resetAfterDataCleared(completedGeneration: number =
+    ConfigFlowBridge.getCompletedDataClearGeneration()): void {
+    if (completedGeneration > 0) {
+      this.appliedDataClearGeneration = completedGeneration
+    }
+    this.postCloseRefreshGeneration++
+    this.configReloadGeneration++
+    this.usageTimerGeneration++
+    this.busy = false
+    this.refreshingBalance = false
+    this.configReloading = false
+    this.configTransferBusy = false
+    this.initializationComplete = false
+    this.credentialExpiryPromptVisible = false
+    this.lastCredentialValidationAtMillis = 0
+    this.ringAnimationRunning = false
+    this.ringOpacity = 0.15
+    this.applyConfigToForm(new HotWaterConfig())
+    this.snCodeFormDirty = false
+    this.configSummary = '登录趣智校园会自动填充账号字段；首次使用仍需补充 snCode。'
+    this.applySnapshot(this.placeholderSnapshot(new HotWaterConfig()))
+    this.consumptionRecords = []
+    this.billScope = BillScope.MONTH
+    this.billSelectedYear = 0
+    this.billSelectedMonth = 0
+    this.billGrouping = BillGrouping.MONTH
+    this.collapsedBillKeys = []
+    this.billCollapseInitialized = false
+    this.activePage = HomePage.CONFIG
+    this.liveStatus = '应用内信息已清空，请重新登录或导入配置。'
   }
 
   onPageHide(): void {
@@ -193,7 +246,11 @@ struct Index {
   }
 
   private async initialize(): Promise<void> {
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     await this.loadCurrentVersion()
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      return
+    }
     const runtimeInfo = RuntimeDeviceInfoResolver.resolve()
     this.applyRuntimeInfo(runtimeInfo)
 
@@ -202,14 +259,29 @@ struct Index {
     }
 
     const config = RuntimeDeviceInfoResolver.enrichConfig(await this.store.loadConfig())
-    await this.store.saveConfig(config)
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      return
+    }
+    const configSaved = await this.store.saveConfig(
+      config,
+      () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+    )
+    if (!configSaved || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      return
+    }
     this.applyConfigToForm(config)
     this.snCodeFormDirty = false
     this.applyConfigSummary(config)
     this.applySnapshot(this.placeholderSnapshot(config))
     await this.loadConsumptionRecords()
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      return
+    }
 
     if (await this.store.isLoginCredentialExpired()) {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return
+      }
       this.initializationComplete = true
       await this.handleCredentialExpired()
       this.checkForUpdates(true)
@@ -217,8 +289,14 @@ struct Index {
     }
 
     const launchActionHandled = await this.consumePendingLaunchAction()
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      return
+    }
     if (config.isComplete() && !launchActionHandled) {
       await this.refreshBalance(false)
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return
+      }
     }
     this.initializationComplete = true
     this.checkForUpdates(true)
@@ -326,12 +404,13 @@ struct Index {
   }
 
   private getFilteredBillEntries(): BillEntry[] {
-    return filterBillEntries(
-      this.getCurrentBillEntries(),
-      this.billScope,
-      this.getActiveBillYear(),
-      this.getActiveBillMonth()
-    )
+    const entries = this.getCurrentBillEntries()
+    const year = this.getActiveBillYear()
+    if (this.billScope === BillScope.YEAR) {
+      // 年度账期不应继承月度筛选状态。
+      return filterBillEntries(entries, BillScope.YEAR, year)
+    }
+    return filterBillEntries(entries, BillScope.MONTH, year, this.getActiveBillMonth())
   }
 
   private getBillSummary(): BillSummary {
@@ -376,6 +455,9 @@ struct Index {
       return
     }
     this.billScope = scope
+    if (scope === BillScope.YEAR) {
+      this.billSelectedMonth = 0
+    }
     this.resetBillCollapseDefaults()
   }
 
@@ -486,6 +568,7 @@ struct Index {
       return
     }
     this.configTransferBusy = true
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     try {
       const options = new picker.DocumentSelectOptions()
       options.fileSuffixFilters = ['JSON 配置文件|.json']
@@ -498,7 +581,13 @@ struct Index {
       const parsedConfig = RuntimeDeviceInfoResolver.enrichConfig(
         HotWaterConfigTransfer.parse(this.readConfigTextFromUri(uris[0]))
       )
-      await this.store.saveConfig(parsedConfig)
+      const persisted = await this.store.saveConfig(
+        parsedConfig,
+        () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+      )
+      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return
+      }
       this.applyConfigToForm(parsedConfig)
       this.snCodeFormDirty = false
       this.applyConfigSummary(parsedConfig)
@@ -639,8 +728,15 @@ struct Index {
     if (!this.store || this.configReloading) {
       return
     }
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     const config = await this.collectConfig(true)
-    await this.store.saveConfig(config)
+    const persisted = await this.store.saveConfig(
+      config,
+      () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+    )
+    if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      return
+    }
     this.snCodeFormDirty = false
     this.applyConfigSummary(config)
     this.liveStatus = '配置已保存。'
@@ -949,7 +1045,7 @@ struct Index {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '2.2.0'
+      this.currentVersionLabel = '2.2.1'
     }
   }
 
@@ -1378,7 +1474,13 @@ struct Index {
         } else {
           ForEach(this.getBillGroups(), (group: BillGroup) => {
             this.BillGroupCard(group)
-          }, (group: BillGroup) => group.key)
+          }, (group: BillGroup) => getBillGroupRenderKey(
+            group,
+            this.billScope,
+            this.getActiveBillYear(),
+            this.billScope === BillScope.MONTH ? this.getActiveBillMonth() : 0,
+            this.billGrouping
+          ))
         }
       }
     }

@@ -4,6 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit'
 import { vibrator } from '@kit.SensorServiceKit'
 import window from '@ohos.window'
 import { DeviceScanner } from '../components/DeviceScanner'
+import { ConfigFlowBridge } from '../common/ConfigFlowBridge'
 import { HotWaterStore } from '../common/HotWaterStore'
 import { OnboardingQuoteMotion } from '../common/OnboardingQuoteMotion'
 import { OnboardingResumeGate, OnboardingResumeTarget } from '../common/OnboardingResumeGate'
@@ -448,6 +449,7 @@ struct Onboarding {
     this.busy = true
     this.loginStatus = ''
     const generation = this.flowGeneration
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     try {
       const result = await this.loginClient.login(
         this.telephone.trim(),
@@ -463,7 +465,10 @@ struct Onboarding {
         return
       }
       const config = RuntimeDeviceInfoResolver.enrichConfig(result.mergeInto(existing))
-      await this.store.applyQzxyLogin(config)
+      const persisted = await this.store.applyQzxyLogin(config, dataClearGeneration)
+      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return
+      }
       if (this.isFlowCurrent(generation, OnboardingStage.LOGIN)) {
         this.goToStage(OnboardingStage.SCANNER)
       }
@@ -485,13 +490,20 @@ struct Onboarding {
     }
     this.binding = true
     const generation = this.flowGeneration
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     try {
       const config = await this.store.loadConfig()
       if (!this.isFlowCurrent(generation, OnboardingStage.SCANNER)) {
         return false
       }
       config.snCode = snCode
-      await this.store.saveConfig(config)
+      const persisted = await this.store.saveConfig(
+        config,
+        (): boolean => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+      )
+      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return false
+      }
       if (this.isFlowCurrent(generation, OnboardingStage.SCANNER)) {
         this.goToStage(OnboardingStage.COMPLETE)
       }

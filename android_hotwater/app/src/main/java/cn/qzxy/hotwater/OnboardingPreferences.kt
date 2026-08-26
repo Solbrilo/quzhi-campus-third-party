@@ -20,6 +20,10 @@ class OnboardingPreferences(context: Context) {
         }
     }
 
+    fun clear() {
+        runCatching { markerFile.delete() }
+    }
+
     companion object {
         private const val MARKER_FILE_NAME = "hotwater_onboarding_version"
     }

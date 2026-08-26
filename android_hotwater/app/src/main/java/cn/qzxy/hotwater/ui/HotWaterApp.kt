@@ -126,8 +126,10 @@ fun HotWaterApp(
     onResetGlassIntensity: () -> Unit,
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
+    openConfigRequest: Int = 0,
     onOpenAlipayRecharge: () -> Unit,
     onRequestNotificationPermission: ((() -> Unit) -> Unit),
+    onClearAllUserData: () -> Unit,
     onOpenLogin: () -> Unit,
     onScanSnCode: () -> Unit,
     scannedSnCode: String?,
@@ -137,6 +139,10 @@ fun HotWaterApp(
     val environment = LocalGlassEnvironment.current
     val layoutDirection = LocalLayoutDirection.current
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.OPERATIONS) }
+    // A config page can be kept in the saveable state holder while another tab
+    // is visible. Bump this key when all data is cleared so stale form values
+    // cannot be restored when the config page is opened again.
+    var configStateGeneration by rememberSaveable { mutableStateOf(0) }
     var dockDragging by remember { mutableStateOf(false) }
     var moreDestination by rememberSaveable { mutableStateOf<MorePageDestination?>(null) }
     var renderedMoreDestination by rememberSaveable {
@@ -163,6 +169,12 @@ fun HotWaterApp(
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(openConfigRequest) {
+        if (openConfigRequest > 0) {
+            currentScreen = AppScreen.CONFIG
+        }
+    }
 
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
@@ -481,7 +493,12 @@ fun HotWaterApp(
                 },
                 label = "screen_transition",
             ) { screen ->
-                saveableStateHolder.SaveableStateProvider(screen.name) {
+                val stateKey = if (screen == AppScreen.CONFIG) {
+                    "${screen.name}:$configStateGeneration"
+                } else {
+                    screen.name
+                }
+                saveableStateHolder.SaveableStateProvider(stateKey) {
                     when (screen) {
                         AppScreen.OPERATIONS -> OperationsPage(
                             snapshot = snapshot,
@@ -615,6 +632,16 @@ fun HotWaterApp(
                 onNavigate = { nextDestination ->
                     renderedMoreDestination = nextDestination
                     moreDestination = nextDestination
+                },
+                onClearAllUserData = {
+                    // Drop the previous registry as well as changing its key.
+                    // This prevents cleared form values from remaining in the
+                    // nested SaveableStateHolder until the next recreation.
+                    saveableStateHolder.removeState("${AppScreen.CONFIG.name}:$configStateGeneration")
+                    configStateGeneration++
+                    moreDestination = null
+                    renderedMoreDestination = MorePageDestination.OVERVIEW
+                    onClearAllUserData()
                 },
                 onOpenExternal = { url ->
                     runCatching { uriHandler.openUri(url) }

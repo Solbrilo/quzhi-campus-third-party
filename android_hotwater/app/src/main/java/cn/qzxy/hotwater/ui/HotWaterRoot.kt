@@ -72,6 +72,7 @@ fun HotWaterRoot(
     onImportConfig: () -> Unit,
     onOpenAlipayRecharge: () -> Unit,
     onRequestNotificationPermission: ((() -> Unit) -> Unit),
+    onClearAllUserData: () -> Unit,
 ) {
     var rootScreen by rememberSaveable(onboardingRequired) {
         mutableStateOf(
@@ -80,6 +81,7 @@ fun HotWaterRoot(
     }
     var pendingConfigSnCode by rememberSaveable { mutableStateOf<String?>(null) }
     var onboardingScanResetKey by rememberSaveable { mutableStateOf(0) }
+    var openConfigRequest by rememberSaveable { mutableStateOf(0) }
     val saveableStateHolder = rememberSaveableStateHolder()
     val motionEnabled = LocalGlassEnvironment.current.motionEnabled
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -98,7 +100,12 @@ fun HotWaterRoot(
             rootScreen == RootScreen.ONBOARDING_SCANNER ||
             rootScreen == RootScreen.ONBOARDING_COMPLETE
         when {
-            onboardingRequired && !onOnboardingScreen -> rootScreen = RootScreen.ONBOARDING_QUOTE
+            onboardingRequired && !onOnboardingScreen -> {
+                pendingConfigSnCode = null
+                openConfigRequest = 0
+                onboardingScanResetKey = 0
+                rootScreen = RootScreen.ONBOARDING_QUOTE
+            }
             !onboardingRequired && onOnboardingScreen -> rootScreen = RootScreen.MAIN
         }
     }
@@ -186,8 +193,10 @@ fun HotWaterRoot(
                     onResetGlassIntensity = onResetGlassIntensity,
                     onExportConfig = onExportConfig,
                     onImportConfig = onImportConfig,
+                    openConfigRequest = openConfigRequest,
                     onOpenAlipayRecharge = onOpenAlipayRecharge,
                     onRequestNotificationPermission = onRequestNotificationPermission,
+                    onClearAllUserData = onClearAllUserData,
                     onOpenLogin = {
                         viewModel.clearQzxyLoginState()
                         rootScreen = RootScreen.LOGIN
@@ -202,6 +211,16 @@ fun HotWaterRoot(
                     loginState = loginState,
                     onLogin = viewModel::loginToQzxy,
                     showBackButton = !credentialExpired,
+                    onSkip = if (credentialExpired) {
+                        {
+                            viewModel.skipCredentialExpiry()
+                            onOnboardingCompleted()
+                            openConfigRequest++
+                            rootScreen = RootScreen.MAIN
+                        }
+                    } else {
+                        null
+                    },
                     onBack = {
                         viewModel.cancelQzxyLogin()
                         rootScreen = RootScreen.MAIN

@@ -35,6 +35,12 @@ export class FeedbackHistoryStore {
     return limitedEntries
   }
 
+  async clear(): Promise<void> {
+    const store = await preferences.getPreferences(this.context, FeedbackHistoryStore.STORE_NAME)
+    await store.delete(FeedbackHistoryStore.HISTORY_KEY)
+    await store.flush()
+  }
+
   static serialize(entries: FeedbackHistoryEntry[]): string {
     const limitedEntries = FeedbackHistoryStore.limit(entries)
     return JSON.stringify(limitedEntries)

@@ -44,6 +44,8 @@ class FeedbackHistoryStore(context: Context) {
             .apply()
     }
 
+    fun clear(): Boolean = prefs.edit().clear().commit()
+
     private companion object {
         private const val PREFS_NAME = "feedback_history_store"
         private const val KEY_ENTRIES = "entries"

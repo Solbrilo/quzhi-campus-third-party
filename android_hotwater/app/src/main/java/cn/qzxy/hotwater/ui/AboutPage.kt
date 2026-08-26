@@ -41,6 +41,7 @@ import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Group
@@ -144,6 +145,7 @@ internal fun MorePage(
     onCheckForUpdate: () -> Unit,
     onLoadReleaseNotes: () -> Unit,
     onNavigate: (MorePageDestination) -> Unit,
+    onClearAllUserData: () -> Unit,
     onOpenExternal: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -151,6 +153,7 @@ internal fun MorePage(
     val pageStateHolder = rememberSaveableStateHolder()
     var showReleaseNotes by rememberSaveable { mutableStateOf(false) }
     var releaseNotesDialogSession by rememberSaveable { mutableStateOf(0) }
+    var showClearAllDialog by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -232,6 +235,7 @@ internal fun MorePage(
                             onResetGlassIntensity = onResetGlassIntensity,
                             onCheckForUpdate = onCheckForUpdate,
                             onNavigate = onNavigate,
+                            onRequestClearAllData = { showClearAllDialog = true },
                             onOpenExternal = onOpenExternal,
                         )
 
@@ -255,6 +259,59 @@ internal fun MorePage(
             onDismiss = { showReleaseNotes = false },
         )
     }
+
+    if (showClearAllDialog) {
+        val tokens = LocalGlassTokens.current
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+            containerColor = Color.Transparent,
+            tonalElevation = 0.dp,
+            titleContentColor = tokens.textPrimary,
+            textContentColor = tokens.textSecondary,
+            title = { Text(text = "清空所有信息？", color = tokens.textPrimary) },
+            text = {
+                Text(
+                    text = "将删除本机保存的账号和设备配置、账单与操作记录、反馈记录、显示设置及引导状态。此操作无法撤销，已经提交到反馈服务的内容不受影响。",
+                    color = tokens.textSecondary,
+                )
+            },
+            confirmButton = {
+                GlassPressable(
+                    onClick = {
+                        showClearAllDialog = false
+                        onClearAllUserData()
+                    },
+                    material = GlassMaterial.Control,
+                    cornerRadius = 16.dp,
+                    modifier = Modifier.height(40.dp),
+                ) {
+                    Text(
+                        text = "确认清空",
+                        color = tokens.accentWarning,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                    )
+                }
+            },
+            dismissButton = {
+                GlassPressable(
+                    onClick = { showClearAllDialog = false },
+                    material = GlassMaterial.EmbeddedControl,
+                    cornerRadius = 16.dp,
+                    modifier = Modifier.height(40.dp),
+                ) {
+                    Text(
+                        text = "取消",
+                        color = tokens.textSecondary,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                    )
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -271,6 +328,7 @@ private fun MoreOverviewPage(
     onResetGlassIntensity: () -> Unit,
     onCheckForUpdate: () -> Unit,
     onNavigate: (MorePageDestination) -> Unit,
+    onRequestClearAllData: () -> Unit,
     onOpenExternal: (String) -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
@@ -444,6 +502,12 @@ private fun MoreOverviewPage(
                     summary = "了解信息处理方式",
                     icon = Icons.Outlined.Description,
                     onClick = { onNavigate(MorePageDestination.PRIVACY) },
+                ),
+                MoreAction(
+                    title = "清空所有信息",
+                    summary = "删除本机保存的全部用户数据",
+                    icon = Icons.Outlined.DeleteSweep,
+                    onClick = onRequestClearAllData,
                 ),
             ),
         )
@@ -838,13 +902,14 @@ private fun FeedbackPage() {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 28.dp)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -960,6 +1025,8 @@ private fun FeedbackPage() {
             enabled = !submittingFeedback,
             isLoading = submittingFeedback,
         )
+        }
+
     }
 
     if (showFeedbackHistory) {
@@ -1162,8 +1229,14 @@ private fun ReleaseNotesDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    releases.forEach { release ->
-                        ReleaseNotesItem(release = release, sessionKey = sessionKey)
+                    releases.forEachIndexed { index, release ->
+                        ReleaseNotesItem(
+                            release = release,
+                            sessionKey = sessionKey,
+                            // The list is sorted newest first. Keep the newest release visible even
+                            // when an older installed package is opening the history.
+                            initiallyExpanded = index == 0 || release.versionName == BuildConfig.VERSION_NAME,
+                        )
                     }
                 }
             }
@@ -1208,9 +1281,13 @@ private fun ReleaseNotesDialog(
 }
 
 @Composable
-private fun ReleaseNotesItem(release: AppReleaseNote, sessionKey: Int) {
+private fun ReleaseNotesItem(
+    release: AppReleaseNote,
+    sessionKey: Int,
+    initiallyExpanded: Boolean,
+) {
     val tokens = LocalGlassTokens.current
-    var expanded by remember(sessionKey, release.versionName) { mutableStateOf(false) }
+    var expanded by remember(sessionKey, release.versionName) { mutableStateOf(initiallyExpanded) }
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
         animationSpec = tween(160),
@@ -1317,52 +1394,70 @@ private fun FeedbackHistoryItem(entry: FeedbackHistoryEntry) {
 @Composable
 private fun PrivacyPolicyPage() {
     val tokens = LocalGlassTokens.current
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassMaterial(GlassMaterial.Panel, 24.dp)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Text(
-            text = "本政策说明本应用处理信息的范围与目的。最后更新于 2026 年 8 月。",
+            text = "隐私政策",
+            color = tokens.textPrimary,
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = "最后更新于 2026 年 8 月。",
+            color = tokens.textTertiary,
+            fontSize = 12.sp,
+        )
+        Text(
+            text = "趣智校园热水应用用于帮助你查看余额、了解设备状态并操作已绑定的热水设备。为完成这些功能，应用会处理你主动填写、导入或登录产生的账号与设备配置，以及必要的运行状态和消费记录。",
             color = tokens.textSecondary,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
         )
-        PrivacyPolicySection(
-            title = "我们处理的信息",
-            content = "为登录、查询余额、获取设备状态和控制热水，应用会处理项目 ID、用户 ID、账户 ID、登录凭据、手机号和设备序列号。系统型号与系统版本用于兼容对应的热水服务接口。",
+        PrivacyPolicyHeading(text = "信息收集与使用")
+        Text(
+            text = "应用仅在你主动登录、导入配置、绑定设备或使用相关功能时处理必要信息，用于完成请求、恢复应用状态和展示结果，不用于与功能无关的画像或广告。",
+            color = tokens.textSecondary,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
         )
-        PrivacyPolicySection(
-            title = "本地存储与安全",
-            content = "热水配置及提交成功的反馈历史保存在设备本地，并使用 Android 加密存储保护。主题模式和液态玻璃强度仅作为普通本地显示偏好保存。登录密码只在当前登录流程中参与生成请求校验值，不写入配置或本地持久化存储。",
+        PrivacyPolicyHeading(text = "本地保存")
+        Text(
+            text = "账号配置、设备信息、账单记录以及提交成功的反馈摘要可能保存在本机。登录密码仅在登录过程中使用，不会作为配置长期保存；主题等显示偏好只用于本机界面。",
+            color = tokens.textSecondary,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
         )
-        PrivacyPolicySection(
-            title = "网络传输与第三方服务",
-            content = "热水相关请求会发送至趣智校园热水服务，用于完成登录、状态查询和开关控制。提交反馈时，应用会向反馈服务发送反馈分类、邮箱、内容和应用版本。检查更新会访问 Gitee 上的公开更新清单；打开仓库或制作者链接时，将由系统浏览器访问 Gitee。",
+        PrivacyPolicyHeading(text = "网络与权限")
+        Text(
+            text = "应用会在你主动使用相关功能时，通过网络请求热水服务；网络权限也用于版本检查。相机权限仅在扫描设备二维码时使用，通知权限用于状态提醒。你可以拒绝非必要权限，手动填写配置和使用其他可用功能不受影响。",
+            color = tokens.textSecondary,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
         )
-        PrivacyPolicySection(
-            title = "权限说明",
-            content = "相机权限仅用于扫描热水器二维码，识别在设备端完成；网络权限用于服务请求和更新检查；通知权限用于热水状态提醒。拒绝相机或通知权限不会阻止手动配置和基本控制功能。",
-        )
-        PrivacyPolicySection(
-            title = "你的选择",
-            content = "你可以不提交反馈、在配置页修改账号和设备字段，或通过 Android 系统设置清除应用数据来移除本地配置与反馈历史。请勿在反馈中填写密码、Token 或其他不必要的敏感信息。",
-        )
-        PrivacyPolicySection(
-            title = "政策更新",
-            content = "当信息处理方式发生实质变化时，应用会在本页更新政策内容。继续使用更新后的版本即表示你已阅读更新内容。",
+        PrivacyPolicyHeading(text = "反馈与用户选择")
+        Text(
+            text = "提交问题反馈时，仅发送你填写的邮箱、反馈内容、类型和应用版本。请勿在反馈中填写密码、Token、学号或其他不必要的敏感信息。你可以在更多页面的“清空所有信息”入口移除应用在本机保存的配置、记录、反馈、显示设置和引导状态，也可以通过 Android 系统设置清除应用数据。政策内容会在处理方式发生重要变化时更新。",
+            color = tokens.textSecondary,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
         )
     }
 }
 
 @Composable
-private fun PrivacyPolicySection(title: String, content: String) {
+private fun PrivacyPolicyHeading(text: String) {
     val tokens = LocalGlassTokens.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 24.dp)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(text = title, color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text(text = content, color = tokens.textSecondary, fontSize = 14.sp)
-    }
+    Text(
+        text = text,
+        color = tokens.textPrimary,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Bold,
+    )
 }
 
 private data class Creator(

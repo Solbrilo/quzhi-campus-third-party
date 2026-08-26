@@ -7,6 +7,7 @@ import {
   PendingSettlement,
   UsageSession
 } from './HotWaterModels'
+import { ConfigFlowBridge } from './ConfigFlowBridge'
 
 const STORE_STATE_LOCK = ArkTSUtils.locks.AsyncLock.request('cn.qzxy.hotwater.store-state')
 
@@ -25,6 +26,22 @@ export class HotWaterStore {
     return await preferences.getPreferences(this.context, HotWaterStore.STORE_NAME)
   }
 
+  /** Removes every account, device, bill, and runtime value owned by this store. */
+  async clearAll(expectedGeneration?: number): Promise<number> {
+    // Advance before waiting for the store lock so an in-flight initialization cannot
+    // write its pre-clear snapshot after this operation completes.
+    const clearGeneration = expectedGeneration ?? ConfigFlowBridge.beginDataClear()
+    await STORE_STATE_LOCK.lockAsync(async () => {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(clearGeneration)) {
+        return
+      }
+      const store = await this.getStore()
+      await store.clear()
+      await store.flush()
+    })
+    return clearGeneration
+  }
+
   async loadConfig(): Promise<HotWaterConfig> {
     const store = await this.getStore()
     const config = new HotWaterConfig()
@@ -40,8 +57,13 @@ export class HotWaterStore {
     return config
   }
 
-  async saveConfig(config: HotWaterConfig): Promise<void> {
-    await STORE_STATE_LOCK.lockAsync(async () => {
+  async saveConfig(config: HotWaterConfig, shouldPersist?: () => boolean): Promise<boolean> {
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
+    return await STORE_STATE_LOCK.lockAsync(async () => {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+        (shouldPersist && !shouldPersist())) {
+        return false
+      }
       const store = await this.getStore()
       const identityChanged = await this.hasConfigIdentityChanged(store, config)
       await store.put('projectId', config.projectId)
@@ -60,11 +82,16 @@ export class HotWaterStore {
         await this.clearAccountRuntimeStateUnlocked(store)
       }
       await store.flush()
+      return true
     })
   }
 
   async invalidateLoginCredential(): Promise<void> {
+    const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
     await STORE_STATE_LOCK.lockAsync(async () => {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return
+      }
       const store = await this.getStore()
       await store.put('loginCode', '')
       await store.put('credentialExpired', true)
@@ -90,8 +117,15 @@ export class HotWaterStore {
     return !HotWaterConfig.hasSameRuntimeIdentity(stored, config)
   }
 
-  async applyQzxyLogin(config: HotWaterConfig): Promise<void> {
-    await STORE_STATE_LOCK.lockAsync(async () => {
+  async applyQzxyLogin(
+    config: HotWaterConfig,
+    expectedGeneration?: number
+  ): Promise<boolean> {
+    const dataClearGeneration = expectedGeneration ?? ConfigFlowBridge.getDataClearGeneration()
+    return await STORE_STATE_LOCK.lockAsync(async () => {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+        return false
+      }
       const store = await this.getStore()
       const identityChanged = await this.hasConfigIdentityChanged(store, config)
       await store.put('projectId', config.projectId)
@@ -110,6 +144,7 @@ export class HotWaterStore {
         await this.clearAccountRuntimeStateUnlocked(store)
       }
       await store.flush()
+      return true
     })
   }
 

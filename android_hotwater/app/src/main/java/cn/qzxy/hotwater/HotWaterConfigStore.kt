@@ -80,6 +80,21 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         val updatedAtMillis: Long,
     )
 
+    /**
+     * Removes every user value kept by the encrypted application store.
+     *
+     * The generation marker is advanced rather than removed. Workers that were
+     * already in flight before the clear then fail their generation checks and
+     * cannot write stale credentials, orders, or history back afterwards.
+     */
+    fun clearAll(): Boolean = synchronized(PERSISTED_STATE_LOCK) {
+        val nextGeneration = currentStateGeneration() + 1L
+        prefs.edit()
+            .clear()
+            .putLong(KEY_RUNTIME_STATE_GENERATION, nextGeneration)
+            .commit()
+    }
+
     fun loadConfig(): HotWaterConfig {
         return HotWaterConfig(
             projectId = prefs.getIntOrNull(KEY_PROJECT_ID),
@@ -404,7 +419,16 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         )
     }
 
-    fun saveWidgetState(title: String, message: String, isBusy: Boolean, tone: String = "idle") {
+    fun saveWidgetState(
+        title: String,
+        message: String,
+        isBusy: Boolean,
+        tone: String = "idle",
+        expectedStateGeneration: Long? = null,
+    ): Boolean = synchronized(PERSISTED_STATE_LOCK) {
+        if (expectedStateGeneration != null && currentStateGeneration() != expectedStateGeneration) {
+            return@synchronized false
+        }
         prefs.edit()
             .putString(KEY_WIDGET_TITLE, title)
             .putString(KEY_WIDGET_MESSAGE, message)
@@ -412,6 +436,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
             .putBoolean(KEY_WIDGET_BUSY, isBusy)
             .putLong(KEY_WIDGET_UPDATED_AT, System.currentTimeMillis())
             .apply()
+        true
     }
 
     private fun SharedPreferences.getIntOrNull(key: String): Int? {
@@ -423,8 +448,11 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
             if (value == null) remove(key) else putInt(key, value)
         }
 
-    fun saveHistory(history: OperationHistory) {
-        synchronized(PERSISTED_STATE_LOCK) {
+    fun saveHistory(history: OperationHistory, expectedStateGeneration: Long? = null): Boolean {
+        return synchronized(PERSISTED_STATE_LOCK) {
+            if (expectedStateGeneration != null && currentStateGeneration() != expectedStateGeneration) {
+                return@synchronized false
+            }
             val historyList = loadHistory().toMutableList()
             val existing = historyList.firstOrNull { it.id == history.id }
             val mergedHistory = if (history.consumptionYuan == null && existing?.consumptionYuan != null) {
@@ -437,6 +465,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
 
             // Keep settled bills independently from short-lived diagnostic operations.
             writeHistory(historyList)
+            true
         }
     }
 

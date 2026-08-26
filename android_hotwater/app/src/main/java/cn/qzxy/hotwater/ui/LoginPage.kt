@@ -206,6 +206,25 @@ fun LoginPage(
                     enabled = !loginState.loading && telephone.isNotBlank() && password.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (onSkip != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GlassPressable(
+                        onClick = onSkip,
+                        enabled = !loginState.loading,
+                        material = GlassMaterial.EmbeddedControl,
+                        cornerRadius = 20.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                    ) {
+                        Text(
+                            text = "跳过登录",
+                            color = tokens.textSecondary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
                 Text(
                     text = "密码只用于本次登录，不会保存在设备中。",
                     color = tokens.textTertiary,
@@ -214,25 +233,6 @@ fun LoginPage(
                 )
             }
 
-            if (onSkip != null) {
-                Spacer(modifier = Modifier.height(18.dp))
-                GlassPressable(
-                    onClick = onSkip,
-                    material = GlassMaterial.EmbeddedControl,
-                    cornerRadius = 20.dp,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .height(48.dp),
-                ) {
-                    Text(
-                        text = "跳过登录",
-                        color = tokens.textSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
-                }
-            }
         }
     }
 }

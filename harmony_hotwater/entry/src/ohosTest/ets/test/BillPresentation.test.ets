@@ -5,6 +5,7 @@ import {
   buildBillEntries,
   filterBillEntries,
   formatBillAmount,
+  getBillGroupRenderKey,
   getBillMonths,
   getBillYears,
   groupBillEntries,
@@ -48,6 +49,38 @@ export default function billPresentationTest() {
       expect(filterBillEntries(entries, BillScope.MONTH, 2026, 2).length).assertEqual(2)
       expect(getBillYears(entries).join(',')).assertEqual('2026')
       expect(getBillMonths(entries, 2026).join(',')).assertEqual('2,1')
+    })
+
+    it('keepsEveryMonthWhenSwitchingToAnnualScopeAndYearGrouping', 0, () => {
+      const august = new Date(2026, 7, 20, 12, 0).getTime()
+      const july = new Date(2026, 6, 20, 12, 0).getTime()
+      const june = new Date(2026, 5, 20, 12, 0).getTime()
+      const previousYear = new Date(2025, 11, 20, 12, 0).getTime()
+      const entries = buildBillEntries([
+        makeRecord(1, june, 1, 100),
+        makeRecord(2, july, 2, 200),
+        makeRecord(3, august, 3, 300),
+        makeRecord(4, previousYear, 4, 400)
+      ])
+
+      const monthlyEntries = filterBillEntries(entries, BillScope.MONTH, 2026, 8)
+      const annualEntries = filterBillEntries(entries, BillScope.YEAR, 2026, 8)
+      const monthlyGroups = groupBillEntries(monthlyEntries, BillGrouping.YEAR)
+      const annualGroups = groupBillEntries(annualEntries, BillGrouping.YEAR)
+
+      expect(monthlyEntries.length).assertEqual(1)
+      expect(annualEntries.length).assertEqual(3)
+      expect(annualGroups.length).assertEqual(1)
+      expect(annualGroups[0].key).assertEqual('year:2026')
+      expect(annualGroups[0].entries.length).assertEqual(3)
+      expect(annualGroups[0].entries[0].month).assertEqual(8)
+      expect(annualGroups[0].entries[1].month).assertEqual(7)
+      expect(annualGroups[0].entries[2].month).assertEqual(6)
+      expect(getBillGroupRenderKey(
+        monthlyGroups[0], BillScope.MONTH, 2026, 8, BillGrouping.YEAR
+      ) !== getBillGroupRenderKey(
+        annualGroups[0], BillScope.YEAR, 2026, 0, BillGrouping.YEAR
+      )).assertTrue()
     })
 
     it('sumsKnownAmountsInMilliYuanAndKeepsUnknownUsageDuration', 0, () => {

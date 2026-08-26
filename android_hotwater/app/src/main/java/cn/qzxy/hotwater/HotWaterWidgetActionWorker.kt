@@ -20,12 +20,19 @@ class HotWaterWidgetActionWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val store = HotWaterConfigStore(applicationContext)
+        val stateGeneration = store.loadStateGeneration()
         val config = RuntimeDeviceInfoResolver.enrichConfig(applicationContext, store.loadConfig())
         val actionName = inputData.getString(KEY_ACTION)
             ?: return Result.failure(workDataOf(KEY_ERROR to "Missing widget action"))
 
         val action = runCatching { WidgetHotWaterAction.valueOf(actionName) }.getOrElse {
-            store.saveWidgetState("操作失败", "无法识别的小组件动作。", false, "error")
+            store.saveWidgetState(
+                "操作失败",
+                "无法识别的小组件动作。",
+                false,
+                "error",
+                expectedStateGeneration = stateGeneration,
+            )
             HotWaterWidgetUi.updateAllWidgets(applicationContext)
             return Result.failure(workDataOf(KEY_ERROR to "Invalid widget action"))
         }
@@ -36,6 +43,7 @@ class HotWaterWidgetActionWorker(
                 message = "先打开应用填写配置参数。",
                 isBusy = false,
                 tone = "warning",
+                expectedStateGeneration = stateGeneration,
             )
             HotWaterWidgetUi.updateAllWidgets(applicationContext)
             return Result.failure(workDataOf(KEY_ERROR to "Config incomplete"))
@@ -48,15 +56,18 @@ class HotWaterWidgetActionWorker(
                 WidgetHotWaterAction.CLOSE -> repository.close(config)
                 WidgetHotWaterAction.REFRESH -> repository.check(config)
             }.also { result ->
+                if (store.loadStateGeneration() != stateGeneration) return@also
                 when (action) {
                     WidgetHotWaterAction.OPEN -> store.saveOperationResultHistory(
                         type = OperationHistory.OperationType.OPEN,
                         result = result,
+                        expectedStateGeneration = stateGeneration,
                     )
 
                     WidgetHotWaterAction.CLOSE -> store.saveOperationResultHistory(
                         type = OperationHistory.OperationType.CLOSE,
                         result = result,
+                        expectedStateGeneration = stateGeneration,
                     )
 
                     WidgetHotWaterAction.REFRESH -> Unit
@@ -64,6 +75,7 @@ class HotWaterWidgetActionWorker(
                 if (action == WidgetHotWaterAction.CLOSE && result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(applicationContext)
                 }
+                if (store.loadStateGeneration() != stateGeneration) return@also
                 val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
                     title = if (deviceBusyByOther) {
@@ -84,6 +96,7 @@ class HotWaterWidgetActionWorker(
                     } else {
                         "success"
                     },
+                    expectedStateGeneration = stateGeneration,
                 )
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
                 if (!store.loadOrderNo().isNullOrBlank()) {
@@ -106,6 +119,7 @@ class HotWaterWidgetActionWorker(
                 message = HotWaterUiText.summarizeError(error),
                 isBusy = false,
                 tone = "error",
+                expectedStateGeneration = stateGeneration,
             )
             HotWaterWidgetUi.updateAllWidgets(applicationContext)
             Result.failure(workDataOf(KEY_ERROR to (error.message ?: "Widget action failed")))

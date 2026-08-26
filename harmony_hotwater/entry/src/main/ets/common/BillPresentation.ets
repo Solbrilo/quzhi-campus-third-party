@@ -69,16 +69,25 @@ export function filterBillEntries(
   if (!Number.isFinite(year)) {
     return []
   }
-  if (scope === BillScope.MONTH && (month < 1 || month > 12)) {
+  const filtered: BillEntry[] = []
+  if (scope === BillScope.YEAR) {
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]
+      if (entry.year === year) {
+        filtered.push(entry)
+      }
+    }
+    return filtered
+  }
+
+  if (scope !== BillScope.MONTH || month < 1 || month > 12) {
     return []
   }
-  const filtered: BillEntry[] = []
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]
-    if (entry.year !== year || (scope === BillScope.MONTH && entry.month !== month)) {
-      continue
+    if (entry.year === year && entry.month === month) {
+      filtered.push(entry)
     }
-    filtered.push(entry)
   }
   return filtered
 }
@@ -163,6 +172,24 @@ export function getBillGroupKey(entry: BillEntry, grouping: BillGrouping): strin
     return 'year:' + entry.year.toString()
   }
   return 'month:' + entry.year.toString() + '-' + entry.month.toString().padStart(2, '0')
+}
+
+/**
+ * ArkUI reuses ForEach nodes with the same key. Include the active presentation period so a
+ * yearly group first rendered for one month is rebuilt after switching to the full year.
+ */
+export function getBillGroupRenderKey(
+  group: BillGroup,
+  scope: BillScope,
+  year: number,
+  month: number,
+  grouping: BillGrouping
+): string {
+  const period = scope === BillScope.MONTH
+    ? year.toString() + '-' + month.toString().padStart(2, '0')
+    : year.toString()
+  return 'scope:' + scope.toString() + '|grouping:' + grouping.toString() +
+    '|period:' + period + '|group:' + group.key
 }
 
 export function isBillGroupCollapsed(collapsedKeys: string[], key: string): boolean {

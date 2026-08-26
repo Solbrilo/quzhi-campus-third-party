@@ -95,6 +95,7 @@ data class OperationHistory(
 fun HotWaterConfigStore.saveOperationResultHistory(
     type: OperationHistory.OperationType,
     result: OperationResult,
+    expectedStateGeneration: Long? = null,
 ): OperationHistory {
     val acceptedClose = type == OperationHistory.OperationType.CLOSE && result.historyId != null
     val history = OperationHistory(
@@ -106,6 +107,6 @@ fun HotWaterConfigStore.saveOperationResultHistory(
         usageDurationMillis = result.usageDurationMillis,
         usageStartedAtMillis = result.usageStartedAtMillis,
     )
-    saveHistory(history)
+    saveHistory(history, expectedStateGeneration)
     return history
 }

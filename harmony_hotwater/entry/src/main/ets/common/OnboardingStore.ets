@@ -40,4 +40,10 @@ export class OnboardingStore {
     )
     await store.flush()
   }
+
+  async clear(): Promise<void> {
+    const store = await preferences.getPreferences(this.context, OnboardingStore.STORE_NAME)
+    await store.clear()
+    await store.flush()
+  }
 }

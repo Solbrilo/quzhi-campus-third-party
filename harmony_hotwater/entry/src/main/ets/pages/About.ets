@@ -16,6 +16,7 @@ import {
   AppearanceThemeMode,
   publishAppearance
 } from '../common/AppAppearance'
+import { ConfigFlowBridge } from '../common/ConfigFlowBridge'
 import {
   FeedbackCategory,
   FeedbackClient,
@@ -23,6 +24,8 @@ import {
   FeedbackSubmitState
 } from '../common/FeedbackClient'
 import { FeedbackHistoryEntry, FeedbackHistoryStore } from '../common/FeedbackHistoryStore'
+import { HotWaterStore } from '../common/HotWaterStore'
+import { OnboardingStore } from '../common/OnboardingStore'
 
 const PROJECT_REPOSITORY_URL: string = 'https://gitee.com/Solbrilo/quzhi-campus-third-party'
 const SOLBRILO_URL: string = 'https://gitee.com/Solbrilo'
@@ -139,12 +142,30 @@ struct FeedbackHistoryDialog {
 struct UpdateLogDialog {
   controller?: CustomDialogController
   entries: HarmonyReleaseLog[] = []
+  currentVersionName: string = ''
   errorLabel: string = ''
   onClose: () => void = () => {
   }
   onRetry: () => void = () => {
   }
   @State expandedVersionNames: string[] = []
+  @State initialExpansionResolved: boolean = false
+
+  aboutToAppear(): void {
+    if (this.initialExpansionResolved) {
+      return
+    }
+    this.initialExpansionResolved = true
+    // The repository sorts entries newest first. Prefer that entry so a stale installed
+    // package cannot hide a newer release behind its own expanded item.
+    let preferredVersion = ''
+    if (this.entries.length > 0) {
+      preferredVersion = this.entries[0].versionName
+    }
+    if (preferredVersion.length > 0) {
+      this.expandedVersionNames = [preferredVersion]
+    }
+  }
 
   private isExpanded(versionName: string): boolean {
     return this.expandedVersionNames.indexOf(versionName) >= 0
@@ -318,6 +339,8 @@ struct About {
   private updateRepository: GiteeUpdateRepository = new GiteeUpdateRepository()
   private feedbackClient: FeedbackClient = new FeedbackClient()
   private appearanceStore?: AppAppearanceStore
+  private hotWaterStore?: HotWaterStore
+  private onboardingStore?: OnboardingStore
   private feedbackHistoryStore?: FeedbackHistoryStore
   private feedbackHistoryDialogController?: CustomDialogController
   private updateLogDialogController?: CustomDialogController
@@ -327,7 +350,7 @@ struct About {
   private appearanceSaveChain: Promise<void> = Promise.resolve()
 
   @State screen: MoreScreen = MoreScreen.HOME
-  @State currentVersionLabel: string = '2.2.0'
+  @State currentVersionLabel: string = '2.2.1'
   @State checkingUpdate: boolean = false
   @State loadingUpdateLogs: boolean = false
   @State updateCheckState: UpdateCheckState = UpdateCheckState.IDLE
@@ -348,9 +371,13 @@ struct About {
   @State submittingFeedback: boolean = false
   @State feedbackHistory: FeedbackHistoryEntry[] = []
   @StorageProp('statusBarHeight') statusBarHeight: number = 0
+  @State clearingAllInformation: boolean = false
 
   aboutToAppear(): void {
     this.immersiveMaterialSupported = this.supportsImmersiveMaterial()
+    const context = this.getUIContext().getHostContext() as common.Context
+    this.hotWaterStore = new HotWaterStore(context)
+    this.onboardingStore = new OnboardingStore(context)
     this.initialize()
     this.loadAppearance()
     this.loadFeedbackHistory()
@@ -388,7 +415,7 @@ struct About {
         this.currentVersionLabel = bundleInfo.versionName
       }
     } catch (error) {
-      this.currentVersionLabel = '2.2.0'
+      this.currentVersionLabel = '2.2.1'
     }
   }
 
@@ -634,6 +661,82 @@ struct About {
     this.feedbackHistory = await this.feedbackHistoryStore.append(entry)
   }
 
+  private confirmClearAllInformation(): void {
+    if (this.submittingFeedback || this.clearingAllInformation) {
+      return
+    }
+    AlertDialog.show({
+      title: '清空所有信息',
+      message: '将删除应用内保存的账号与设备配置、账单和操作记录、运行状态、反馈表单与反馈历史、外观设置及引导状态，且无法恢复。已提交到反馈服务的内容不会被撤回。',
+      primaryButton: {
+        value: '清空',
+        action: () => {
+          this.clearAllInformation()
+        }
+      },
+      secondaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      }
+    })
+  }
+
+  private async clearAllInformation(): Promise<void> {
+    if (this.clearingAllInformation) {
+      return
+    }
+    this.clearingAllInformation = true
+    this.feedbackRequestGeneration++
+    this.updateLogRequestGeneration++
+    this.feedbackClient.cancelActiveRequest()
+    try {
+      const context = this.getUIContext().getHostContext() as common.Context
+      if (!this.hotWaterStore) {
+        this.hotWaterStore = new HotWaterStore(context)
+      }
+      if (!this.onboardingStore) {
+        this.onboardingStore = new OnboardingStore(context)
+      }
+      if (!this.feedbackHistoryStore) {
+        this.feedbackHistoryStore = new FeedbackHistoryStore(context)
+      }
+      if (!this.appearanceStore) {
+        this.appearanceStore = new AppAppearanceStore(context)
+      }
+      // Invalidate stale store writers before waiting for unrelated appearance
+      // persistence. The same generation is passed to clearAll below.
+      const clearGeneration = ConfigFlowBridge.beginDataClear()
+      // Wait for a pending appearance write before deleting the store.
+      await this.appearanceSaveChain
+      await this.hotWaterStore.clearAll(clearGeneration)
+      await this.feedbackHistoryStore.clear()
+      await this.appearanceStore.clear()
+      await this.onboardingStore.clear()
+
+      const defaultAppearance = new AppAppearance()
+      this.applyAppearanceState(defaultAppearance)
+      publishAppearance(defaultAppearance)
+      this.applyApplicationColorMode(AppearanceThemeMode.SYSTEM)
+      ConfigFlowBridge.markDataCleared(clearGeneration)
+
+      this.feedbackHistory = []
+      this.feedbackEmail = ''
+      this.feedbackMessage = ''
+      this.feedbackCategory = FeedbackCategory.BUG
+      this.feedbackEmailErrorLabel = ''
+      this.feedbackErrorLabel = ''
+      this.feedbackStatusLabel = ''
+      this.feedbackSucceeded = false
+      await this.getUIContext().getRouter().replaceUrl({ url: 'pages/Onboarding' })
+    } catch (error) {
+      this.feedbackStatusLabel = '清空失败，请稍后重试。'
+      this.feedbackSucceeded = false
+    } finally {
+      this.clearingAllInformation = false
+    }
+  }
+
   private showFeedbackHistory(): void {
     this.feedbackHistoryDialogController?.close()
     const controller = new CustomDialogController({
@@ -662,7 +765,9 @@ struct About {
     const requestGeneration = ++this.updateLogRequestGeneration
     this.loadingUpdateLogs = true
     try {
-      const result: ReleaseLogFetchResult = await this.updateRepository.listReleaseLogs()
+      const result: ReleaseLogFetchResult = await this.updateRepository.listReleaseLogs(
+        this.currentVersionLabel
+      )
       if (requestGeneration !== this.updateLogRequestGeneration) {
         return
       }
@@ -679,6 +784,7 @@ struct About {
     const controller = new CustomDialogController({
       builder: UpdateLogDialog({
         entries: entries,
+        currentVersionName: this.currentVersionLabel,
         errorLabel: errorLabel,
         onClose: () => {
           this.updateLogDialogController = undefined
@@ -1218,6 +1324,16 @@ struct About {
             '了解本应用如何处理本地与反馈信息',
             MoreScreen.PRIVACY
           )
+          Button(this.clearingAllInformation ? '正在清空...' : '清空所有信息')
+            .width('100%')
+            .height(44)
+            .type(ButtonType.Capsule)
+            .backgroundColor($r('app.color.input_background'))
+            .fontColor($r('app.color.error_text'))
+            .enabled(!this.submittingFeedback && !this.clearingAllInformation)
+            .onClick(() => {
+              this.confirmClearAllInformation()
+            })
         }
         .width('100%')
         .padding(18)
@@ -1418,6 +1534,7 @@ struct About {
         .backgroundColor($r('app.color.card_background'))
         .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
         .border({ width: 1, color: $r('app.color.card_border'), style: BorderStyle.Solid })
+
       }
       .width('100%')
       .padding({ bottom: 20 })
@@ -1455,43 +1572,43 @@ struct About {
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.text_primary'))
-          Text('本政策适用于趣智校园热水第三方控制工具。应用用于帮助用户查看和操作自己已绑定的热水设备。')
+          Text('本政策适用于趣智校园热水第三方控制工具。我们希望以清晰、必要的方式说明应用在提供热水设备查询、操作和配置辅助功能时如何处理相关信息。')
             .fontSize(14)
             .lineHeight(21)
             .fontColor($r('app.color.text_secondary'))
 
-          Text('本地保存的信息')
+          Text('信息收集与使用')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.text_primary'))
-          Text('为提供设备控制与展示功能，应用会在本机保存用户填写或导入的账号、热水设备配置，以及本地订单和消费记录。上述数据用于恢复应用状态、显示余额和账单，不会因为仅打开本页而被主动提交。')
+          Text('应用仅在您主动登录、导入配置、绑定设备或使用相关功能时处理必要信息，例如账号标识、设备配置、余额和账单数据。上述信息用于完成请求、恢复应用状态和展示结果，不用于与功能无关的画像或广告。')
             .fontSize(14)
             .lineHeight(21)
             .fontColor($r('app.color.text_secondary'))
 
-          Text('问题反馈')
+          Text('本地保存')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.text_primary'))
-          Text('当您主动提交反馈时，应用会将您填写的联系邮箱、反馈类型、反馈内容和当前应用版本发送至反馈服务，以便处理该次反馈。请不要在反馈中填写账号、密码、学号、校园卡号、Token 或其他敏感信息。')
+          Text('为便于下次使用，账号配置、设备信息、账单记录以及您提交成功的反馈摘要可能保存在本机。您可以在更多页面的“清空所有信息”入口删除应用内保存的这些数据；删除应用或清除应用数据也会移除本机保存的信息。')
             .fontSize(14)
             .lineHeight(21)
             .fontColor($r('app.color.text_secondary'))
 
-          Text('权限用途')
+          Text('反馈与权限')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.text_primary'))
-          Text('网络权限用于请求热水服务、检查更新和提交反馈；网络状态与 Wi-Fi 信息权限用于判断连接状态、读取设备所需的本机网络信息；相机权限仅在您选择扫描设备二维码时使用；振动权限仅用于操作反馈。')
+          Text('当您主动提交反馈时，应用会发送您填写的联系邮箱、反馈类型、反馈内容和应用版本，用于处理该次反馈。请勿填写密码、学号、校园卡号、Token 或其他敏感信息。网络权限用于联网功能，网络状态和 Wi-Fi 信息权限用于判断连接情况，相机权限仅在扫描设备二维码时使用，振动权限仅用于操作反馈；您可以在系统设置中管理可选权限。')
             .fontSize(14)
             .lineHeight(21)
             .fontColor($r('app.color.text_secondary'))
 
-          Text('第三方服务与说明')
+          Text('安全与用户选择')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.text_primary'))
-          Text('检查更新时，应用会访问 Gitee 上的公开更新清单。对于反馈服务端的信息保留、删除或加密方式，应用不作未经证实的承诺；请仅在知悉上述用途后主动提交反馈。')
+          Text('应用会尽量减少收集范围，并在传输过程中使用系统提供的安全机制。网络服务或第三方内容的可用性可能变化，应用不会超出上述用途处理信息。您可以选择不登录、不提交反馈或拒绝可选权限，但相应功能可能无法使用；如需删除应用内保存的账号、设备、账单、运行和反馈信息，可使用更多页面的“清空所有信息”入口。')
             .fontSize(14)
             .lineHeight(21)
             .fontColor($r('app.color.text_secondary'))

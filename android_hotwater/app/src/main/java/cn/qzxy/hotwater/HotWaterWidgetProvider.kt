@@ -57,6 +57,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
 
     private fun enqueueAction(context: Context, action: WidgetHotWaterAction) {
         val store = HotWaterConfigStore(context)
+        val stateGeneration = store.loadStateGeneration()
         val state = store.loadWidgetState()
         if (state.isBusy) {
             store.saveWidgetState(
@@ -64,6 +65,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
                 message = "上一个操作还没完成，请稍等。",
                 isBusy = true,
                 tone = "busy",
+                expectedStateGeneration = stateGeneration,
             )
             HotWaterWidgetUi.updateAllWidgets(context)
             return
@@ -78,6 +80,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
             },
             isBusy = true,
             tone = "busy",
+            expectedStateGeneration = stateGeneration,
         )
         HotWaterWidgetUi.updateAllWidgets(context)
 
@@ -106,5 +109,9 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
     companion object {
         private const val UNIQUE_WORK_NAME = "hotwater_widget_action"
         private const val WORK_TAG = "hotwater_widget"
+
+        fun cancelPendingActions(context: Context) {
+            WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE_WORK_NAME)
+        }
     }
 }

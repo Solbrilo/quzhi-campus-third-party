@@ -51,18 +51,17 @@ specific latest package and a shared release-note history:
 platform filename. Do not point either platform's `latest` entry at a package that has not yet
 been uploaded. Add every formal release to `releases` so both clients can render its changelog.
 
-## v2.2.0 Source Sync
+## v2.2.1 Release Build
 
-This change is a source-version sync only. Do not create a tag, Gitee Release, APK, or HAP for it
-yet.
-
-1. Android uses `versionCode 24` and `versionName 2.2.0`.
-2. HarmonyOS uses `versionCode 2002000` and `versionName 2.2.0`.
+1. Android uses `versionCode 25` and `versionName 2.2.1`.
+2. HarmonyOS uses `versionCode 2002001` and `versionName 2.2.1`.
 3. Run the Android unit tests and package build, then run the HarmonyOS tests and HAP build.
-4. Commit all source changes, including `update-manifest.json`, and push `main`.
+4. Create and push the `v2.2.1` tag with the source commit.
+5. Upload the generated packages as `hotwater-android-v2.2.1.apk` and
+   `hotwater-harmony-v2.2.1.hap` to the Gitee Release.
 
-The manifest continues to point to the latest packages that actually exist: Android `v2.1.0` and
-HarmonyOS `v2.0.1`.
+Until the packages are uploaded, the manifest intentionally continues to point to the latest
+available packages: Android `v2.1.0` and HarmonyOS `v2.0.1`.
 
 ## Future Formal Release
 

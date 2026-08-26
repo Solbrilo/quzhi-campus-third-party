@@ -80,6 +80,7 @@ class HotWaterNotificationService : Service() {
     private fun closeAndDismiss() {
         if (closing) return
         val store = HotWaterConfigStore(this)
+        val stateGeneration = store.loadStateGeneration()
         val config = RuntimeDeviceInfoResolver.enrichConfig(this, store.loadConfig())
 
         if (!config.isComplete()) {
@@ -92,7 +93,15 @@ class HotWaterNotificationService : Service() {
             try {
                 val repository = HotWaterRepository(HotWaterApi(), store)
                 val result = withContext(Dispatchers.IO) { repository.close(config) }
-                store.saveOperationResultHistory(OperationHistory.OperationType.CLOSE, result)
+                store.saveOperationResultHistory(
+                    type = OperationHistory.OperationType.CLOSE,
+                    result = result,
+                    expectedStateGeneration = stateGeneration,
+                )
+                if (store.loadStateGeneration() != stateGeneration) {
+                    stopSelf()
+                    return@launch
+                }
                 if (result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(this@HotWaterNotificationService)
                 }

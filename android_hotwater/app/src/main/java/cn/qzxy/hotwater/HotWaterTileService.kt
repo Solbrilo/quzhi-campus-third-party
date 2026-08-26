@@ -69,6 +69,7 @@ class HotWaterTileService : TileService() {
             return
         }
 
+        val stateGeneration = store.loadStateGeneration()
         val config = RuntimeDeviceInfoResolver.enrichConfig(applicationContext, store.loadConfig())
 
         if (!config.isComplete()) {
@@ -99,7 +100,9 @@ class HotWaterTileService : TileService() {
                         OperationHistory.OperationType.OPEN
                     },
                     result = result,
+                    expectedStateGeneration = stateGeneration,
                 )
+                if (store.loadStateGeneration() != stateGeneration) return@launch
                 if (shouldClose && result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(applicationContext)
                 }

@@ -121,6 +121,7 @@ class MainActivity : ComponentActivity() {
                     onRequestNotificationPermission = { action ->
                         requestNotificationPermissionThen(action)
                     },
+                    onClearAllUserData = { clearAllUserData() },
                 )
             }
         }
@@ -265,6 +266,22 @@ class MainActivity : ComponentActivity() {
                 error.message ?: "导入配置失败",
             )
         }
+    }
+
+    private fun clearAllUserData() {
+        val cleared = viewModel.clearAllUserData()
+        onboardingPreferences.clear()
+        ThemeModePreferences.clear(this)
+        themeMode = ThemeMode.SYSTEM
+        glassIntensity = DEFAULT_GLASS_INTENSITY
+        onboardingRequired = true
+        pendingOpenRequested = false
+        pendingOpenAction = null
+        Toast.makeText(
+            this,
+            if (cleared) "已清空所有信息，请重新配置。" else "未能完整清空本机信息，请重试。",
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     companion object {
