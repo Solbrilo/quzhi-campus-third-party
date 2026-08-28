@@ -190,6 +190,9 @@ class HotWaterRepository(
         var success = false
         var finalOpenResult: JSONObject? = null
         var busyByOtherPayload: JSONObject? = null
+        var deviceOnlineOverride: Boolean? = null
+        var offlineProbeSeen = false
+        var offlineProbeOrderNo: String? = null
 
         for (index in 0 until pollAttempts) {
             ensureStateGeneration(stateGeneration)
@@ -201,22 +204,41 @@ class HotWaterRepository(
             detailBuilder.appendLine("[Open Result #${index + 1}]")
             detailBuilder.appendLine(openResult.toString(2))
 
+            val responseOrderNo = findNestedValue(openResult, "orderNo")
+                ?.toString()
+                ?.takeIf { it.isNotBlank() }
+            when (val probeState = openResultOnlineState(openResult, orderNo)) {
+                false -> {
+                    deviceOnlineOverride = false
+                    offlineProbeSeen = true
+                    if (offlineProbeOrderNo.isNullOrBlank()) {
+                        offlineProbeOrderNo = orderNo ?: responseOrderNo
+                    }
+                }
+                true -> {
+                    // A positive result must be a confirmed result for this request. A generic
+                    // online-looking field cannot clear an earlier communication failure.
+                    val matchesOfflineProbe = !offlineProbeSeen ||
+                        (!offlineProbeOrderNo.isNullOrBlank() &&
+                            responseOrderNo == offlineProbeOrderNo)
+                    val confirmedResult = isConfirmedOpenResult(openResult, orderNo)
+                    if (confirmedResult && matchesOfflineProbe) {
+                        deviceOnlineOverride = true
+                    }
+                }
+                null -> Unit
+            }
+
             if (isDeviceBusyByOther(openResult)) {
                 busyByOtherPayload = openResult
                 break
             }
 
             if (orderNo.isNullOrBlank()) {
-                orderNo = findNestedValue(openResult, "orderNo")?.toString()
+                orderNo = responseOrderNo
             }
 
-            val isSuccess = findNestedValue(openResult, "isSuccess")
-            if (isSuccess == true) {
-                success = true
-                break
-            }
-
-            if (openResult.optInt("errorCode", -1) == 0 && !openResult.isNull("data")) {
+            if (isOpenResultSuccessful(openResult, orderNo)) {
                 success = true
                 break
             }
@@ -245,6 +267,7 @@ class HotWaterRepository(
                 preferredUsageStartBalanceYuan = balanceBeforeOpenYuan,
                 allowSnapshotUsageBaseline = balanceBeforeOpenYuan != null,
                 expectedStateGeneration = stateGeneration,
+                deviceOnlineOverride = deviceOnlineOverride,
             )
         }.getOrElse {
             buildFallbackSnapshot(
@@ -252,6 +275,7 @@ class HotWaterRepository(
                 balancePayload = null,
                 statusLabel = if (success) "热水已开启，可以直接关闭。" else "开热水请求已发送，等待设备确认。",
                 orderNo = store.loadOrderNo() ?: orderNo,
+                deviceOnlineOverride = deviceOnlineOverride,
             )
         }
         val snapshotWithUsageSession = ensureUsageSession(
@@ -262,18 +286,28 @@ class HotWaterRepository(
         )
         ensureStateGeneration(stateGeneration)
 
+        val deviceOffline = snapshotWithUsageSession.isDeviceOnline == false
         val summary = when {
+            deviceOffline -> "$DEVICE_OFFLINE_STATUS_MESSAGE\n余额 ${snapshotWithUsageSession.balanceLabel} 元"
             success -> "热水已开启。\n余额 ${snapshotWithUsageSession.balanceLabel} 元"
             finalOpenResult != null -> "开热水请求已发送。\n余额 ${snapshotWithUsageSession.balanceLabel} 元"
             else -> buildSummary(snapshotWithUsageSession)
         }
 
         OperationResult(
-            title = if (success) "开热水完成" else "开热水请求已发送",
+            title = when {
+                deviceOffline -> "热水器不在线"
+                success -> "开热水完成"
+                else -> "开热水请求已发送"
+            },
             summary = summary,
             details = detailBuilder.toString().trim(),
             snapshot = snapshotWithUsageSession,
-            outcome = if (success) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
+            outcome = when {
+                deviceOffline -> OperationOutcome.WARNING
+                success -> OperationOutcome.SUCCESS
+                else -> OperationOutcome.PENDING
+            },
         )
     }
 
@@ -574,13 +608,22 @@ class HotWaterRepository(
         allowSnapshotUsageBaseline: Boolean = true,
         prefetchedUserInfo: JSONObject? = null,
         expectedStateGeneration: Long,
+        deviceOnlineOverride: Boolean? = null,
     ): DashboardSnapshot {
         val userInfo = prefetchedUserInfo ?: api.userInfo(config)
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
         val status = api.status(config)
         return ensureUsageSession(
-            buildSnapshot(config, userInfo, deviceInfo, balance, status, expectedStateGeneration),
+            buildSnapshot(
+                config,
+                userInfo,
+                deviceInfo,
+                balance,
+                status,
+                expectedStateGeneration,
+                deviceOnlineOverride,
+            ),
             preferredUsageStartBalanceYuan,
             allowSnapshotUsageBaseline,
             expectedStateGeneration,
@@ -591,12 +634,21 @@ class HotWaterRepository(
         config: HotWaterConfig,
         statusPayload: JSONObject,
         expectedStateGeneration: Long,
+        deviceOnlineOverride: Boolean? = null,
     ): DashboardSnapshot {
         val userInfo = api.userInfo(config)
         val deviceInfo = api.deviceInfo(config)
         val balance = api.balance(config)
         return ensureUsageSession(
-            buildSnapshot(config, userInfo, deviceInfo, balance, statusPayload, expectedStateGeneration),
+            buildSnapshot(
+                config,
+                userInfo,
+                deviceInfo,
+                balance,
+                statusPayload,
+                expectedStateGeneration,
+                deviceOnlineOverride,
+            ),
             expectedStateGeneration = expectedStateGeneration,
         )
     }
@@ -944,6 +996,7 @@ class HotWaterRepository(
         balancePayload: JSONObject,
         statusPayload: JSONObject,
         expectedStateGeneration: Long,
+        deviceOnlineOverride: Boolean? = null,
     ): DashboardSnapshot {
         ensureStateGeneration(expectedStateGeneration)
         val userData = userInfo.optJSONObject("data") ?: JSONObject()
@@ -975,7 +1028,9 @@ class HotWaterRepository(
             .joinToString(" ")
             .ifBlank { deviceData.optString("deviceLocation", "位置待刷新") }
 
+        val deviceOnline = deviceOnlineState(statusPayload, deviceOnlineOverride)
         val statusLabel = when {
+            deviceOnline == false -> DEVICE_OFFLINE_STATUS_MESSAGE
             busyByOther -> DEVICE_BUSY_BY_OTHER_MESSAGE
             !cachedOrderNo.isNullOrBlank() -> "已缓存订单号，点击主按钮将尝试关热水。"
             statusPayload.optBoolean("success") -> "当前没有缓存订单号，点击主按钮将尝试开热水。"
@@ -997,7 +1052,7 @@ class HotWaterRepository(
             orderNo = cachedOrderNo,
             hasCachedOrder = !cachedOrderNo.isNullOrBlank(),
             isDeviceBusyByOther = busyByOther,
-            isDeviceOnline = deviceOnlineState(statusPayload),
+            isDeviceOnline = deviceOnline,
             usageStartedAtMillis = if (cachedOrderNo.isNullOrBlank()) null else store.loadUsageSession()?.startedAtMillis,
         )
     }
@@ -1045,19 +1100,26 @@ class HotWaterRepository(
         statusLabel: String,
         orderNo: String?,
         isDeviceBusyByOther: Boolean = false,
+        deviceOnlineOverride: Boolean? = null,
     ): DashboardSnapshot {
         val normalizedOrderNo = orderNo?.takeIf { it.isNotBlank() }
         val parsedBalanceYuan = HotWaterPayload.balanceYuan(balancePayload)
+        val resolvedStatusLabel = if (deviceOnlineOverride == false) {
+            DEVICE_OFFLINE_STATUS_MESSAGE
+        } else {
+            statusLabel
+        }
         return DashboardSnapshot(
             balanceYuan = parsedBalanceYuan,
             balanceLabel = parsedBalanceYuan?.let(::formatYuan) ?: "--",
             userLabel = HotWaterConfig.maskMiddle(config.telephone, 3, 4),
             deviceName = "热水设备已连接",
             locationLabel = "打开应用后可自动刷新宿舍位置",
-            statusLabel = statusLabel,
+            statusLabel = resolvedStatusLabel,
             orderNo = normalizedOrderNo,
             hasCachedOrder = !normalizedOrderNo.isNullOrBlank(),
             isDeviceBusyByOther = isDeviceBusyByOther,
+            isDeviceOnline = deviceOnlineOverride ?: isDeviceBusyByOther.takeIf { it },
             usageStartedAtMillis = if (normalizedOrderNo.isNullOrBlank()) null else store.loadUsageSession()?.startedAtMillis,
         )
     }
@@ -1147,13 +1209,66 @@ class HotWaterRepository(
         }
     }
 
-    private fun deviceOnlineState(payload: JSONObject): Boolean? {
+    private fun deviceOnlineState(
+        payload: JSONObject,
+        override: Boolean? = null,
+    ): Boolean? {
+        override?.let { return it }
+        if (isExplicitDeviceOffline(payload)) return false
         reportedDeviceOnlineState(payload)?.let { return it }
-        return if (isAcceptedResponse(payload) || isDeviceBusyByOther(payload)) {
-            true
-        } else {
-            null
+        return isDeviceBusyByOther(payload).takeIf { it }
+    }
+
+    private fun openResultOnlineState(
+        payload: JSONObject,
+        expectedOrderNo: String?,
+    ): Boolean? {
+        val errorCode = payload.optInt("errorCode", -1)
+        val errorMessage = payload.optString("errorMessage")
+        if (
+            isExplicitDeviceOffline(payload) ||
+            (
+                errorCode == OPEN_RESULT_NETWORK_ERROR_CODE &&
+                    errorMessage.contains(OPEN_RESULT_NETWORK_SLOW_MESSAGE)
+                )
+        ) {
+            return false
         }
+        reportedDeviceOnlineState(payload)?.let { return it }
+        return if (isConfirmedOpenResult(payload, expectedOrderNo)) true else null
+    }
+
+    private fun isOpenResultSuccessful(
+        payload: JSONObject,
+        expectedOrderNo: String?,
+    ): Boolean = isConfirmedOpenResult(payload, expectedOrderNo)
+
+    private fun isExplicitDeviceOffline(payload: JSONObject): Boolean {
+        val errorMessage = payload.optString("errorMessage")
+        return payload.optInt("errorCode", -1) == DEVICE_OFFLINE_ERROR_CODE ||
+            errorMessage.contains(DEVICE_OFFLINE_MESSAGE) ||
+            errorMessage.contains(DEVICE_OFFLINE_MESSAGE_ALT)
+    }
+
+    private fun isConfirmedOpenResult(payload: JSONObject, expectedOrderNo: String?): Boolean {
+        val data = payload.optJSONObject("data") ?: return false
+        val responseOrderNo = data.optString("orderNo").trim()
+        if (responseOrderNo.isBlank()) return false
+        if (!expectedOrderNo.isNullOrBlank() && responseOrderNo != expectedOrderNo) return false
+        return payload.optBoolean("success") &&
+            payload.has("errorCode") &&
+            !payload.isNull("errorCode") &&
+            payload.optInt("errorCode", -1) == 0 &&
+            isValidOpenResultData(data)
+    }
+
+    private fun isValidOpenResultData(data: JSONObject): Boolean {
+        return data.has("state") &&
+            !data.isNull("state") &&
+            data.optInt("state", Int.MIN_VALUE) == 1 &&
+            data.has("result") &&
+            !data.isNull("result") &&
+            data.optInt("result", Int.MIN_VALUE) == 0
     }
 
     private fun reportedDeviceOnlineState(payload: JSONObject): Boolean? {
@@ -1173,12 +1288,19 @@ class HotWaterRepository(
 
     companion object {
         private const val DEVICE_BUSY_ERROR_CODE = 307
+        private const val DEVICE_OFFLINE_ERROR_CODE = 306
+        private const val OPEN_RESULT_NETWORK_ERROR_CODE = 1
+        private const val DEVICE_OFFLINE_MESSAGE = "设备不在线"
+        private const val DEVICE_OFFLINE_MESSAGE_ALT = "设备离线"
+        private const val OPEN_RESULT_NETWORK_SLOW_MESSAGE = "网络通讯慢"
+        private const val DEVICE_OFFLINE_STATUS_MESSAGE = "热水器不在线，请确认寝室供电后重试。"
         private const val DEVICE_BUSY_BY_OTHER_MESSAGE = "已有他人正在使用这台设备，请稍后再试。"
         private const val MIN_SETTLEMENT_REFRESH_ATTEMPTS = 2
         private const val HOT_WATER_PREAUTHORIZATION_YUAN = 5.0
         private const val MAX_PENDING_BALANCE_FALLBACK_AGE_MS = 10 * 60 * 1_000L
         private const val MAX_UNCONFIRMED_CLOSE_GATE_MS = 15_000L
         private const val MAX_RECONCILIATION_LOCK_MS = 1_500L
+        // onlineStatusId is static device metadata; the offline capture kept it at 1.
         private val ONLINE_STATE_KEYS = listOf(
             "isOnline",
             "online",

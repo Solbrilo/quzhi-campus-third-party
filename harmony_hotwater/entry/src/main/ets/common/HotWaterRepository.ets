@@ -14,6 +14,12 @@ import { HotWaterPayload } from './HotWaterPayload'
 
 const BASE_URL: string = 'https://v3-api.china-qzxy.cn'
 const DEVICE_BUSY_ERROR_CODE: number = 307
+const DEVICE_OFFLINE_ERROR_CODE: number = 306
+const OPEN_RESULT_NETWORK_ERROR_CODE: number = 1
+const DEVICE_OFFLINE_MESSAGE: string = '设备不在线'
+const DEVICE_OFFLINE_MESSAGE_ALT: string = '设备离线'
+const OPEN_RESULT_NETWORK_SLOW_MESSAGE: string = '网络通讯慢'
+const DEVICE_OFFLINE_STATUS_MESSAGE: string = '热水器不在线，请确认寝室供电后重试。'
 const DEVICE_BUSY_BY_OTHER_MESSAGE: string = '已有他人正在使用这台设备，请稍后再试。'
 const PENDING_CLOSE_OPEN_GUARD_MS: number = 15 * 1000
 const PROVISIONAL_OPENING_MAX_AGE_MS: number = 2 * 60 * 1000
@@ -144,6 +150,9 @@ export class HotWaterRepository {
 
     let orderNo = this.extractFirstOrEmpty(openResponseText, 'orderNo')
     let success = false
+    let deviceOnlineOverride: boolean | null = null
+    let offlineProbeSeen = false
+    let offlineProbeOrderNo = ''
     let busyByOtherText = ''
 
     for (let index = 0; index < 5; index++) {
@@ -164,10 +173,26 @@ export class HotWaterRepository {
         busyByOtherText = openResultText
         break
       }
-      if (orderNo.length === 0) {
-        orderNo = this.extractFirstOrEmpty(openResultText, 'orderNo')
+      const responseOrderNo = this.extractFirstOrEmpty(openResultText, 'orderNo').trim()
+      const probeState = this.openResultDeviceOnlineState(openResultText, orderNo)
+      if (probeState === false) {
+        deviceOnlineOverride = false
+        offlineProbeSeen = true
+        if (offlineProbeOrderNo.length === 0) {
+          offlineProbeOrderNo = orderNo.length > 0 ? orderNo : responseOrderNo
+        }
+      } else if (probeState === true) {
+        const matchesOfflineProbe = !offlineProbeSeen ||
+          (offlineProbeOrderNo.length > 0 && responseOrderNo === offlineProbeOrderNo)
+        const confirmedResult = this.isConfirmedOpenResult(openResultText, orderNo)
+        if (confirmedResult && matchesOfflineProbe) {
+          deviceOnlineOverride = true
+        }
       }
-      if (this.extractBoolean(openResultText, 'isSuccess') || this.extractErrorCode(openResultText) == 0) {
+      if (orderNo.length === 0) {
+        orderNo = responseOrderNo
+      }
+      if (this.isOpenResultSuccessful(openResultText, orderNo)) {
         success = true
         break
       }
@@ -186,7 +211,7 @@ export class HotWaterRepository {
 
     let snapshotWithUsageSession: DashboardSnapshot
     try {
-      snapshotWithUsageSession = await this.refreshSnapshot(config)
+      snapshotWithUsageSession = await this.refreshSnapshot(config, deviceOnlineOverride)
     } catch (error) {
       if (HotWaterPayload.isCredentialExpiredError(error)) {
         throw new Error(HotWaterPayload.CREDENTIAL_EXPIRED_MESSAGE)
@@ -195,16 +220,20 @@ export class HotWaterRepository {
         config,
         success ? '热水已开启，可以直接关闭。' : '开热水请求已发送，等待设备确认。',
         orderNo,
-        false
+        false,
+        deviceOnlineOverride
       )
     }
     if (!snapshotWithUsageSession.hasCachedOrder) {
       await this.store.clearUsageSession()
     }
     await this.tryReconcilePendingSettlements(config, snapshotWithUsageSession)
+    const deviceOffline = snapshotWithUsageSession.isDeviceOnline === false
     const result = new OperationResult()
-    result.title = success ? '开热水完成' : '开热水请求已发送'
-    result.summary = success ? `热水已开启。\n余额 ${snapshotWithUsageSession.balanceLabel} 元` : this.buildSummary(snapshotWithUsageSession)
+    result.title = deviceOffline ? '热水器不在线' : (success ? '开热水完成' : '开热水请求已发送')
+    result.summary = deviceOffline
+      ? `${DEVICE_OFFLINE_STATUS_MESSAGE}\n余额 ${snapshotWithUsageSession.balanceLabel} 元`
+      : (success ? `热水已开启。\n余额 ${snapshotWithUsageSession.balanceLabel} 元` : this.buildSummary(snapshotWithUsageSession))
     result.details = openResponseText
     result.snapshot = snapshotWithUsageSession
     return result
@@ -342,12 +371,22 @@ export class HotWaterRepository {
     return result
   }
 
-  private async refreshSnapshot(config: HotWaterConfig): Promise<DashboardSnapshot> {
+  private async refreshSnapshot(
+    config: HotWaterConfig,
+    deviceOnlineOverride: boolean | null = null
+  ): Promise<DashboardSnapshot> {
     const userInfoText = await this.get('/user/info', this.buildUserInfoQuery(config))
     const deviceInfoText = await this.get('/device/info/mac', this.buildDeviceInfoQuery(config))
     const balanceText = await this.get('/account/wallet/money', this.buildBalanceQuery(config))
     const statusText = await this.postForm('/order/tcpDevice/query/rateOrder/using', this.buildFormString(config))
-    return await this.ensureUsageSession(await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText))
+    return await this.ensureUsageSession(await this.buildSnapshot(
+      config,
+      userInfoText,
+      deviceInfoText,
+      balanceText,
+      statusText,
+      deviceOnlineOverride
+    ))
   }
 
   private async persistPendingSettlementContext(
@@ -377,11 +416,22 @@ export class HotWaterRepository {
     return await this.store.savePendingSettlementContext(record, pending)
   }
 
-  private async refreshSnapshotWithStatus(config: HotWaterConfig, statusText: string): Promise<DashboardSnapshot> {
+  private async refreshSnapshotWithStatus(
+    config: HotWaterConfig,
+    statusText: string,
+    deviceOnlineOverride: boolean | null = null
+  ): Promise<DashboardSnapshot> {
     const userInfoText = await this.get('/user/info', this.buildUserInfoQuery(config))
     const deviceInfoText = await this.get('/device/info/mac', this.buildDeviceInfoQuery(config))
     const balanceText = await this.get('/account/wallet/money', this.buildBalanceQuery(config))
-    return await this.ensureUsageSession(await this.buildSnapshot(config, userInfoText, deviceInfoText, balanceText, statusText))
+    return await this.ensureUsageSession(await this.buildSnapshot(
+      config,
+      userInfoText,
+      deviceInfoText,
+      balanceText,
+      statusText,
+      deviceOnlineOverride
+    ))
   }
 
   private async findLatestPendingClose(): Promise<PendingSettlement | null> {
@@ -447,7 +497,8 @@ export class HotWaterRepository {
     userInfoText: string,
     deviceInfoText: string,
     balanceText: string,
-    statusText: string
+    statusText: string,
+    deviceOnlineOverride: boolean | null = null
   ): Promise<DashboardSnapshot> {
     const snapshot = this.snapshotFromTexts(config, userInfoText, deviceInfoText, balanceText)
     const busyByOther = this.isDeviceBusyByOther(statusText)
@@ -471,8 +522,12 @@ export class HotWaterRepository {
     snapshot.orderNo = cachedOrderNo
     snapshot.hasCachedOrder = cachedOrderNo.length > 0
     snapshot.isDeviceBusyByOther = busyByOther
-    snapshot.isDeviceOnline = this.isDeviceOnline(statusText)
-    if (busyByOther) {
+    snapshot.isDeviceOnline = deviceOnlineOverride !== null
+      ? deviceOnlineOverride
+      : this.isDeviceOnline(statusText)
+    if (snapshot.isDeviceOnline === false) {
+      snapshot.statusLabel = DEVICE_OFFLINE_STATUS_MESSAGE
+    } else if (busyByOther) {
       snapshot.statusLabel = DEVICE_BUSY_BY_OTHER_MESSAGE
     } else if (cachedOrderNo.length > 0) {
       snapshot.statusLabel = '已缓存订单号，点击主按钮将尝试关热水。'
@@ -517,17 +572,23 @@ export class HotWaterRepository {
     config: HotWaterConfig,
     statusLabel: string,
     orderNo: string,
-    isDeviceBusyByOther: boolean
+    isDeviceBusyByOther: boolean,
+    deviceOnlineOverride: boolean | null = null
   ): DashboardSnapshot {
     const snapshot = new DashboardSnapshot()
     snapshot.balanceLabel = '--'
     snapshot.userLabel = HotWaterConfig.maskMiddle(config.telephone, 3, 4)
     snapshot.deviceName = '热水设备已连接'
     snapshot.locationLabel = '打开应用后可自动刷新宿舍位置'
-    snapshot.statusLabel = statusLabel
+    snapshot.statusLabel = deviceOnlineOverride === false
+      ? DEVICE_OFFLINE_STATUS_MESSAGE
+      : statusLabel
     snapshot.orderNo = orderNo
     snapshot.hasCachedOrder = orderNo.length > 0
     snapshot.isDeviceBusyByOther = isDeviceBusyByOther
+    snapshot.isDeviceOnline = deviceOnlineOverride !== null
+      ? deviceOnlineOverride
+      : (isDeviceBusyByOther ? true : null)
     return snapshot
   }
 
@@ -860,7 +921,7 @@ export class HotWaterRepository {
   }
 
   private extractSuccess(text: string): boolean {
-    return text.indexOf('"success":true') >= 0
+    return /"success"\s*:\s*true/i.test(text)
   }
 
   private extractErrorCode(text: string): number {
@@ -897,18 +958,81 @@ export class HotWaterRepository {
   }
 
   private isDeviceOnline(statusText: string): boolean | null {
+    if (this.isExplicitDeviceOffline(statusText)) {
+      return false
+    }
     const reportedState = this.reportedDeviceOnlineState(statusText)
     if (reportedState !== null) {
       return reportedState
     }
-    if ((this.extractSuccess(statusText) && this.extractErrorCode(statusText) === 0) ||
-      this.isDeviceBusyByOther(statusText)) {
+    if (this.isDeviceBusyByOther(statusText)) {
       return true
     }
     return null
   }
 
+  private openResultDeviceOnlineState(text: string, expectedOrderNo: string): boolean | null {
+    const errorCode = this.extractErrorCode(text)
+    const errorMessage = this.extractFirstOrEmpty(text, 'errorMessage')
+    if (this.isExplicitDeviceOffline(text) ||
+      (errorCode === OPEN_RESULT_NETWORK_ERROR_CODE && errorMessage.indexOf(OPEN_RESULT_NETWORK_SLOW_MESSAGE) >= 0)) {
+      return false
+    }
+    const reportedState = this.reportedDeviceOnlineState(text)
+    if (reportedState !== null) {
+      return reportedState
+    }
+    if (this.isDeviceBusyByOther(text)) {
+      return true
+    }
+    if (this.isConfirmedOpenResult(text, expectedOrderNo)) {
+      return true
+    }
+    return null
+  }
+
+  private isExplicitDeviceOffline(text: string): boolean {
+    const errorMessage = this.extractFirstOrEmpty(text, 'errorMessage')
+    return this.extractErrorCode(text) === DEVICE_OFFLINE_ERROR_CODE ||
+      errorMessage.indexOf(DEVICE_OFFLINE_MESSAGE) >= 0 ||
+      errorMessage.indexOf(DEVICE_OFFLINE_MESSAGE_ALT) >= 0
+  }
+
+  private isConfirmedOpenResult(text: string, expectedOrderNo: string): boolean {
+    let parsed: Object
+    try {
+      parsed = JSON.parse(text) as Object
+    } catch (error) {
+      return false
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return false
+    }
+    const root = parsed as Record<string, Object>
+    if (root['success'] !== true || Number(root['errorCode']) !== 0) {
+      return false
+    }
+    const data = root['data']
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+      return false
+    }
+    const dataRecord = data as Record<string, Object>
+    const responseOrderNo = String(dataRecord['orderNo'] ?? '').trim()
+    if (responseOrderNo.length === 0) {
+      return false
+    }
+    if (expectedOrderNo.length > 0 && responseOrderNo !== expectedOrderNo) {
+      return false
+    }
+    return Number(dataRecord['state']) === 1 && Number(dataRecord['result']) === 0
+  }
+
+  private isOpenResultSuccessful(text: string, expectedOrderNo: string): boolean {
+    return this.isConfirmedOpenResult(text, expectedOrderNo)
+  }
+
   private reportedDeviceOnlineState(text: string): boolean | null {
+    // onlineStatusId is static device metadata; the offline capture kept it at 1.
     const keys: string[] = ['isOnline', 'online', 'deviceOnline', 'onlineStatus', 'tcpDeviceOnline']
     for (let index = 0; index < keys.length; index++) {
       const value = this.extractFirstOrEmpty(text, keys[index]).trim().toLowerCase()
@@ -918,10 +1042,6 @@ export class HotWaterRepository {
       if (value === 'offline' || value === 'disconnected' || value === 'false' || value === '0') {
         return false
       }
-    }
-    const errorMessage = this.extractFirstOrEmpty(text, 'errorMessage')
-    if (errorMessage.indexOf('设备离线') >= 0 || errorMessage.indexOf('设备不在线') >= 0) {
-      return false
     }
     return null
   }

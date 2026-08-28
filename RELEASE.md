@@ -4,52 +4,21 @@ This repository is the source and release repository for the Android and Harmony
 Both clients use the same semantic version format, but each platform only advertises a release
 when its own installable package has been uploaded.
 
-## Update Manifest
+## Gitee Releases
 
-The clients read the static update manifest instead of calling Gitee's anonymous Release REST API:
+Both clients obtain update information and changelogs only from Gitee's public Release API:
 
 ```text
-https://gitee.com/Solbrilo/quzhi-campus-third-party/raw/main/update-manifest.json
+https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases?per_page=100&page=1
 ```
 
-The raw endpoint avoids the low shared rate limit of the Release API. Its schema has a platform
-specific latest package and a shared release-note history:
+Only actual Release records with an exact `vX.Y.Z` tag are displayed in the changelog. The
+release body is the changelog source; clients do not add local fallback entries. To offer an
+update, a Release must also contain the matching platform asset and its HTTPS
+`browser_download_url`:
 
-```json
-{
-  "schemaVersion": 1,
-  "android": {
-    "latest": {
-      "tagName": "vX.Y.Z",
-      "title": "water",
-      "body": "Release notes",
-      "publishedAt": "2026-01-01T00:00:00+08:00",
-      "url": "https://.../hotwater-android-vX.Y.Z.apk"
-    }
-  },
-  "harmony": {
-    "latest": {
-      "tagName": "vX.Y.Z",
-      "title": "water",
-      "body": "Release notes",
-      "publishedAt": "2026-01-01T00:00:00+08:00",
-      "url": "https://.../hotwater-harmony-vX.Y.Z.hap"
-    }
-  },
-  "releases": [
-    {
-      "tagName": "vX.Y.Z",
-      "title": "water",
-      "body": "Release notes",
-      "publishedAt": "2026-01-01T00:00:00+08:00"
-    }
-  ]
-}
-```
-
-`tagName` must use the exact `vX.Y.Z` format. Each `url` must be HTTPS and use the exact
-platform filename. Do not point either platform's `latest` entry at a package that has not yet
-been uploaded. Add every formal release to `releases` so both clients can render its changelog.
+- Android: `hotwater-android-vX.Y.Z.apk`
+- HarmonyOS: `hotwater-harmony-vX.Y.Z.hap`
 
 ## v2.2.1 Release Build
 
@@ -60,17 +29,17 @@ been uploaded. Add every formal release to `releases` so both clients can render
 5. Upload the generated packages as `hotwater-android-v2.2.1.apk` and
    `hotwater-harmony-v2.2.1.hap` to the Gitee Release.
 
-Until the packages are uploaded, the manifest intentionally continues to point to the latest
-available packages: Android `v2.1.0` and HarmonyOS `v2.0.1`.
+Until the packages are uploaded to a formal Gitee Release, clients must not show `v2.2.1` as an
+available update or a changelog entry.
 
 ## Future Formal Release
 
 1. Build and validate Android APK and HarmonyOS HAP with matching `X.Y.Z` versions.
 2. Commit and push the source change first.
 3. Create the formal Gitee Release `vX.Y.Z` named `water`, then upload exact assets:
-   `hotwater-android-vX.Y.Z.apk` and `hotwater-harmony-vX.Y.Z.hap`.
-4. Update and push `update-manifest.json` with the uploaded platform URLs and changelog entry.
-5. Verify the raw manifest and both platform downloads anonymously.
+    `hotwater-android-vX.Y.Z.apk` and `hotwater-harmony-vX.Y.Z.hap`.
+4. Write the release notes in the Gitee Release body.
+5. Verify the Gitee Release API response and both platform downloads anonymously.
 
 Android packages must keep application ID `cn.qzxy.hotwater` and the existing signing
 certificate. HarmonyOS HAPs must keep bundle name `cn.qzxy.hotwater.hm` and use the configured

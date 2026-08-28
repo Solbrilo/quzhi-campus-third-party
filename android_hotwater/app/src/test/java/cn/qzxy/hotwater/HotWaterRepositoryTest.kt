@@ -298,7 +298,7 @@ class HotWaterRepositoryTest {
     }
 
     @Test
-    fun check_preservesExplicitDeviceOnlineStateAndLeavesUnknownStatusUnset() = runBlocking {
+    fun check_preservesExplicitDeviceOnlineStateAndDoesNotInferFromSuccess() = runBlocking {
         val offlineStatus = successPayload().apply {
             getJSONObject("data").put("online", false)
         }
@@ -312,10 +312,28 @@ class HotWaterRepositoryTest {
 
         assertEquals(false, offlineResult.snapshot?.isDeviceOnline)
 
+        val alternateOfflineResult = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(
+                    successPayload().apply {
+                        put("errorMessage", "设备离线")
+                    },
+                ),
+            ),
+            FakeSessionStore(),
+        ).check(completeConfig)
+
+        assertEquals(false, alternateOfflineResult.snapshot?.isDeviceOnline)
+
         val onlineResult = HotWaterRepository(
             FakeHotWaterApi(
                 balanceResponses = listOf(balancePayload(15.0)),
-                statusResponses = listOf(successPayload()),
+                statusResponses = listOf(
+                    successPayload().apply {
+                        getJSONObject("data").put("online", true)
+                    },
+                ),
             ),
             FakeSessionStore(),
         ).check(completeConfig)
@@ -335,6 +353,227 @@ class HotWaterRepositoryTest {
         ).check(completeConfig)
 
         assertNull(unknownResult.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun check_doesNotUseDeviceInfoOnlineStatusIdAsOnlineEvidence() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                deviceInfoPayload = JSONObject()
+                    .put("data", JSONObject().put("onlineStatusId", 1)),
+            ),
+            FakeSessionStore(),
+        ).check(completeConfig)
+
+        assertNull(result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_networkSlowResultMarksDeviceOfflineEvenWhenStatusRefreshSucceeds() = runBlocking {
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(successPayload()),
+            openResultResponses = listOf(
+                JSONObject()
+                    .put("success", true)
+                    .put("errorCode", 1)
+                    .put("errorMessage", "网络通讯慢,请稍后再试")
+                    .put("data", JSONObject.NULL),
+            ),
+        )
+
+        val result = HotWaterRepository(api, FakeSessionStore()).open(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(false, result.snapshot?.isDeviceOnline)
+        assertEquals("热水器不在线", result.title)
+        assertEquals(OperationOutcome.WARNING, result.outcome)
+        assertEquals(
+            "热水器不在线，请确认寝室供电后重试。",
+            result.snapshot?.statusLabel,
+        )
+        assertTrue(result.summary.contains("请确认寝室供电后重试"))
+    }
+
+    @Test
+    fun open_networkSlowResultIsPreservedInFallbackSnapshot() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    JSONObject()
+                        .put("success", true)
+                        .put("errorCode", 1)
+                        .put("errorMessage", "网络通讯慢,请稍后再试")
+                        .put("data", JSONObject.NULL),
+                ),
+                balanceFailureAtCall = 2,
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(false, result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_successfulResultMarksDeviceOnline() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    successPayload().apply {
+                        getJSONObject("data")
+                            .put("orderNo", "order-open")
+                            .put("state", 1)
+                            .put("result", 0)
+                    },
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(true, result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_failedResultWithDataDoesNotMarkDeviceOnline() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    JSONObject()
+                        .put("success", false)
+                        .put("errorCode", 0)
+                        .put("isSuccess", true)
+                        .put("data", JSONObject().put("orderNo", "order-failed")),
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertNull(result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_emptyOrUnrelatedResultDataDoesNotMarkDeviceOnline() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    successPayload(),
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertNull(result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_resultWithoutConfirmedStateAndResultDoesNotMarkDeviceOnline() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    successPayload().apply {
+                        getJSONObject("data").put("orderNo", "order-incomplete")
+                    },
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertNull(result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_mismatchedOrderResultCannotOverwriteOfflineProbe() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResponse = successPayload().apply {
+                    getJSONObject("data").put("orderNo", "order-current")
+                },
+                openResultResponses = listOf(
+                    JSONObject()
+                        .put("success", true)
+                        .put("errorCode", 1)
+                        .put("errorMessage", "网络通讯慢,请稍后再试")
+                        .put("data", JSONObject.NULL),
+                    successPayload().apply {
+                        getJSONObject("data").put("orderNo", "order-other")
+                    },
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 2,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(false, result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_unknownOrderOfflineProbeCannotBeOverwrittenByLaterSuccess() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    JSONObject()
+                        .put("success", true)
+                        .put("errorCode", 1)
+                        .put("errorMessage", "网络通讯慢,请稍后再试")
+                        .put("data", JSONObject.NULL),
+                    successPayload().apply {
+                        getJSONObject("data")
+                            .put("orderNo", "order-after-offline")
+                            .put("state", 1)
+                            .put("result", 0)
+                    },
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 2,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(false, result.snapshot?.isDeviceOnline)
     }
 
     @Test
@@ -1372,6 +1611,7 @@ class HotWaterRepositoryTest {
         statusResponses: List<JSONObject>,
         private val openResponse: JSONObject = successPayload(),
         private val openResultResponse: JSONObject = successPayload(),
+        openResultResponses: List<JSONObject>? = null,
         private val closeResponse: JSONObject = successPayload(),
         private val closeResultResponse: JSONObject = successPayload(),
         closeResultResponses: List<JSONObject>? = null,
@@ -1379,6 +1619,7 @@ class HotWaterRepositoryTest {
         private val failFirstBalanceRequest: Boolean = false,
         private val balanceFailureAtCall: Int? = null,
         private val balanceFailure: Throwable = IOException("Balance unavailable"),
+        private val deviceInfoPayload: JSONObject? = null,
         private val onCloseRequest: suspend () -> Unit = {},
         private val onUserInfoRequest: () -> Unit = {},
         private val onBalanceRequest: suspend () -> Unit = {},
@@ -1386,6 +1627,7 @@ class HotWaterRepositoryTest {
     ) : HotWaterRemoteDataSource {
         private val balances = ArrayDeque(balanceResponses)
         private val statuses = ArrayDeque(statusResponses)
+        private val openResults = ArrayDeque(openResultResponses ?: listOf(openResultResponse))
         private val consumeResults = ArrayDeque(consumeResultResponses)
         private val closeResults = ArrayDeque(closeResultResponses ?: listOf(closeResultResponse))
         var balanceCalls: Int = 0
@@ -1408,7 +1650,7 @@ class HotWaterRepositoryTest {
         }
 
         override suspend fun deviceInfo(config: HotWaterConfig): JSONObject {
-            return JSONObject().put(
+            return deviceInfoPayload ?: JSONObject().put(
                 "data",
                 JSONObject()
                     .put("deviceName", "Test device")
@@ -1436,7 +1678,7 @@ class HotWaterRepositoryTest {
         }
 
         override suspend fun openResult(config: HotWaterConfig, orderNo: String?): JSONObject {
-            return openResultResponse
+            return nextOrLast(openResults)
         }
 
         override suspend fun closeHotWater(config: HotWaterConfig, orderNo: String): JSONObject {

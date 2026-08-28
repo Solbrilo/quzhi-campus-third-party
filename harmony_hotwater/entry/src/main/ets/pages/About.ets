@@ -354,7 +354,7 @@ struct About {
   @State checkingUpdate: boolean = false
   @State loadingUpdateLogs: boolean = false
   @State updateCheckState: UpdateCheckState = UpdateCheckState.IDLE
-  @State updateStatusLabel: string = '通过 Gitee 公开更新清单检查新版本。'
+  @State updateStatusLabel: string = '通过 Gitee 已发行版本检查新版本。'
   @State updateReleaseNotes: string = ''
   @State updateVersionName: string = ''
   @State themeMode: string = AppearanceThemeMode.SYSTEM
@@ -765,9 +765,7 @@ struct About {
     const requestGeneration = ++this.updateLogRequestGeneration
     this.loadingUpdateLogs = true
     try {
-      const result: ReleaseLogFetchResult = await this.updateRepository.listReleaseLogs(
-        this.currentVersionLabel
-      )
+      const result: ReleaseLogFetchResult = await this.updateRepository.listReleaseLogs()
       if (requestGeneration !== this.updateLogRequestGeneration) {
         return
       }

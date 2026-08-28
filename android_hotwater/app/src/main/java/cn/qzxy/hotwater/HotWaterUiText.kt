@@ -27,7 +27,9 @@ object HotWaterUiText {
         val snapshot = result.snapshot
         return when (action) {
             WidgetHotWaterAction.OPEN -> {
-                if (snapshot?.isDeviceBusyByOther == true) {
+                if (snapshot?.isDeviceOnline == false) {
+                    "热水器不在线，请确认寝室供电后重试。"
+                } else if (snapshot?.isDeviceBusyByOther == true) {
                     "已有他人正在使用这台设备，请稍后再试。"
                 } else if (snapshot?.hasCachedOrder == true) {
                     "热水已开启，可以直接去试水。"

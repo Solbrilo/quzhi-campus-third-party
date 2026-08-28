@@ -78,6 +78,14 @@ export default class EntryFormAbility extends FormExtensionAbility {
         throw new Error('unknown_action')
       })
       .then((result) => {
+        if (result.snapshot && result.snapshot.isDeviceOnline === false) {
+          this.updateWidgetState(
+            formId,
+            '热水器不在线，请确认寝室供电后重试。',
+            'error'
+          )
+          return
+        }
         if (result.snapshot && result.snapshot.isDeviceBusyByOther) {
           this.updateWidgetState(
             formId,

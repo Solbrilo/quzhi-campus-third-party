@@ -32,45 +32,39 @@ export class UpdateCheckResult {
   update: HarmonyUpdateInfo | null = null
 }
 
-class UpdateManifestFetchResult {
+class GiteeReleaseFetchResult {
   success: boolean = false
   responseCode: number = 0
   message: string = ''
-  manifest: Record<string, Object> | null = null
+  releases: Object[] = []
 }
 
 export class GiteeUpdateRepository {
   async check(currentVersion: string): Promise<UpdateCheckResult> {
     const result = new UpdateCheckResult()
-    const manifestResult = await this.fetchUpdateManifest(`QZXY-HotWater-Harmony/${currentVersion}`)
-    if (!manifestResult.success || !manifestResult.manifest) {
-      if (manifestResult.responseCode === 404) {
+    const releasesResult = await this.fetchPublishedReleases(`QZXY-HotWater-Harmony/${currentVersion}`)
+    if (!releasesResult.success) {
+      if (releasesResult.responseCode === 404) {
         result.state = UpdateCheckState.NO_RELEASE
         result.message = '暂无已发布版本。'
       } else {
         result.state = UpdateCheckState.FAILED
-        result.message = manifestResult.message
+        result.message = releasesResult.message
       }
       return result
     }
 
-    const platform = this.asRecord(manifestResult.manifest['harmony'])
-    if (!platform) {
-      result.state = UpdateCheckState.NO_RELEASE
-      result.message = '暂无已发布的 HarmonyOS 版本。'
-      return result
-    }
-    const latest = this.asRecord(platform['latest'])
+    const latest = this.findLatestHarmonyRelease(releasesResult.releases)
     if (!latest) {
       result.state = UpdateCheckState.NO_RELEASE
       result.message = '暂无已发布的 HarmonyOS 版本。'
       return result
     }
 
-    const versionName = this.parseReleaseVersion(String(latest['tagName'] ?? ''))
+    const versionName = this.parseReleaseVersion(String(latest['tag_name'] ?? ''))
     if (versionName.length === 0) {
       result.state = UpdateCheckState.INVALID_RELEASE
-      result.message = '更新清单中的 HarmonyOS 标签必须使用 vX.Y.Z 格式。'
+      result.message = '远端 HarmonyOS 发行版标签必须使用 vX.Y.Z 格式。'
       return result
     }
     if (this.compareVersions(versionName, currentVersion) <= 0) {
@@ -78,7 +72,7 @@ export class GiteeUpdateRepository {
       result.message = '当前已是最新版本。'
       return result
     }
-    const packageUrl = String(latest['url'] ?? '').trim()
+    const packageUrl = this.findHarmonyPackageUrl(latest, versionName)
     if (!this.isHarmonyPackageUrl(packageUrl, versionName)) {
       result.state = UpdateCheckState.INVALID_RELEASE
       result.message = '当前 HarmonyOS 更新包尚未发布，已忽略。'
@@ -94,47 +88,33 @@ export class GiteeUpdateRepository {
     return result
   }
 
-  async listReleaseLogs(currentVersion: string = ''): Promise<ReleaseLogFetchResult> {
+  async listReleaseLogs(): Promise<ReleaseLogFetchResult> {
     const result = new ReleaseLogFetchResult()
-    const manifestResult = await this.fetchUpdateManifest('QZXY-HotWater-Harmony/ReleaseLogs')
-    if (!manifestResult.success || !manifestResult.manifest) {
-      if (manifestResult.responseCode === 404) {
-        result.releases = this.parseReleaseLogs([], undefined, currentVersion)
-        result.success = result.releases.length > 0
-        result.message = result.success ? '' : '暂时没有可显示的更新日志。'
+    const releasesResult = await this.fetchPublishedReleases('QZXY-HotWater-Harmony/ReleaseLogs')
+    if (!releasesResult.success) {
+      if (releasesResult.responseCode === 404) {
+        result.message = '远端发行版列表不存在。'
       } else {
-        // The update manifest is published separately from the app. Show the installed package's
-        // own release note when that service is stale or temporarily unavailable.
-        result.releases = this.parseReleaseLogs([], undefined, currentVersion)
-        result.success = result.releases.length > 0
-        result.message = result.success
-          ? ''
-          : manifestResult.message.replace('检查更新', '加载更新日志')
+        result.message = releasesResult.message.replace('检查更新', '加载更新日志')
       }
       return result
     }
 
-    const releases = manifestResult.manifest['releases']
-    const releaseEntries: Object[] = Array.isArray(releases) ? releases as Object[] : []
-    const harmony = this.asRecord(manifestResult.manifest['harmony'])
-    const latest = harmony ? harmony['latest'] : undefined
-    if (releaseEntries.length === 0 && !this.asRecord(latest)) {
-      result.releases = this.parseReleaseLogs([], undefined, currentVersion)
-      result.success = result.releases.length > 0
-      result.message = result.success ? '' : '更新清单中的更新日志格式无效。'
+    if (releasesResult.releases.length === 0) {
+      result.message = '远端暂无可显示的更新日志。'
       return result
     }
-    result.releases = this.parseReleaseLogs(releaseEntries, latest, currentVersion)
-    result.success = true
-    result.message = result.releases.length > 0 ? '' : '暂时没有可显示的更新日志。'
+    result.releases = this.parseReleaseLogs(releasesResult.releases)
+    result.success = result.releases.length > 0
+    result.message = result.success ? '' : '远端发行版中的更新日志格式无效。'
     return result
   }
 
-  private async fetchUpdateManifest(userAgent: string): Promise<UpdateManifestFetchResult> {
-    const result = new UpdateManifestFetchResult()
+  private async fetchPublishedReleases(userAgent: string): Promise<GiteeReleaseFetchResult> {
+    const result = new GiteeReleaseFetchResult()
     const client = http.createHttp()
     try {
-      const response = await client.request(UPDATE_MANIFEST_URL, {
+      const response = await client.request(GITEE_RELEASES_URL, {
         method: http.RequestMethod.GET,
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: 10000,
@@ -151,13 +131,13 @@ export class GiteeUpdateRepository {
         return result
       }
 
-      const manifest = this.asRecord(JSON.parse(String(response.result)) as Object)
-      if (!manifest || Number(manifest['schemaVersion'] ?? 0) !== UPDATE_MANIFEST_SCHEMA_VERSION) {
-        result.message = '更新清单格式无效。'
+      const parsed = JSON.parse(String(response.result)) as Object
+      if (!Array.isArray(parsed)) {
+        result.message = '远端发行版列表格式无效。'
         return result
       }
       result.success = true
-      result.manifest = manifest
+      result.releases = parsed as Object[]
       return result
     } catch (error) {
       result.message = '检查更新失败，请检查网络后重试。'
@@ -167,35 +147,28 @@ export class GiteeUpdateRepository {
     }
   }
 
-  private parseReleaseLogs(value: Object[], latest?: Object, currentVersion: string = ''): HarmonyReleaseLog[] {
+  /** Builds the changelog only from Gitee's published release entries. */
+  private parseReleaseLogs(value: Object[]): HarmonyReleaseLog[] {
     const releases: HarmonyReleaseLog[] = []
-    const values: Object[] = value.slice()
-    if (latest !== undefined) {
-      values.push(latest)
-    }
-    for (let index = 0; index < values.length; index++) {
-      const source = this.asRecord(values[index])
+    for (let index = 0; index < value.length; index++) {
+      const source = this.asRecord(value[index])
       if (!source) {
         continue
       }
-      const versionName = this.parseReleaseVersion(String(source['tagName'] ?? ''))
-      if (versionName.length === 0 || this.containsVersion(releases, versionName)) {
+      const versionName = this.parseReleaseVersion(String(source['tag_name'] ?? ''))
+      if (versionName.length === 0) {
+        continue
+      }
+      const existingIndex = this.findVersionIndex(releases, versionName)
+      if (existingIndex >= 0) {
+        this.mergeRemoteRelease(releases[existingIndex], source)
         continue
       }
       const release = new HarmonyReleaseLog()
       release.versionName = versionName
       release.releaseNotes = String(source['body'] ?? '').trim()
-      release.releasedAt = String(source['publishedAt'] ?? '').trim()
+      release.releasedAt = String(source['created_at'] ?? '').trim()
       releases.push(release)
-    }
-    this.mergeLocalRelease(releases, this.buildLocalCurrentRelease(LOCAL_CURRENT_RELEASE_VERSION))
-
-    // A package installed before the latest release should still show that release in its
-    // history. A future package also gets a small local placeholder until the remote body lands.
-    const installedVersion = currentVersion.trim()
-    if (installedVersion.length > 0 && installedVersion !== LOCAL_CURRENT_RELEASE_VERSION &&
-      /^\d+\.\d+\.\d+$/.test(installedVersion)) {
-      this.mergeLocalRelease(releases, this.buildLocalCurrentRelease(installedVersion))
     }
     releases.sort((left: HarmonyReleaseLog, right: HarmonyReleaseLog): number =>
       this.compareVersions(right.versionName, left.versionName)
@@ -203,47 +176,24 @@ export class GiteeUpdateRepository {
     return releases
   }
 
-  private buildLocalCurrentRelease(versionName: string): HarmonyReleaseLog | null {
-    const normalized = versionName.trim()
-    if (!/^\d+\.\d+\.\d+$/.test(normalized)) {
-      return null
+  private mergeRemoteRelease(target: HarmonyReleaseLog, source: Record<string, Object>): void {
+    const body = String(source['body'] ?? '').trim()
+    const publishedAt = String(source['created_at'] ?? '').trim()
+    if (target.releaseNotes.trim().length === 0 && body.length > 0) {
+      target.releaseNotes = body
     }
-    const release = new HarmonyReleaseLog()
-    release.versionName = normalized
-    release.releaseNotes = normalized === LOCAL_CURRENT_RELEASE_VERSION
-      ? LOCAL_CURRENT_RELEASE_BODY
-      : '本版本更新说明暂未同步到远端更新清单。'
-    release.releasedAt = ''
-    return release
-  }
-
-  private mergeLocalRelease(releases: HarmonyReleaseLog[], fallback: HarmonyReleaseLog | null): void {
-    if (!fallback) {
-      return
-    }
-    let currentIndex = -1
-    for (let index = 0; index < releases.length; index++) {
-      if (releases[index].versionName === fallback.versionName) {
-        currentIndex = index
-        break
-      }
-    }
-    if (currentIndex < 0) {
-      releases.push(fallback)
-      return
-    }
-    if (releases[currentIndex].releaseNotes.trim().length === 0) {
-      releases[currentIndex].releaseNotes = fallback.releaseNotes
+    if (target.releasedAt.trim().length === 0 && publishedAt.length > 0) {
+      target.releasedAt = publishedAt
     }
   }
 
-  private containsVersion(releases: HarmonyReleaseLog[], versionName: string): boolean {
+  private findVersionIndex(releases: HarmonyReleaseLog[], versionName: string): number {
     for (let index = 0; index < releases.length; index++) {
       if (releases[index].versionName === versionName) {
-        return true
+        return index
       }
     }
-    return false
+    return -1
   }
 
   private asRecord(value: Object | undefined): Record<string, Object> | null {
@@ -257,6 +207,51 @@ export class GiteeUpdateRepository {
     const path = value.split(/[?#]/)[0]
     return /^https:\/\/.+/.test(value) &&
       path.endsWith(`hotwater-harmony-v${versionName}.hap`)
+  }
+
+  private findLatestHarmonyRelease(releases: Object[]): Record<string, Object> | null {
+    let latest: Record<string, Object> | null = null
+    let latestVersion = ''
+    for (let index = 0; index < releases.length; index++) {
+      const release = this.asRecord(releases[index])
+      if (!release) {
+        continue
+      }
+      const versionName = this.parseReleaseVersion(String(release['tag_name'] ?? ''))
+      if (versionName.length === 0 ||
+        !this.isHarmonyPackageUrl(this.findHarmonyPackageUrl(release, versionName), versionName)) {
+        continue
+      }
+      if (latest === null || this.compareVersions(versionName, latestVersion) > 0) {
+        latest = release
+        latestVersion = versionName
+      }
+    }
+    return latest
+  }
+
+  private findHarmonyPackageUrl(release: Record<string, Object>, versionName: string): string {
+    const rawAssets = release['assets']
+    if (!Array.isArray(rawAssets)) {
+      return ''
+    }
+    const assets = rawAssets as Object[]
+    for (let index = 0; index < assets.length; index++) {
+      const asset = this.asRecord(assets[index])
+      if (!asset) {
+        continue
+      }
+      const name = String(asset['name'] ?? '').trim()
+      const url = String(asset['browser_download_url'] ?? '').trim()
+      if (this.isHarmonyPackageName(name, versionName) && this.isHarmonyPackageUrl(url, versionName)) {
+        return url
+      }
+    }
+    return ''
+  }
+
+  private isHarmonyPackageName(value: string, versionName: string): boolean {
+    return value === `hotwater-harmony-v${versionName}.hap`
   }
 
   private parseReleaseVersion(tag: string): string {
@@ -280,11 +275,5 @@ export class GiteeUpdateRepository {
   }
 }
 
-const UPDATE_MANIFEST_URL: string =
-  'https://gitee.com/Solbrilo/quzhi-campus-third-party/raw/main/update-manifest.json'
-const UPDATE_MANIFEST_SCHEMA_VERSION: number = 1
-const LOCAL_CURRENT_RELEASE_VERSION: string = '2.2.1'
-const LOCAL_CURRENT_RELEASE_BODY: string =
-  '# v2.2.1\n\n' +
-  '- 修复从非配置页清空所有信息后，配置表单仍可能恢复旧字段的问题。\n' +
-  '- 清空操作会同步失效旧页面状态和在途配置写入，确保账号、设备、账单、反馈和设置数据不再回写。'
+const GITEE_RELEASES_URL: string =
+  'https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases?per_page=100&page=1'

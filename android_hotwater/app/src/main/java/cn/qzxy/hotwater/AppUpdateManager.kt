@@ -62,78 +62,78 @@ sealed interface AppReleaseNotesResult {
     data class Failed(val message: String) : AppReleaseNotesResult
 }
 
-private const val UPDATE_MANIFEST_SCHEMA_VERSION = 1
-private const val LOCAL_CURRENT_RELEASE_VERSION = "2.2.1"
-internal const val LOCAL_CURRENT_RELEASE_BODY =
-    "# v2.2.1\n\n" +
-        "- 修复从非配置页清空所有信息后，配置表单仍可能恢复旧字段的问题。\n" +
-        "- 清空操作会同步失效旧页面状态和在途配置写入，确保账号、设备、账单、反馈和设置数据不再回写。"
-
-/** Returns true when [manifest] follows the versioned cross-platform update contract. */
-internal fun isSupportedUpdateManifest(manifest: JSONObject): Boolean =
-    manifest.optInt("schemaVersion", -1) == UPDATE_MANIFEST_SCHEMA_VERSION
+private data class GiteeReleaseEntry(
+    val versionName: String,
+    val payload: JSONObject,
+)
 
 /**
- * Parses the Android-specific latest release from the shared static update manifest.
- *
- * The expected APK name is retained here so the manifest cannot accidentally point Android at
- * another platform's package. The downloaded archive is still verified against the installed
- * package name, version code, and signing certificate before installation.
+ * Parses published Gitee Release entries. The app intentionally has no local changelog or
+ * manifest fallback: only Release records returned by Gitee are rendered to the user.
  */
-internal fun parseAndroidLatestUpdate(manifest: JSONObject): AppUpdateInfo? {
-    if (!isSupportedUpdateManifest(manifest)) return null
-    val latest = manifest.optJSONObject("android")?.optJSONObject("latest") ?: return null
-    val versionName = parseReleaseVersionTag(latest.optString("tagName")) ?: return null
-    val expectedName = "hotwater-android-v$versionName.apk"
-    val apkUrl = latest.optString("url").trim()
-    if (!apkUrl.startsWith("https://") || !apkUrl.substringBefore('?').endsWith("/$expectedName")) {
-        return null
-    }
-    return AppUpdateInfo(
-        versionName = versionName,
-        releaseNotes = latest.optString("body").trim(),
-        apkUrl = apkUrl,
-    )
-}
-
-/** Parses static manifest release history and ignores draft or malformed entries. */
-internal fun parseReleaseNotesPayload(manifest: JSONObject): List<AppReleaseNote> {
-    if (!isSupportedUpdateManifest(manifest)) return emptyList()
-    val releaseArray = manifest.optJSONArray("releases")
-    val releases = buildList {
-        releaseArray?.let { array ->
-            for (index in 0 until array.length()) {
-                val release = array.optJSONObject(index) ?: continue
-                if (release.optBoolean("draft", false)) continue
-                val versionName = parseReleaseVersionTag(release.optString("tagName")) ?: continue
-                val title = release.optString("title").trim()
-                val publishedAt = release.optString("publishedAt").trim()
-                    .ifBlank { null }
-                add(
-                    AppReleaseNote(
-                        versionName = versionName,
-                        title = title,
-                        body = release.optString("body").trim(),
-                        publishedAt = publishedAt,
-                    ),
-                )
-            }
-        }
-    }
-    // Older manifests occasionally update the platform-specific latest entry before appending
-    // it to the shared history. Keep the current Android version visible in that case.
-    val latestAndroid = manifest.optJSONObject("android")?.optJSONObject("latest")
-    val latestVersion = latestAndroid?.let { parseReleaseVersionTag(it.optString("tagName")) }
-    if (latestAndroid != null && latestVersion != null && releases.none { it.versionName == latestVersion }) {
-        return releases + AppReleaseNote(
-            versionName = latestVersion,
-            title = latestAndroid.optString("title").trim(),
-            body = latestAndroid.optString("body").trim(),
-            publishedAt = latestAndroid.optString("publishedAt").trim().ifBlank { null },
+internal fun parseGiteeReleaseNotesPayload(releases: JSONArray): List<AppReleaseNote> =
+    parsePublishedGiteeReleases(releases).map { release ->
+        AppReleaseNote(
+            versionName = release.versionName,
+            title = release.payload.optString("name").trim(),
+            body = release.payload.optString("body").trim(),
+            publishedAt = releasePublishedAt(release.payload),
         )
     }
-    return releases
+
+/**
+ * Finds the newest published Android Release by its Gitee asset metadata. The asset's `name`
+ * and `browser_download_url` are both required, so source archives and another platform's
+ * packages cannot be offered as Android updates.
+ */
+internal fun parseAndroidLatestGiteeRelease(releases: JSONArray): AppUpdateInfo? {
+    var latest: AppUpdateInfo? = null
+    parsePublishedGiteeReleases(releases).forEach { release ->
+        val apkUrl = findAndroidReleaseAssetUrl(release.payload, release.versionName) ?: return@forEach
+        val candidate = AppUpdateInfo(
+            versionName = release.versionName,
+            releaseNotes = release.payload.optString("body").trim(),
+            apkUrl = apkUrl,
+        )
+        if (
+            latest == null ||
+            compareReleaseVersions(candidate.versionName, latest!!.versionName) > 0
+        ) {
+            latest = candidate
+        }
+    }
+    return latest
 }
+
+private fun parsePublishedGiteeReleases(releases: JSONArray): List<GiteeReleaseEntry> = buildList {
+    for (index in 0 until releases.length()) {
+        val release = releases.optJSONObject(index) ?: continue
+        if (release.optBoolean("prerelease", false) || release.optBoolean("draft", false)) continue
+        val versionName = parseReleaseVersionTag(release.optString("tag_name")) ?: continue
+        add(GiteeReleaseEntry(versionName, release))
+    }
+}
+
+private fun findAndroidReleaseAssetUrl(release: JSONObject, versionName: String): String? {
+    val expectedName = "hotwater-android-v$versionName.apk"
+    val assets = release.optJSONArray("assets") ?: return null
+    for (index in 0 until assets.length()) {
+        val asset = assets.optJSONObject(index) ?: continue
+        if (asset.optString("name").trim() != expectedName) continue
+        val url = asset.optString("browser_download_url").trim()
+        val path = url.substringBefore('?').substringBefore('#')
+        if (url.startsWith("https://") && path.endsWith(expectedName)) {
+            return url
+        }
+    }
+    return null
+}
+
+private fun releasePublishedAt(release: JSONObject): String? =
+    release.optString("published_at")
+        .trim()
+        .ifBlank { release.optString("created_at").trim() }
+        .takeIf { it.isNotBlank() }
 
 private fun parseReleaseVersionTag(tag: String): String? {
     val match = RELEASE_TAG_PATTERN.matchEntire(tag.trim()) ?: return null
@@ -141,6 +141,15 @@ private fun parseReleaseVersionTag(tag: String): String? {
 }
 
 private val RELEASE_TAG_PATTERN = Regex("^v(\\d+)\\.(\\d+)\\.(\\d+)$")
+
+private fun compareReleaseVersions(left: String, right: String): Int {
+    val leftParts = left.split('.').map { it.toInt() }
+    val rightParts = right.split('.').map { it.toInt() }
+    return leftParts.zip(rightParts)
+        .map { (leftPart, rightPart) -> leftPart.compareTo(rightPart) }
+        .firstOrNull { it != 0 }
+        ?: 0
+}
 
 sealed interface AppUpdateInstallResult {
     data object InstallationLaunched : AppUpdateInstallResult
@@ -162,7 +171,7 @@ class AppUpdateManager(context: Context) {
     @OptIn(InternalCoroutinesApi::class)
     suspend fun checkForUpdate(): AppUpdateCheckResult = withContext(Dispatchers.IO) {
         try {
-            val request = updateManifestRequest()
+            val request = giteeReleasesRequest()
             val call = client.newCall(request)
             val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
                 onCancelling = true,
@@ -180,17 +189,17 @@ class AppUpdateManager(context: Context) {
                 }
 
                 val payload = response.body?.string().orEmpty()
-                val manifest = runCatching { JSONObject(payload) }.getOrElse {
+                val releases = runCatching { JSONArray(payload) }.getOrElse {
                     return@withContext AppUpdateCheckResult.InvalidRelease("更新服务返回的数据格式无效")
                 }
-                if (!isSupportedUpdateManifest(manifest)) {
-                    return@withContext AppUpdateCheckResult.InvalidRelease("更新服务返回的数据格式无效")
+                if (releases.length() == 0) {
+                    return@withContext AppUpdateCheckResult.NoRelease
                 }
-                val update = parseAndroidLatestUpdate(manifest)
+                val update = parseAndroidLatestGiteeRelease(releases)
                     ?: return@withContext AppUpdateCheckResult.InvalidRelease(
-                        "更新清单缺少有效的 Android Release 信息",
+                        "远端发行版中没有有效的 Android 安装包",
                     )
-                if (compareVersions(update.versionName, BuildConfig.VERSION_NAME) <= 0) {
+                if (compareReleaseVersions(update.versionName, BuildConfig.VERSION_NAME) <= 0) {
                     return@withContext AppUpdateCheckResult.UpToDate
                 }
                 AppUpdateCheckResult.UpdateAvailable(update)
@@ -208,13 +217,13 @@ class AppUpdateManager(context: Context) {
     }
 
     /**
-     * Loads all published release logs from the shared update manifest. This is kept separate
+     * Loads all published release logs from the Gitee Release API. This is kept separate
      * from [checkForUpdate] so opening the history never starts an installation flow.
      */
     @OptIn(InternalCoroutinesApi::class)
     suspend fun fetchReleaseNotes(): AppReleaseNotesResult = withContext(Dispatchers.IO) {
         try {
-            val request = updateManifestRequest()
+            val request = giteeReleasesRequest()
             val call = client.newCall(request)
             val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion(
                 onCancelling = true,
@@ -225,24 +234,21 @@ class AppUpdateManager(context: Context) {
             try {
                 val result = runInterruptible(Dispatchers.IO) { call.execute() }.use { response ->
                     if (response.code == 404) {
-                        localReleaseNotesResult()
+                        AppReleaseNotesResult.Failed("更新日志暂不可用：远端发行版不存在")
                     } else if (!response.isSuccessful) {
-                        // The manifest is published independently of the app. Keep the installed
-                        // package's own notes available when that service is temporarily stale or
-                        // unavailable, instead of replacing the changelog with an empty error.
-                        localReleaseNotesResult()
+                        AppReleaseNotesResult.Failed("加载更新日志失败：HTTP ${response.code}")
                     } else {
-                        val manifest = runCatching {
-                            JSONObject(response.body?.string().orEmpty())
+                        val releases = runCatching {
+                            JSONArray(response.body?.string().orEmpty())
                         }.getOrNull()
-                        if (manifest == null || !isSupportedUpdateManifest(manifest)) {
-                            localReleaseNotesResult()
+                        if (releases == null) {
+                            AppReleaseNotesResult.Failed("更新日志数据格式无效")
                         } else {
                             AppReleaseNotesResult.Success(
-                                mergeCurrentReleaseNote(parseReleaseNotesPayload(manifest))
+                                parseGiteeReleaseNotesPayload(releases)
                                     .distinctBy { it.versionName }
                                     .sortedWith { left, right ->
-                                        compareVersions(right.versionName, left.versionName)
+                                        compareReleaseVersions(right.versionName, left.versionName)
                                     },
                             )
                         }
@@ -255,59 +261,10 @@ class AppUpdateManager(context: Context) {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: IOException) {
-            localReleaseNotesResult()
-        } catch (_: Exception) {
-            localReleaseNotesResult()
+            AppReleaseNotesResult.Failed("网络连接失败，请稍后重试")
+        } catch (error: Exception) {
+            AppReleaseNotesResult.Failed("加载更新日志失败：${error.message ?: "未知错误"}")
         }
-    }
-
-    /**
-     * The manifest is published separately from the app package. Keep this package's own release
-     * visible while that shared history catches up, so a newly installed build never shows a
-     * changelog that stops at the previous release.
-     */
-    private fun mergeCurrentReleaseNote(releases: List<AppReleaseNote>): List<AppReleaseNote> {
-        val merged = releases.toMutableList()
-        mergeReleaseNote(merged, localCurrentReleaseNote(LOCAL_CURRENT_RELEASE_VERSION))
-
-        // Keep a future build's own entry visible as well, while still showing the latest
-        // packaged release when an older installed build reads a stale remote manifest.
-        val installedVersion = BuildConfig.VERSION_NAME.trim()
-        if (installedVersion != LOCAL_CURRENT_RELEASE_VERSION &&
-            RELEASE_VERSION_PATTERN.matches(installedVersion)
-        ) {
-            mergeReleaseNote(merged, localCurrentReleaseNote(installedVersion))
-        }
-        return merged
-    }
-
-    private fun localReleaseNotesResult(): AppReleaseNotesResult.Success =
-        AppReleaseNotesResult.Success(mergeCurrentReleaseNote(emptyList()))
-
-    private fun localCurrentReleaseNote(versionName: String): AppReleaseNote = AppReleaseNote(
-        versionName = versionName,
-        title = if (versionName == LOCAL_CURRENT_RELEASE_VERSION) "当前版本" else "已安装版本",
-        body = if (versionName == LOCAL_CURRENT_RELEASE_VERSION) {
-            LOCAL_CURRENT_RELEASE_BODY
-        } else {
-            "本版本更新说明暂未同步到远端更新清单。"
-        },
-        publishedAt = null,
-    )
-
-    private fun mergeReleaseNote(target: MutableList<AppReleaseNote>, fallback: AppReleaseNote) {
-        val index = target.indexOfFirst { it.versionName == fallback.versionName }
-        if (index < 0) {
-            target += fallback
-            return
-        }
-        val current = target[index]
-        if (current.title.isNotBlank() && current.body.isNotBlank()) return
-        target[index] = current.copy(
-            title = current.title.ifBlank { fallback.title },
-            body = current.body.ifBlank { fallback.body },
-            publishedAt = current.publishedAt ?: fallback.publishedAt,
-        )
     }
 
     @OptIn(InternalCoroutinesApi::class)
@@ -620,24 +577,15 @@ class AppUpdateManager(context: Context) {
         appContext.startActivity(intent)
     }
 
-    private fun updateManifestRequest(): Request = Request.Builder()
-        .url(UPDATE_MANIFEST_URL)
+    private fun giteeReleasesRequest(): Request = Request.Builder()
+        .url(GITEE_RELEASES_API_URL)
         .header("Accept", "application/json")
         .header("User-Agent", "QZXY-HotWater-Android/${BuildConfig.VERSION_NAME}")
         .build()
 
-    private fun compareVersions(left: String, right: String): Int {
-        val leftParts = left.split('.').map { it.toInt() }
-        val rightParts = right.split('.').map { it.toInt() }
-        return leftParts.zip(rightParts)
-            .map { (leftPart, rightPart) -> leftPart.compareTo(rightPart) }
-            .firstOrNull { it != 0 }
-            ?: 0
-    }
-
     private companion object {
-        const val UPDATE_MANIFEST_URL =
-            "https://gitee.com/Solbrilo/quzhi-campus-third-party/raw/main/update-manifest.json"
+        const val GITEE_RELEASES_API_URL =
+            "https://gitee.com/api/v5/repos/Solbrilo/quzhi-campus-third-party/releases?per_page=100&page=1"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val PROGRESS_REPORT_INTERVAL_BYTES = 256L * 1024L
         const val PENDING_INSTALL_PREFERENCES = "app_update_install"
