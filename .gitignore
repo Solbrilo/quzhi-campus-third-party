@@ -3,6 +3,24 @@
 last_hotwater_order.json
 esp32_hotwater/main/hotwater_secrets.h
 
+# Signing materials and local credentials
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt
+*.der
+*.p7b
+.env
+.env.*
+!.env.example
+**/keystore.properties
+**/signing.properties
+harmony_hotwater/signing.local.json
+
 # Python
 __pycache__/
 *.pyc
@@ -23,7 +41,6 @@ android_hotwater/app/build/
 android_hotwater/gradle-8.9-bin.zip
 android_hotwater/.gradle-dist/
 android_hotwater/local.properties
-android_hotwater/*.jks
 
 # Harmony local/build artifacts
 harmony_hotwater/.hvigor/

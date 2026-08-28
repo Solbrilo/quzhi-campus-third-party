@@ -1,0 +1,12 @@
+{
+  "type": "HarmonyOS",
+  "material": {
+    "storeFile": "C:\\path\\to\\your-signing-key.p12",
+    "storePassword": "your-store-password",
+    "keyAlias": "your-key-alias",
+    "keyPassword": "your-key-password",
+    "signAlg": "SHA256withECDSA",
+    "profile": "C:\\path\\to\\your-profile.p7b",
+    "certpath": "C:\\path\\to\\your-certificate.cer"
+  }
+}

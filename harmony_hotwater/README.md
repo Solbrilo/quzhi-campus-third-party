@@ -68,8 +68,10 @@ KLCXKJ-Water,M,C47F0EDA85D8
 
 1. 使用 DevEco Studio 打开当前目录。
 2. 确认已安装工程要求的 HarmonyOS SDK。
-3. 在 DevEco Studio 中配置本机签名，不要提交个人证书或口令。
+3. 为发布构建准备本机签名文件：复制 `signing.local.example.json` 为 `signing.local.json`，再填写本机 `.p12`、`.cer`、`.p7b` 的路径及其口令。该文件和签名材料已被 Git 忽略，绝不能提交。
 4. 选择 `entry` 模块，构建并安装到真机或模拟器。
+
+`signing.local.json` 仅在 Release 构建时必需；未配置时，Release 构建会明确失败，避免意外产出未签名包。Debug 构建不读取该文件。
 
 Scan Kit 实扫与权限设置返回流程建议在 HarmonyOS 真机上验收。
 

@@ -3,7 +3,6 @@
     "products": [
       {
         "name": "default",
-        "signingConfig": "default",
         "compatibleSdkVersion": "6.1.0(23)",
         "targetSdkVersion": "26.0.0",
         "runtimeOS": "HarmonyOS"
@@ -17,21 +16,7 @@
         "name": "release"
       }
     ],
-    "signingConfigs": [
-      {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "C:\\Users\\86158\\.ohos\\config\\default_harmony_hotwater_Ymf0W3kYo2l_Yyna8ajFqBwR2wFmHBk-33ZBcVvV04c=.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "0000001B415C7D965061E883968E71FA960F2420B99CDE5165EFD2D9FDDAFB2D40A4213E433FAA19E909A8",
-          "profile": "C:\\Users\\86158\\.ohos\\config\\default_harmony_hotwater_Ymf0W3kYo2l_Yyna8ajFqBwR2wFmHBk-33ZBcVvV04c=.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\86158\\.ohos\\config\\default_harmony_hotwater_Ymf0W3kYo2l_Yyna8ajFqBwR2wFmHBk-33ZBcVvV04c=.p12",
-          "storePassword": "0000001B0806B073F95D04B43B6FB093B51D59E9717CA2CE3E0DDE12AAB2D60FC6B949D8AA2CE9B5E3B0E3"
-        }
-      }
-    ]
+    "signingConfigs": []
   },
   "modules": [
     {
