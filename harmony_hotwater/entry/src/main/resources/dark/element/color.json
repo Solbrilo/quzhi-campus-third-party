@@ -109,6 +109,10 @@
       "value": "#4054677E"
     },
     {
+      "name": "select_menu_background",
+      "value": "#E61B2A40"
+    },
+    {
       "name": "button_soft_background",
       "value": "#263A5C"
     },

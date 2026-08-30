@@ -5,7 +5,7 @@ import window from '@ohos.window'
 import bundleManager from '@ohos.bundle.bundleManager'
 import { Want } from '@kit.AbilityKit'
 import { buffer } from '@kit.ArkTS'
-import { SymbolGlyphModifier } from '@kit.ArkUI'
+import { SymbolGlyphModifier, uiMaterial } from '@kit.ArkUI'
 import { vibrator } from '@kit.SensorServiceKit'
 import { BlurStrategy, DividerMode, HdsTabs, hdsMaterial } from '@kit.UIDesignKit'
 import {
@@ -1526,6 +1526,10 @@ struct Index {
           .backgroundColor($r('app.color.input_background'))
           .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
           .borderRadius(12)
+          .menuBackgroundColor($r('app.color.select_menu_background'))
+          .menuBackgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+          .optionBgColor($r('app.color.select_menu_background'))
+          .menuSystemMaterial(uiMaterial.Material.empty)
           .layoutWeight(1)
           .onSelect((index: number) => {
             this.setBillYearByIndex(index)
@@ -1538,6 +1542,10 @@ struct Index {
             .backgroundColor($r('app.color.input_background'))
             .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
             .borderRadius(12)
+            .menuBackgroundColor($r('app.color.select_menu_background'))
+            .menuBackgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+            .optionBgColor($r('app.color.select_menu_background'))
+            .menuSystemMaterial(uiMaterial.Material.empty)
             .layoutWeight(1)
             .onSelect((index: number) => {
               this.setBillMonth(index + 1)

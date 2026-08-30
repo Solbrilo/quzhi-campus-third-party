@@ -1,6 +1,7 @@
 import bundleManager from '@ohos.bundle.bundleManager'
 import type common from '@ohos.app.ability.common'
 import { ConfigurationConstant, Want } from '@kit.AbilityKit'
+import { uiMaterial } from '@kit.ArkUI'
 import { hdsMaterial } from '@kit.UIDesignKit'
 import {
   GiteeUpdateRepository,
@@ -1202,12 +1203,10 @@ struct About {
               .backgroundBlurStyle(this.resolveSelectBlurStyle())
               .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
               .borderRadius(12)
-              .menuBackgroundColor(
-                this.materialType === AppearanceMaterialType.NONE
-                  ? $r('app.color.card_background')
-                  : Color.Transparent
-              )
-              .menuBackgroundBlurStyle(this.resolveSelectBlurStyle())
+              .menuBackgroundColor($r('app.color.select_menu_background'))
+              .menuBackgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+              .optionBgColor($r('app.color.select_menu_background'))
+              .menuSystemMaterial(uiMaterial.Material.empty)
               .menuOutline({ width: 1, color: $r('app.color.input_border') })
               .selectedOptionBgColor($r('app.color.status_chip_background'))
               .showDefaultSelectedIcon(true)
@@ -1243,12 +1242,10 @@ struct About {
               .backgroundBlurStyle(this.resolveSelectBlurStyle())
               .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
               .borderRadius(12)
-              .menuBackgroundColor(
-                this.materialType === AppearanceMaterialType.NONE
-                  ? $r('app.color.card_background')
-                  : Color.Transparent
-              )
-              .menuBackgroundBlurStyle(this.resolveSelectBlurStyle())
+              .menuBackgroundColor($r('app.color.select_menu_background'))
+              .menuBackgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+              .optionBgColor($r('app.color.select_menu_background'))
+              .menuSystemMaterial(uiMaterial.Material.empty)
               .menuOutline({ width: 1, color: $r('app.color.input_border') })
               .selectedOptionBgColor($r('app.color.status_chip_background'))
               .showDefaultSelectedIcon(true)
@@ -1285,12 +1282,10 @@ struct About {
               .backgroundBlurStyle(this.resolveSelectBlurStyle())
               .border({ width: 1, color: $r('app.color.input_border'), style: BorderStyle.Solid })
               .borderRadius(12)
-              .menuBackgroundColor(
-                this.materialType === AppearanceMaterialType.NONE
-                  ? $r('app.color.card_background')
-                  : Color.Transparent
-              )
-              .menuBackgroundBlurStyle(this.resolveSelectBlurStyle())
+              .menuBackgroundColor($r('app.color.select_menu_background'))
+              .menuBackgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+              .optionBgColor($r('app.color.select_menu_background'))
+              .menuSystemMaterial(uiMaterial.Material.empty)
               .menuOutline({ width: 1, color: $r('app.color.input_border') })
               .selectedOptionBgColor($r('app.color.status_chip_background'))
               .showDefaultSelectedIcon(true)
