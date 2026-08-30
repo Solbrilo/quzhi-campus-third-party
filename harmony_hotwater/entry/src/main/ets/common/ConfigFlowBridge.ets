@@ -6,6 +6,9 @@ export class ConfigFlowBridge {
   private static pendingSnCode: string = ''
   private static loginConfigChanged: boolean = false
   private static loginSkipped: boolean = false
+  // In-memory generation used to invalidate stale initialization snapshots when a
+  // user-driven flow starts writing configuration.
+  private static configMutationGeneration: number = 0
   private static dataCleared: boolean = false
   private static dataClearGeneration: number = 0
   private static completedDataClearGeneration: number = 0
@@ -28,6 +31,16 @@ export class ConfigFlowBridge {
     const changed = ConfigFlowBridge.loginConfigChanged
     ConfigFlowBridge.loginConfigChanged = false
     return changed
+  }
+
+  /** Marks the beginning of a configuration write and returns its generation. */
+  static markConfigMutationStarted(): number {
+    ConfigFlowBridge.configMutationGeneration++
+    return ConfigFlowBridge.configMutationGeneration
+  }
+
+  static getConfigMutationGeneration(): number {
+    return ConfigFlowBridge.configMutationGeneration
   }
 
   /**
@@ -92,25 +105,50 @@ export class ConfigFlowBridge {
   }
 
   /**
-   * A login refresh owns the account fields, while an unsaved device scan still belongs to the
-   * configuration form. Keep that one field so returning from login cannot overwrite it.
+   * A login refresh owns the account fields. Keep an unsaved device scan only when it belongs to
+   * the same phone (or the form has not been associated with an account yet).
    */
   static resolveSnCodeAfterLogin(
     currentSnCode: string,
     snCodeDirty: boolean,
-    persistedSnCode: string
+    persistedSnCode: string,
+    draftSourceTelephone: string = '',
+    refreshedTelephone: string = ''
   ): string {
-    return snCodeDirty ? ConfigFlowBridge.normalizeSnCode(currentSnCode) :
+    return ConfigFlowBridge.shouldKeepSnCodeDraft(
+      snCodeDirty,
+      draftSourceTelephone,
+      refreshedTelephone
+    ) ? ConfigFlowBridge.normalizeSnCode(currentSnCode) :
       ConfigFlowBridge.normalizeSnCode(persistedSnCode)
   }
 
   static hasPendingSnCodeAfterLogin(
     currentSnCode: string,
     snCodeDirty: boolean,
-    persistedSnCode: string
+    persistedSnCode: string,
+    draftSourceTelephone: string = '',
+    refreshedTelephone: string = ''
   ): boolean {
-    return snCodeDirty &&
+    return ConfigFlowBridge.shouldKeepSnCodeDraft(
+      snCodeDirty,
+      draftSourceTelephone,
+      refreshedTelephone
+    ) &&
       ConfigFlowBridge.normalizeSnCode(currentSnCode) !== ConfigFlowBridge.normalizeSnCode(persistedSnCode)
+  }
+
+  private static shouldKeepSnCodeDraft(
+    snCodeDirty: boolean,
+    draftSourceTelephone: string,
+    refreshedTelephone: string
+  ): boolean {
+    if (!snCodeDirty) {
+      return false
+    }
+    const sourceTelephone = draftSourceTelephone.trim()
+    const nextTelephone = refreshedTelephone.trim()
+    return sourceTelephone.length === 0 || nextTelephone.length === 0 || sourceTelephone === nextTelephone
   }
 
   private static normalizeSnCode(value: string): string {

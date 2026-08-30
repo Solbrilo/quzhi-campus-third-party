@@ -58,17 +58,63 @@ enum HomePage {
   CONFIG = 2
 }
 
-interface FieldInputParams {
-  label: string
-  description: string
-  text: string
-  placeholder: string
-  inputType?: InputType
-  isSensitive?: boolean
-  onChange: (value: string) => void
-}
-
 Environment.envProp('colorMode', ColorMode.LIGHT)
+
+/**
+ * Keeps the native TextInput value linked to the page state. Passing a plain
+ * string to TextInput only supplies its initial value; the linked value is
+ * required when a child route (such as login) updates the form externally.
+ */
+@Component
+struct ConfigFieldInput {
+  @Link text: string
+  label: string = ''
+  description: string = ''
+  placeholder: string = ''
+  inputType: InputType = InputType.Normal
+  isSensitive: boolean = false
+  onChange: (value: string) => void = (_value: string) => {
+  }
+
+  build() {
+    Column({ space: 6 }) {
+      Row() {
+        Text(this.label)
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+          .layoutWeight(1)
+        Text(this.description)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .width('100%')
+
+      TextInput({ text: this.text!!, placeholder: this.placeholder })
+        .type(this.inputType === InputType.Normal && this.isSensitive
+          ? InputType.Password
+          : this.inputType)
+        .showPasswordIcon(this.isSensitive)
+        .fontSize(16)
+        .fontColor($r('app.color.text_primary'))
+        .placeholderColor($r('app.color.text_secondary'))
+        .backgroundColor($r('app.color.input_background'))
+        .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
+        .borderRadius(14)
+        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+        .border({
+          width: 1,
+          color: $r('app.color.input_border'),
+          style: BorderStyle.Solid
+        })
+        .onChange((value: string) => {
+          this.text = value
+          this.onChange(value)
+        })
+    }
+    .width('100%')
+  }
+}
 
 @Entry
 @Component
@@ -247,8 +293,10 @@ struct Index {
 
   private async initialize(): Promise<void> {
     const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
+    const configMutationGeneration = ConfigFlowBridge.getConfigMutationGeneration()
     await this.loadCurrentVersion()
-    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+      configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
       return
     }
     const runtimeInfo = RuntimeDeviceInfoResolver.resolve()
@@ -259,14 +307,17 @@ struct Index {
     }
 
     const config = RuntimeDeviceInfoResolver.enrichConfig(await this.store.loadConfig())
-    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+      configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
       return
     }
     const configSaved = await this.store.saveConfig(
       config,
-      () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+      () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) &&
+        configMutationGeneration === ConfigFlowBridge.getConfigMutationGeneration()
     )
-    if (!configSaved || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+    if (!configSaved || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+      configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
       return
     }
     this.applyConfigToForm(config)
@@ -274,12 +325,14 @@ struct Index {
     this.applyConfigSummary(config)
     this.applySnapshot(this.placeholderSnapshot(config))
     await this.loadConsumptionRecords()
-    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+      configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
       return
     }
 
     if (await this.store.isLoginCredentialExpired()) {
-      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+        configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
         return
       }
       this.initializationComplete = true
@@ -289,12 +342,14 @@ struct Index {
     }
 
     const launchActionHandled = await this.consumePendingLaunchAction()
-    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+    if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+      configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
       return
     }
     if (config.isComplete() && !launchActionHandled) {
       await this.refreshBalance(false)
-      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+        configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
         return
       }
     }
@@ -511,6 +566,7 @@ struct Index {
     const pendingSnCode = this.snCodeText
     const pendingSnCodeDirty = this.snCodeFormDirty
     const pendingSnCodeGeneration = this.snCodeEditGeneration
+    const pendingTelephone = this.telephoneText
     try {
       const config = RuntimeDeviceInfoResolver.enrichConfig(await this.store.loadConfig())
       if (reloadGeneration !== this.configReloadGeneration) {
@@ -523,12 +579,16 @@ struct Index {
       this.snCodeText = ConfigFlowBridge.resolveSnCodeAfterLogin(
         snCodeToKeep,
         snCodeDirty,
-        config.snCode
+        config.snCode,
+        pendingTelephone,
+        config.telephone
       )
       this.snCodeFormDirty = ConfigFlowBridge.hasPendingSnCodeAfterLogin(
         snCodeToKeep,
         snCodeDirty,
-        config.snCode
+        config.snCode,
+        pendingTelephone,
+        config.telephone
       )
       config.snCode = this.snCodeText
       if (this.snCodeFormDirty) {
@@ -581,11 +641,14 @@ struct Index {
       const parsedConfig = RuntimeDeviceInfoResolver.enrichConfig(
         HotWaterConfigTransfer.parse(this.readConfigTextFromUri(uris[0]))
       )
+      const configMutationGeneration = ConfigFlowBridge.markConfigMutationStarted()
       const persisted = await this.store.saveConfig(
         parsedConfig,
-        () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+        () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) &&
+          configMutationGeneration === ConfigFlowBridge.getConfigMutationGeneration()
       )
-      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+        configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
         return
       }
       this.applyConfigToForm(parsedConfig)
@@ -729,12 +792,15 @@ struct Index {
       return
     }
     const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
+    const configMutationGeneration = ConfigFlowBridge.markConfigMutationStarted()
     const config = await this.collectConfig(true)
     const persisted = await this.store.saveConfig(
       config,
-      () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+      () => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) &&
+        configMutationGeneration === ConfigFlowBridge.getConfigMutationGeneration()
     )
-    if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+    if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+      configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
       return
     }
     this.snCodeFormDirty = false
@@ -1186,41 +1252,6 @@ struct Index {
       default:
         return hdsMaterial.MaterialLevel.ADAPTIVE
     }
-  }
-
-  @Builder
-  private FieldInput(params: FieldInputParams): void {
-    Column({ space: 6 }) {
-      Row() {
-        Text(params.label)
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.text_primary'))
-          .layoutWeight(1)
-        Text(params.description)
-          .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
-      }
-      .width('100%')
-
-      TextInput({ text: params.text, placeholder: params.placeholder })
-        .type(params.inputType ?? (params.isSensitive ? InputType.Password : InputType.Normal))
-        .showPasswordIcon(params.isSensitive === true)
-        .fontSize(16)
-        .fontColor($r('app.color.text_primary'))
-        .placeholderColor($r('app.color.text_secondary'))
-        .backgroundColor($r('app.color.input_background'))
-        .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
-        .borderRadius(14)
-        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-        .border({
-          width: 1,
-          color: $r('app.color.input_border'),
-          style: BorderStyle.Solid
-        })
-        .onChange(params.onChange)
-    }
-    .width('100%')
   }
 
   private async openLogin(): Promise<void> {
@@ -1823,70 +1854,54 @@ struct Index {
             this.openLogin()
           })
 
-        this.FieldInput({
+        ConfigFieldInput({
           label: '项目 ID',
           description: 'projectId',
-          text: this.projectIdText,
+          text: $projectIdText,
           placeholder: 'projectId',
           inputType: InputType.NUMBER_PASSWORD,
           isSensitive: true,
-          onChange: (value: string) => {
-            this.projectIdText = value
-          }
         })
-        this.FieldInput({
+        ConfigFieldInput({
           label: '用户 ID',
           description: 'userId',
-          text: this.userIdText,
+          text: $userIdText,
           placeholder: 'userId',
           inputType: InputType.NUMBER_PASSWORD,
           isSensitive: true,
-          onChange: (value: string) => {
-            this.userIdText = value
-          }
         })
-        this.FieldInput({
+        ConfigFieldInput({
           label: '账户 ID',
           description: 'accountId',
-          text: this.accountIdText,
+          text: $accountIdText,
           placeholder: 'accountId',
           inputType: InputType.NUMBER_PASSWORD,
           isSensitive: true,
-          onChange: (value: string) => {
-            this.accountIdText = value
-          }
         })
-        this.FieldInput({
+        ConfigFieldInput({
           label: '登录凭据',
           description: 'loginCode',
-          text: this.loginCodeText,
+          text: $loginCodeText,
           placeholder: 'loginCode',
           isSensitive: true,
-          onChange: (value: string) => {
-            this.loginCodeText = value
-          }
         })
-        this.FieldInput({
+        ConfigFieldInput({
           label: '手机号',
           description: 'telephone',
-          text: this.telephoneText,
+          text: $telephoneText,
           placeholder: 'telephone',
           inputType: InputType.NUMBER_PASSWORD,
           isSensitive: true,
-          onChange: (value: string) => {
-            this.telephoneText = value
-          }
         })
         Row({ space: 10 }) {
           Column() {
-            this.FieldInput({
+            ConfigFieldInput({
               label: '设备序列号',
               description: 'snCode',
-              text: this.snCodeText,
+              text: $snCodeText,
               placeholder: 'snCode',
               isSensitive: true,
               onChange: (value: string) => {
-                this.snCodeText = value
                 this.snCodeFormDirty = true
                 this.snCodeEditGeneration++
               }

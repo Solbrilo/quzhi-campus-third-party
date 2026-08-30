@@ -246,11 +246,31 @@ export default function localUnitTest() {
         false,
         ''
       )).assertFalse();
+      expect(ConfigFlowBridge.resolveSnCodeAfterLogin(
+        'AABBCCDDEEFF',
+        true,
+        '',
+        '13800138000',
+        '13900139000'
+      )).assertEqual('');
+      expect(ConfigFlowBridge.hasPendingSnCodeAfterLogin(
+        'AABBCCDDEEFF',
+        true,
+        '',
+        '13800138000',
+        '13900139000'
+      )).assertFalse();
     });
     it('consumesTheCredentialExpiryLoginSkipOnlyOnce', 0, () => {
       ConfigFlowBridge.markLoginSkipped();
       expect(ConfigFlowBridge.consumeLoginSkipped()).assertTrue();
       expect(ConfigFlowBridge.consumeLoginSkipped()).assertFalse();
+    });
+    it('advancesConfigurationMutationGenerationForLoginWrites', 0, () => {
+      const previousGeneration = ConfigFlowBridge.getConfigMutationGeneration();
+      const currentGeneration = ConfigFlowBridge.markConfigMutationStarted();
+      expect(currentGeneration).assertEqual(previousGeneration + 1);
+      expect(ConfigFlowBridge.getConfigMutationGeneration()).assertEqual(currentGeneration);
     });
     it('invalidatesStaleConfigurationWorkBeforeDataIsCleared', 0, () => {
       const previousGeneration = ConfigFlowBridge.getDataClearGeneration();

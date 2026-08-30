@@ -37,9 +37,6 @@
 -keep class cn.qzxy.hotwater.RuntimeDeviceInfo { *; }
 -keep class cn.qzxy.hotwater.HotWaterConfigStore$WidgetState { *; }
 
-# === ViewBinding ===
--keep class cn.qzxy.hotwater.databinding.** { *; }
-
 # === AndroidX Security / EncryptedSharedPreferences ===
 -keep class androidx.security.crypto.** { *; }
 

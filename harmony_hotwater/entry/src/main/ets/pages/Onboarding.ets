@@ -491,6 +491,7 @@ struct Onboarding {
     this.binding = true
     const generation = this.flowGeneration
     const dataClearGeneration = ConfigFlowBridge.getDataClearGeneration()
+    const configMutationGeneration = ConfigFlowBridge.markConfigMutationStarted()
     try {
       const config = await this.store.loadConfig()
       if (!this.isFlowCurrent(generation, OnboardingStage.SCANNER)) {
@@ -499,9 +500,11 @@ struct Onboarding {
       config.snCode = snCode
       const persisted = await this.store.saveConfig(
         config,
-        (): boolean => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)
+        (): boolean => ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) &&
+          configMutationGeneration === ConfigFlowBridge.getConfigMutationGeneration()
       )
-      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      if (!persisted || !ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+        configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
         return false
       }
       if (this.isFlowCurrent(generation, OnboardingStage.SCANNER)) {

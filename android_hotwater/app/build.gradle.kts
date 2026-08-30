@@ -20,8 +20,8 @@ android {
         applicationId = "cn.qzxy.hotwater"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "2.2.1"
+        versionCode = 26
+        versionName = "2.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -38,12 +38,20 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
+    }
+
+    androidResources {
+        localeFilters += listOf("zh", "en")
     }
 
     compileOptions {
@@ -60,7 +68,6 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
-        viewBinding = true
     }
 }
 
@@ -71,7 +78,6 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
-    implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")

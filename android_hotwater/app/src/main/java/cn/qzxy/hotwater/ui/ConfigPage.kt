@@ -58,7 +58,6 @@ import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
-import java.util.Locale
 
 @Composable
 fun ConfigPage(
@@ -84,12 +83,17 @@ fun ConfigPage(
     val snCodeFocus = remember { FocusRequester() }
 
     // 本地输入状态
-    var projectId by rememberSaveable(config.projectId) { mutableStateOf(config.projectId?.toString().orEmpty()) }
-    var userId by rememberSaveable(config.userId) { mutableStateOf(config.userId?.toString().orEmpty()) }
-    var accountId by rememberSaveable(config.accountId) { mutableStateOf(config.accountId?.toString().orEmpty()) }
-    var loginCode by rememberSaveable(config.loginCode) { mutableStateOf(config.loginCode) }
-    var telephone by rememberSaveable(config.telephone) { mutableStateOf(config.telephone) }
-    var snCode by rememberSaveable(config.snCode) { mutableStateOf(config.snCode) }
+    var projectId by rememberSaveable { mutableStateOf(config.projectId?.toString().orEmpty()) }
+    var userId by rememberSaveable { mutableStateOf(config.userId?.toString().orEmpty()) }
+    var accountId by rememberSaveable { mutableStateOf(config.accountId?.toString().orEmpty()) }
+    var loginCode by rememberSaveable { mutableStateOf(config.loginCode) }
+    var telephone by rememberSaveable { mutableStateOf(config.telephone) }
+    var snCode by rememberSaveable { mutableStateOf(config.snCode) }
+    var snCodeDirty by rememberSaveable { mutableStateOf(false) }
+    var lastAppliedConfigFingerprint by rememberSaveable {
+        mutableStateOf(configFormFingerprint(config))
+    }
+    var lastAppliedConfigTelephone by rememberSaveable { mutableStateOf(config.telephone.trim()) }
     var projectIdVisible by rememberSaveable { mutableStateOf(false) }
     var userIdVisible by rememberSaveable { mutableStateOf(false) }
     var accountIdVisible by rememberSaveable { mutableStateOf(false) }
@@ -98,9 +102,37 @@ fun ConfigPage(
     var snCodeVisible by rememberSaveable { mutableStateOf(false) }
     var showValidationErrors by rememberSaveable { mutableStateOf(false) }
 
+    val currentConfigFingerprint = configFormFingerprint(config)
+    LaunchedEffect(currentConfigFingerprint) {
+        if (!shouldRefreshConfigForm(lastAppliedConfigFingerprint, currentConfigFingerprint)) {
+            return@LaunchedEffect
+        }
+        val preserveSnCodeDraft = shouldKeepSnCodeDraft(
+            snCodeDirty = snCodeDirty,
+            draftSourceTelephone = lastAppliedConfigTelephone,
+            refreshedTelephone = config.telephone,
+        )
+        val refreshed = refreshConfigFormFromConfig(
+            config = config,
+            currentSnCode = snCode,
+            snCodeDirty = snCodeDirty,
+            preserveSnCodeDraft = preserveSnCodeDraft,
+        )
+        projectId = refreshed.projectId
+        userId = refreshed.userId
+        accountId = refreshed.accountId
+        loginCode = refreshed.loginCode
+        telephone = refreshed.telephone
+        snCode = refreshed.snCode
+        snCodeDirty = refreshed.snCodeDirty
+        lastAppliedConfigFingerprint = currentConfigFingerprint
+        lastAppliedConfigTelephone = config.telephone.trim()
+    }
+
     LaunchedEffect(scannedSnCode) {
         val scanned = scannedSnCode ?: return@LaunchedEffect
-        snCode = scanned.trim().replace(":", "").uppercase(Locale.ROOT)
+        snCode = normalizeConfigSnCode(scanned)
+        snCodeDirty = true
         onScannedSnCodeConsumed()
     }
 
@@ -284,7 +316,10 @@ fun ConfigPage(
             Spacer(modifier = Modifier.height(12.dp))
             GlassInput(
                 value = snCode,
-                onValueChange = { snCode = it },
+                onValueChange = {
+                    snCode = it
+                    snCodeDirty = true
+                },
                 label = "设备序列号",
                 placeholder = "snCode",
                 errorMessage = snCodeError,
@@ -342,7 +377,7 @@ fun ConfigPage(
                         accountId = accountId.trim().toIntOrNull(),
                         loginCode = loginCode.trim(),
                         telephone = telephone.trim(),
-                        snCode = snCode.trim().replace(":", "").uppercase(Locale.ROOT),
+                        snCode = normalizeConfigSnCode(snCode),
                         macAddress = config.macAddress,
                         phoneSystem = config.phoneSystem,
                         version = config.version,
@@ -363,6 +398,8 @@ fun ConfigPage(
                     } else {
                         haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
                         focusManager.clearFocus()
+                        snCodeDirty = false
+                        lastAppliedConfigTelephone = telephone.trim()
                         onSave(rawConfig)
                     }
                 },

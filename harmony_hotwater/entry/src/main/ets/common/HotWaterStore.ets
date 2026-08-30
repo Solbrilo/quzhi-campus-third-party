@@ -121,9 +121,13 @@ export class HotWaterStore {
     config: HotWaterConfig,
     expectedGeneration?: number
   ): Promise<boolean> {
+    // Advance before waiting for the store lock so an in-flight page
+    // initialization cannot persist its pre-login snapshot afterwards.
+    const configMutationGeneration = ConfigFlowBridge.markConfigMutationStarted()
     const dataClearGeneration = expectedGeneration ?? ConfigFlowBridge.getDataClearGeneration()
     return await STORE_STATE_LOCK.lockAsync(async () => {
-      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration)) {
+      if (!ConfigFlowBridge.isDataClearGenerationCurrent(dataClearGeneration) ||
+        configMutationGeneration !== ConfigFlowBridge.getConfigMutationGeneration()) {
         return false
       }
       const store = await this.getStore()
