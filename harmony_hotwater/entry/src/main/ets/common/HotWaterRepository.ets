@@ -23,6 +23,9 @@ const DEVICE_OFFLINE_STATUS_MESSAGE: string = '热水器不在线，请确认寝
 const DEVICE_BUSY_BY_OTHER_MESSAGE: string = '已有他人正在使用这台设备，请稍后再试。'
 const PENDING_CLOSE_OPEN_GUARD_MS: number = 15 * 1000
 const PROVISIONAL_OPENING_MAX_AGE_MS: number = 2 * 60 * 1000
+// Keep a conservative guard against a transient empty-order response. The server's
+// observed idle auto-close window is about five minutes.
+const MIN_AUTO_CLOSE_USAGE_AGE_MS: number = 5 * 60 * 1000
 const DEVICE_WORKFLOW_LOCK = ArkTSUtils.locks.AsyncLock.request('cn.qzxy.hotwater.device-workflow')
 
 interface RequestHeaders {
@@ -48,10 +51,14 @@ export class HotWaterRepository {
     await this.tryReconcilePendingSettlements(config, snapshot)
     await this.applyPendingBalanceGuard(snapshot)
     const result = new OperationResult()
-    result.title = '余额已刷新'
+    result.title = snapshot.autoClosedOrderNo.length > 0 ? '热水已自动关闭' : '余额已刷新'
     result.summary = this.buildSummary(snapshot)
     result.details = ''
     result.snapshot = snapshot
+    result.usageDurationMillis = snapshot.autoClosedUsageDurationMillis
+    result.usageStartedAtMillis = snapshot.autoClosedUsageStartedAtMillis
+    result.historyId = snapshot.autoClosedHistoryId
+    result.automaticClose = snapshot.autoClosedOrderNo.length > 0
     return result
   }
 
@@ -298,6 +305,21 @@ export class HotWaterRepository {
       activeBalanceYuan = ConsumptionSettlement.expectedActiveBalance(usageSession.startBalanceYuan)
     }
 
+    if (remoteOrderNo.length === 0 && this.isConfirmedWithoutActiveOrder(statusText) &&
+      ConsumptionSettlement.canAutoCloseUsage(
+        orderNo,
+        usageSession,
+        true,
+        Date.now(),
+        MIN_AUTO_CLOSE_USAGE_AGE_MS
+      )) {
+      return await this.buildAutomaticCloseResult(
+        config,
+        orderNo,
+        usageSession!!
+      )
+    }
+
     const closeResponseText = await this.postForm('/order/tcpDevice/closeOrder', this.buildFormString(config, orderNo))
     const closeAccepted = this.extractSuccess(closeResponseText) || this.extractErrorCode(closeResponseText) == 0
     let settlementRecord: ConsumptionRecord | null = null
@@ -368,6 +390,8 @@ export class HotWaterRepository {
       : this.buildSummary(snapshot)
     result.details = closeResponseText
     result.snapshot = snapshot
+    result.historyId = settlementRecord?.id ?? 0
+    result.usageStartedAtMillis = settlementRecord?.startedAtMillis ?? 0
     return result
   }
 
@@ -414,6 +438,43 @@ export class HotWaterRepository {
     pending.balanceFallbackEligible = true
     pending.closeConfirmed = closeConfirmed
     return await this.store.savePendingSettlementContext(record, pending)
+  }
+
+  private async buildAutomaticCloseResult(
+    config: HotWaterConfig,
+    orderNo: string,
+    usageSession: UsageSession
+  ): Promise<OperationResult> {
+    const closedAtMillis = Date.now()
+    const persistedRecord = await this.persistPendingSettlementContext(
+      orderNo,
+      usageSession,
+      ConsumptionSettlement.activeBalanceForSession(usageSession),
+      closedAtMillis,
+      true
+    )
+    const snapshot = this.fallbackSnapshot(
+      config,
+      '检测到热水已自动关闭，账单正在同步。',
+      '',
+      false
+    )
+    snapshot.remoteNoActiveOrderConfirmed = true
+    snapshot.autoClosedOrderNo = orderNo
+    snapshot.autoClosedHistoryId = persistedRecord.id
+    snapshot.autoClosedUsageStartedAtMillis = persistedRecord.startedAtMillis
+    snapshot.autoClosedUsageDurationMillis = persistedRecord.usageDurationMillis
+
+    const result = new OperationResult()
+    result.title = '热水已自动关闭'
+    result.summary = '检测到热水已自动关闭，账单正在同步。\n余额 -- 元'
+    result.details = '服务端已确认当前没有活动订单，未重复发送关水请求。'
+    result.snapshot = snapshot
+    result.usageDurationMillis = persistedRecord.usageDurationMillis
+    result.usageStartedAtMillis = persistedRecord.startedAtMillis
+    result.historyId = persistedRecord.id
+    result.automaticClose = true
+    return result
   }
 
   private async refreshSnapshotWithStatus(
@@ -503,6 +564,10 @@ export class HotWaterRepository {
     const snapshot = this.snapshotFromTexts(config, userInfoText, deviceInfoText, balanceText)
     const busyByOther = this.isDeviceBusyByOther(statusText)
     const extractedOrderNo = this.extractFirstOrEmpty(statusText, 'orderNo')
+    let autoClosedOrderNo: string = ''
+    let autoClosedHistoryId: number = 0
+    let autoClosedUsageStartedAtMillis: number = 0
+    let autoClosedUsageDurationMillis: number = -1
     if (busyByOther) {
       await this.store.clearOrderNo()
       await this.store.clearUsageSession()
@@ -516,7 +581,31 @@ export class HotWaterRepository {
       }
     } else if (this.isConfirmedWithoutActiveOrder(statusText)) {
       snapshot.remoteNoActiveOrderConfirmed = true
-      await this.store.clearExpiredProvisionalUsageState(Date.now(), PROVISIONAL_OPENING_MAX_AGE_MS)
+      const nowMillis = Date.now()
+      await this.store.clearExpiredProvisionalUsageState(nowMillis, PROVISIONAL_OPENING_MAX_AGE_MS)
+      const cachedOrderNo = await this.store.loadOrderNo()
+      const usageSession = await this.store.loadUsageSession()
+      const hasPendingSettlement = cachedOrderNo.length > 0 &&
+        await this.store.hasPendingSettlementForOrder(cachedOrderNo)
+      if (!hasPendingSettlement && ConsumptionSettlement.canAutoCloseUsage(
+        cachedOrderNo,
+        usageSession,
+        true,
+        nowMillis,
+        MIN_AUTO_CLOSE_USAGE_AGE_MS
+      )) {
+        const persistedRecord = await this.persistPendingSettlementContext(
+          cachedOrderNo,
+          usageSession!!,
+          ConsumptionSettlement.activeBalanceForSession(usageSession!!),
+          nowMillis,
+          true
+        )
+        autoClosedOrderNo = cachedOrderNo
+        autoClosedHistoryId = persistedRecord.id
+        autoClosedUsageStartedAtMillis = persistedRecord.startedAtMillis
+        autoClosedUsageDurationMillis = persistedRecord.usageDurationMillis
+      }
     }
     const cachedOrderNo = busyByOther ? '' : await this.store.loadOrderNo()
     snapshot.orderNo = cachedOrderNo
@@ -529,6 +618,8 @@ export class HotWaterRepository {
       snapshot.statusLabel = DEVICE_OFFLINE_STATUS_MESSAGE
     } else if (busyByOther) {
       snapshot.statusLabel = DEVICE_BUSY_BY_OTHER_MESSAGE
+    } else if (autoClosedOrderNo.length > 0) {
+      snapshot.statusLabel = '检测到热水已自动关闭，账单正在同步。'
     } else if (cachedOrderNo.length > 0) {
       snapshot.statusLabel = '已缓存订单号，点击主按钮将尝试关热水。'
     } else if (this.extractSuccess(statusText)) {
@@ -537,6 +628,10 @@ export class HotWaterRepository {
       const errorMessage = this.extractFirstOrEmpty(statusText, 'errorMessage')
       snapshot.statusLabel = errorMessage.length > 0 ? errorMessage : '状态待确认，建议先刷新余额。'
     }
+    snapshot.autoClosedOrderNo = autoClosedOrderNo
+    snapshot.autoClosedHistoryId = autoClosedHistoryId
+    snapshot.autoClosedUsageStartedAtMillis = autoClosedUsageStartedAtMillis
+    snapshot.autoClosedUsageDurationMillis = autoClosedUsageDurationMillis
     return snapshot
   }
 

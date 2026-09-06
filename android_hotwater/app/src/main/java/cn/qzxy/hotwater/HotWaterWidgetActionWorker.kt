@@ -70,9 +70,16 @@ class HotWaterWidgetActionWorker(
                         expectedStateGeneration = stateGeneration,
                     )
 
-                    WidgetHotWaterAction.REFRESH -> Unit
+                    WidgetHotWaterAction.REFRESH -> if (result.automaticClose) {
+                        store.saveOperationResultHistory(
+                            type = OperationHistory.OperationType.CLOSE,
+                            result = result,
+                            expectedStateGeneration = stateGeneration,
+                        )
+                    }
                 }
-                if (action == WidgetHotWaterAction.CLOSE && result.historyId != null) {
+                if ((action == WidgetHotWaterAction.CLOSE || result.automaticClose) &&
+                    result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(applicationContext)
                 }
                 if (store.loadStateGeneration() != stateGeneration) return@also
@@ -90,7 +97,7 @@ class HotWaterWidgetActionWorker(
                     },
                     isBusy = false,
                     tone = if (
-                        deviceBusyByOther || result.outcome != OperationOutcome.SUCCESS
+                        deviceBusyByOther || result.outcome != OperationOutcome.SUCCESS || result.automaticClose
                     ) {
                         "warning"
                     } else {

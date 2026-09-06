@@ -23,6 +23,7 @@ export default class EntryFormAbility extends FormExtensionAbility {
   }
 
   onUpdateForm(formId: string) {
+    this.refreshWidgetState(formId)
   }
 
   onChangeFormVisibility(newStatus: Record<string, number>) {
@@ -96,7 +97,9 @@ export default class EntryFormAbility extends FormExtensionAbility {
         }
         this.updateWidgetState(
           formId,
-          action === 'open' ? '已开启热水' : '已关闭热水',
+          action === 'open'
+            ? '已开启热水'
+            : (result.automaticClose ? '检测到热水已自动关闭' : '已关闭热水'),
           action === 'open' ? 'open_success' : 'close_success'
         )
       })
@@ -112,6 +115,28 @@ export default class EntryFormAbility extends FormExtensionAbility {
           LaunchActionBridge.setPendingAction('config')
         }
       })
+  }
+
+  private refreshWidgetState(formId: string): void {
+    const store = new HotWaterStore(this.context)
+    const repository = new HotWaterRepository(store)
+    store.loadConfig().then((config) => {
+      if (!config.isComplete()) {
+        this.updateWidgetState(formId, '请先打开应用完成配置', 'error')
+        return null
+      }
+      return repository.check(RuntimeDeviceInfoResolver.enrichConfig(config))
+    }).then((result) => {
+      if (!result) return
+      const snapshot = result.snapshot
+      if (snapshot.isDeviceOnline === false) this.updateWidgetState(formId, '热水器不在线', 'error')
+      else if (snapshot.isDeviceBusyByOther) this.updateWidgetState(formId, '设备正在使用中', 'error')
+      else if (snapshot.hasCachedOrder) this.updateWidgetState(formId, '用水中', 'close_success')
+      else if (result.automaticClose) this.updateWidgetState(formId, '热水已自动关闭', 'close_success')
+      else this.updateWidgetState(formId, '已就绪', 'idle')
+    }).catch(() => {
+      this.updateWidgetState(formId, '状态待确认，请打开应用刷新', 'error')
+    })
   }
 
   private updateWidgetState(formId: string, statusText: string, statusTone: string): void {

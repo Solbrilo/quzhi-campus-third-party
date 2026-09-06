@@ -306,6 +306,56 @@ export default function localUnitTest() {
       expect(ConsumptionSettlement.recoverStartBalance(7.31)).assertEqual(12.31);
       expect(ConsumptionSettlement.calculateConsumption(12.31, 11.87)).assertEqual(0.44);
     });
+    it('autoClosesOnlyAfterAConfirmedInactiveSessionReachesTheProtectionWindow', 0, () => {
+      const session = new UsageSession();
+      session.startedAtMillis = 1_000;
+      session.provisionalOpening = false;
+      const minimumAgeMillis = 5 * 60 * 1000;
+
+      expect(ConsumptionSettlement.canAutoCloseUsage(
+        'active-order',
+        session,
+        true,
+        1_000 + minimumAgeMillis - 1,
+        minimumAgeMillis
+      )).assertFalse();
+      expect(ConsumptionSettlement.canAutoCloseUsage(
+        'active-order',
+        session,
+        true,
+        1_000 + minimumAgeMillis,
+        minimumAgeMillis
+      )).assertTrue();
+      expect(ConsumptionSettlement.canAutoCloseUsage(
+        'active-order',
+        session,
+        false,
+        1_000 + minimumAgeMillis,
+        minimumAgeMillis
+      )).assertFalse();
+    });
+    it('doesNotAutoCloseAProvisionalOpeningSession', 0, () => {
+      const session = new UsageSession();
+      session.startedAtMillis = 1_000;
+      session.provisionalOpening = true;
+
+      expect(ConsumptionSettlement.canAutoCloseUsage(
+        'opening-order',
+        session,
+        true,
+        1_000 + 10 * 60 * 1000,
+        5 * 60 * 1000
+      )).assertFalse();
+    });
+    it('keepsTheActiveBalanceSeparateFromThePreauthorizationBaseline', 0, () => {
+      const session = new UsageSession();
+      session.startBalanceYuan = 20;
+      session.startBalanceIsBeforePreauthorization = true;
+      expect(ConsumptionSettlement.activeBalanceForSession(session)).assertEqual(15);
+
+      session.startBalanceIsBeforePreauthorization = false;
+      expect(ConsumptionSettlement.activeBalanceForSession(session)).assertEqual(20);
+    });
     it('detectsWhenPostCloseBalanceLeavesTheReservedValue', 0, () => {
       expect(ConsumptionSettlement.expectedActiveBalance(12.31)).assertEqual(7.31);
       expect(ConsumptionSettlement.hasSettledBalanceChanged(7.31, 7.31)).assertFalse();

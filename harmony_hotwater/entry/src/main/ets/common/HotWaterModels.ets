@@ -65,6 +65,10 @@ export class DashboardSnapshot {
   isDeviceOnline: boolean | null = null
   remoteOrderConfirmed: boolean = false
   remoteNoActiveOrderConfirmed: boolean = false
+  autoClosedOrderNo: string = ''
+  autoClosedHistoryId: number = 0
+  autoClosedUsageStartedAtMillis: number = 0
+  autoClosedUsageDurationMillis: number = -1
 }
 
 export class OperationResult {
@@ -74,6 +78,9 @@ export class OperationResult {
   snapshot: DashboardSnapshot = new DashboardSnapshot()
   consumptionYuan: number = -1
   usageDurationMillis: number = -1
+  usageStartedAtMillis: number = 0
+  historyId: number = 0
+  automaticClose: boolean = false
 }
 
 export class UsageSession {

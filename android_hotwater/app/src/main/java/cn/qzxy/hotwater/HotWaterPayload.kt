@@ -137,6 +137,29 @@ internal object HotWaterPayload {
 }
 
 internal object HotWaterSettlement {
+    fun canAutoCloseUsage(
+        orderNo: String?,
+        session: UsageSession?,
+        remoteNoActiveOrder: Boolean,
+        nowMillis: Long,
+        minimumAgeMillis: Long,
+    ): Boolean {
+        if (!remoteNoActiveOrder || orderNo.isNullOrBlank() || session == null) return false
+        if (session.startedAtMillis <= 0L || minimumAgeMillis < 0L) return false
+        return nowMillis - session.startedAtMillis >= minimumAgeMillis
+    }
+
+    fun activeBalanceYuan(session: UsageSession): Double? {
+        val storedBalanceYuan = session.startBalanceYuan
+            ?.takeIf { it.isFinite() && it >= 0.0 }
+            ?: return null
+        return if (session.startBalanceIsBeforePreauthorization) {
+            (storedBalanceYuan - HOT_WATER_PREAUTHORIZATION_YUAN).takeIf { it >= 0.0 }
+        } else {
+            storedBalanceYuan
+        }
+    }
+
     fun balanceBeforePreauthorization(session: UsageSession): Double? {
         val startBalanceYuan = session.startBalanceYuan
             ?.takeIf { it.isFinite() && it >= 0.0 }

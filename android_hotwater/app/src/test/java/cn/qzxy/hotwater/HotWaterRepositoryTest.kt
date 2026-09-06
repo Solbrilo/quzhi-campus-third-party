@@ -1313,6 +1313,143 @@ class HotWaterRepositoryTest {
     }
 
     @Test
+    fun check_doesNotAutoCloseWhenServerStillReportsTheActiveOrder() = runBlocking {
+        val activeStatus = successPayload().apply {
+            getJSONObject("data").put("orderNo", "order-still-active")
+        }
+        val store = FakeSessionStore(
+            orderNo = "order-still-active",
+            usageSession = UsageSession(
+                startedAtMillis = System.currentTimeMillis() - 10 * 60_000L,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(activeStatus),
+        )
+
+        val result = HotWaterRepository(api, store).check(completeConfig)
+
+        assertFalse(result.automaticClose)
+        assertEquals("order-still-active", store.loadOrderNo())
+        assertTrue(result.snapshot?.hasCachedOrder == true)
+        assertTrue(store.pendingSettlements.isEmpty())
+    }
+
+    @Test
+    fun check_doesNotAutoCloseBeforeTheFiveMinuteProtectionWindow() = runBlocking {
+        val store = FakeSessionStore(
+            orderNo = "order-too-young",
+            usageSession = UsageSession(
+                startedAtMillis = System.currentTimeMillis() - (5 * 60_000L - 1_000L),
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(successPayload()),
+        )
+
+        val result = HotWaterRepository(api, store).check(completeConfig)
+
+        assertFalse(result.automaticClose)
+        assertEquals("order-too-young", store.loadOrderNo())
+        assertTrue(result.snapshot?.hasCachedOrder == true)
+        assertTrue(store.pendingSettlements.isEmpty())
+    }
+
+    @Test
+    fun check_autoClosesStaleLocalUsageAndKeepsPendingSettlement() = runBlocking {
+        val startedAtMillis = System.currentTimeMillis() - (5 * 60_000L + 1_000L)
+        val store = FakeSessionStore(
+            orderNo = "order-server-closed",
+            usageSession = UsageSession(
+                startedAtMillis = startedAtMillis,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(successPayload()),
+        )
+
+        val result = HotWaterRepository(api, store).check(completeConfig)
+
+        assertTrue(result.automaticClose)
+        assertEquals("热水已自动关闭", result.title)
+        assertEquals("order-server-closed", result.snapshot?.autoClosedOrderNo)
+        assertNull(store.loadOrderNo())
+        assertNull(store.loadUsageSession())
+        assertEquals(1, store.pendingSettlements.size)
+        assertEquals("order-server-closed", store.pendingSettlements.single().orderNo)
+        assertEquals(startedAtMillis, result.usageStartedAtMillis)
+        assertTrue((result.usageDurationMillis ?: -1L) >= 5 * 60_000L)
+    }
+
+    @Test
+    fun close_doesNotSendCloseRequestWhenServerAlreadyAutoClosedStaleUsage() = runBlocking {
+        val startedAtMillis = System.currentTimeMillis() - (5 * 60_000L + 1_000L)
+        val store = FakeSessionStore(
+            orderNo = "order-server-closed-from-close",
+            usageSession = UsageSession(
+                startedAtMillis = startedAtMillis,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+        val api = FakeHotWaterApi(
+            balanceResponses = listOf(balancePayload(15.0)),
+            statusResponses = listOf(successPayload()),
+        )
+
+        val result = HotWaterRepository(api, store).close(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertTrue(result.automaticClose)
+        assertEquals(0, api.closeCalls)
+        assertNull(store.loadOrderNo())
+        assertNull(store.loadUsageSession())
+        assertEquals(1, store.pendingSettlements.size)
+        assertEquals("order-server-closed-from-close", store.pendingSettlements.single().orderNo)
+    }
+
+    @Test
+    fun close_autoCloseKeepsSessionDerivedActiveBalanceWhenQueriedBalanceIsAlreadySettled() = runBlocking {
+        val startedAtMillis = System.currentTimeMillis() - (5 * 60_000L + 1_000L)
+        val store = FakeSessionStore(
+            orderNo = "order-server-closed-final-balance",
+            usageSession = UsageSession(
+                startedAtMillis = startedAtMillis,
+                startBalanceYuan = 20.0,
+                startBalanceIsBeforePreauthorization = true,
+            ),
+        )
+        val api = FakeHotWaterApi(
+            // The server has already settled the order: 12.50 is not the
+            // preauthorization baseline and must not become activeBalanceYuan.
+            balanceResponses = listOf(balancePayload(12.5)),
+            statusResponses = listOf(successPayload()),
+        )
+
+        val result = HotWaterRepository(api, store).close(
+            config = completeConfig,
+            pollAttempts = 1,
+            pollDelayMs = 0L,
+        )
+
+        assertTrue(result.automaticClose)
+        assertEquals(0, api.closeCalls)
+        assertEquals(15.0, store.pendingSettlements.single().activeBalanceYuan ?: -1.0, 0.001)
+    }
+
+    @Test
     fun check_balanceFallbackOnlyRepairsNewestFreshPendingSettlement() = runBlocking {
         val now = System.currentTimeMillis()
         val olderPending = pendingSettlement(

@@ -1,3 +1,5 @@
+import { UsageSession } from './HotWaterModels'
+
 export const HOT_WATER_PREAUTHORIZATION_YUAN: number = 5
 
 export class ConsumptionSettlement {
@@ -7,6 +9,32 @@ export class ConsumptionSettlement {
 
   static isKnownBalance(value: number): boolean {
     return Number.isFinite(value) && value >= 0
+  }
+
+  static canAutoCloseUsage(
+    orderNo: string,
+    session: UsageSession | null,
+    remoteNoActiveOrder: boolean,
+    nowMillis: number,
+    minimumAgeMillis: number
+  ): boolean {
+    if (!remoteNoActiveOrder || orderNo.trim().length === 0 || session === null) {
+      return false
+    }
+    if (session.startedAtMillis <= 0 || session.provisionalOpening || minimumAgeMillis < 0) {
+      return false
+    }
+    return Number.isFinite(nowMillis) &&
+      nowMillis - session.startedAtMillis >= minimumAgeMillis
+  }
+
+  static activeBalanceForSession(session: UsageSession): number {
+    if (!ConsumptionSettlement.isKnownBalance(session.startBalanceYuan)) {
+      return -1
+    }
+    return session.startBalanceIsBeforePreauthorization
+      ? ConsumptionSettlement.expectedActiveBalance(session.startBalanceYuan)
+      : session.startBalanceYuan
   }
 
   static recoverStartBalance(activeBalanceYuan: number): number {

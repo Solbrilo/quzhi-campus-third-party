@@ -20,22 +20,18 @@ update, a Release must also contain the matching platform asset and its HTTPS
 - Android: `hotwater-android-vX.Y.Z.apk`
 - HarmonyOS: `hotwater-harmony-vX.Y.Z.hap`
 
-## v2.3.0 Android Release Build
+## v2.3.1 Dual-Client Release Build
 
-1. Android uses `versionCode 26` and `versionName 2.3.0`.
-2. HarmonyOS remains at `versionCode 2002001` and `versionName 2.2.1` until a matching HAP
-   is built and uploaded.
-3. Android fixes the first-run path where skipping login or scanning and logging in later
-   failed to refill the configuration fields; HarmonyOS source includes the corresponding
-   initialization and form synchronization fixes for its next HAP release.
+1. Android uses `versionCode 27` and `versionName 2.3.1`.
+2. HarmonyOS uses `versionCode 2003001` and `versionName 2.3.1`.
+3. Both clients synchronize widget/card state with the remote device state, preserve automatic-close settlement handling, and include the current account-state fixes.
 4. Android Release keeps bundled offline ML Kit scanning while limiting native ABIs to ARM
    devices and filtering unused resources.
-5. Run the Android unit tests and package build. HarmonyOS tests and HAP build remain part of
-   the next dual-platform release.
-6. Create and push the `v2.3.0` tag with the source commit.
-7. Upload `hotwater-android-v2.3.0.apk` to the formal Gitee Release when it is created.
+5. Run Android unit tests and build both Android APK and HarmonyOS HAP.
+6. Create and push the `v2.3.1` tag with the source commit.
+7. Upload `hotwater-android-v2.3.1.apk` and `hotwater-harmony-v2.3.1.hap` to the formal Gitee Release when it is created.
 
-Until the packages are uploaded to a formal Gitee Release, clients must not show `v2.3.0` as an
+Until the packages are uploaded to a formal Gitee Release, clients must not show `v2.3.1` as an
 available update or a changelog entry.
 
 ## Future Formal Release

@@ -51,6 +51,7 @@ const MAX_CONFIG_FILE_BYTES: number = 128 * 1024
 const POST_CLOSE_RECONCILE_DELAY_MS: number = 2200
 const POST_CLOSE_RECONCILE_ATTEMPTS: number = 2
 const FOREGROUND_VALIDATION_MIN_INTERVAL_MS: number = 3000
+const ACTIVE_STATE_SYNC_INTERVAL_MS: number = 30000
 
 enum HomePage {
   OPERATIONS = 0,
@@ -153,6 +154,8 @@ struct Index {
   private credentialExpiryPromptVisible: boolean = false
   private appliedDataClearGeneration: number = 0
   private postCloseRefreshGeneration: number = 0
+  private activeStateSyncGeneration: number = 0
+  private activeStateSyncTimer: number = -1
   private lastCredentialValidationAtMillis: number = 0
   @State currentVersionLabel: string = '2.2.1'
 
@@ -201,6 +204,7 @@ struct Index {
     }
     this.initialize()
     this.setupImmersiveWindow()
+    this.scheduleActiveStateSync()
   }
 
   onPageShow(): void {
@@ -233,6 +237,7 @@ struct Index {
       this.refreshAfterForeground()
     }
     this.setupImmersiveWindow()
+    this.scheduleActiveStateSync()
     if (this.busy) {
       this.startRingAnimation()
     }
@@ -246,6 +251,7 @@ struct Index {
     this.postCloseRefreshGeneration++
     this.configReloadGeneration++
     this.usageTimerGeneration++
+    this.stopActiveStateSync()
     this.busy = false
     this.refreshingBalance = false
     this.configReloading = false
@@ -273,6 +279,7 @@ struct Index {
   onPageHide(): void {
     this.pageVisible = false
     this.postCloseRefreshGeneration++
+    this.stopActiveStateSync()
   }
 
   private async setupImmersiveWindow(): Promise<void> {
@@ -372,6 +379,7 @@ struct Index {
     this.deviceOnline = snapshot.isDeviceOnline
     this.statusLabel = snapshot.statusLabel
     this.syncUsageTimer()
+    this.scheduleActiveStateSync()
   }
 
   private applyConfigToForm(config: HotWaterConfig): void {
@@ -766,6 +774,40 @@ struct Index {
     }, 1000)
   }
 
+  private scheduleActiveStateSync(): void {
+    if (!this.pageVisible || !this.store || !this.hasCachedOrder) {
+      this.stopActiveStateSync()
+      return
+    }
+    if (this.activeStateSyncTimer >= 0) {
+      return
+    }
+    const generation = this.activeStateSyncGeneration
+    this.activeStateSyncTimer = setTimeout(async () => {
+      this.activeStateSyncTimer = -1
+      if (generation !== this.activeStateSyncGeneration || !this.pageVisible ||
+        !this.store || !this.hasCachedOrder) {
+        return
+      }
+      if (!this.busy && !this.refreshingBalance && !this.configReloading &&
+        !this.credentialExpiryPromptVisible) {
+        await this.refreshBalance(false)
+      }
+      if (generation === this.activeStateSyncGeneration && this.pageVisible &&
+        this.hasCachedOrder) {
+        this.scheduleActiveStateSync()
+      }
+    }, ACTIVE_STATE_SYNC_INTERVAL_MS)
+  }
+
+  private stopActiveStateSync(): void {
+    this.activeStateSyncGeneration++
+    if (this.activeStateSyncTimer >= 0) {
+      clearTimeout(this.activeStateSyncTimer)
+      this.activeStateSyncTimer = -1
+    }
+  }
+
   private formatUsageDuration(durationMillis: number): string {
     return ConsumptionRecord.formatDuration(durationMillis)
   }
@@ -918,6 +960,9 @@ struct Index {
       this.applySnapshot(result.snapshot ?? this.placeholderSnapshot(config))
       await this.loadConsumptionRecords()
       this.liveStatus = result.summary.split('\n')[0]
+      if (result.automaticClose && result.usageDurationMillis >= 0) {
+        this.schedulePostCloseReconciliation()
+      }
     } catch (error) {
       if (HotWaterPayload.isCredentialExpiredError(error)) {
         await this.handleCredentialExpired()

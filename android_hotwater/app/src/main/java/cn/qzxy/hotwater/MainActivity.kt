@@ -35,7 +35,6 @@ class MainActivity : ComponentActivity() {
     private var notificationPermissionRequested = false
     private var pendingOpenRequested = false
     private var pendingOpenAction: (() -> Unit)? = null
-    private var hasEnteredForeground = false
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -138,11 +137,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (hasEnteredForeground) {
-            viewModel.onAppForegrounded()
-        } else {
-            hasEnteredForeground = true
-        }
+        viewModel.onAppForegrounded()
+    }
+
+    override fun onStop() {
+        viewModel.onAppBackgrounded()
+        super.onStop()
     }
 
     private fun requestNotificationPermissionThen(action: () -> Unit) {

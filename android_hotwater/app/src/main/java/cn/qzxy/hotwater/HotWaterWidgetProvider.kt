@@ -19,10 +19,12 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray,
     ) {
         HotWaterWidgetUi.updateAllWidgets(context)
+        requestStateRefresh(context)
     }
 
     override fun onEnabled(context: Context) {
         HotWaterWidgetUi.updateAllWidgets(context)
+        requestStateRefresh(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -32,6 +34,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         newOptions: android.os.Bundle,
     ) {
         HotWaterWidgetUi.updateAllWidgets(context)
+        requestStateRefresh(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -110,6 +113,19 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         private const val UNIQUE_WORK_NAME = "hotwater_widget_action"
         private const val WORK_TAG = "hotwater_widget"
 
+        fun requestStateRefresh(context: Context) {
+            val store = HotWaterConfigStore(context)
+            if (!store.loadConfig().isComplete() || store.loadWidgetState().isBusy) return
+            val workRequest = OneTimeWorkRequest.Builder(HotWaterWidgetActionWorker::class.java)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setInputData(Data.Builder().putString(HotWaterWidgetActionWorker.KEY_ACTION, WidgetHotWaterAction.REFRESH.name).build())
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .addTag(WORK_TAG)
+                .build()
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, workRequest,
+            )
+        }
         fun cancelPendingActions(context: Context) {
             WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE_WORK_NAME)
         }

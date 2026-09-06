@@ -20,8 +20,8 @@ android {
         applicationId = "cn.qzxy.hotwater"
         minSdk = 26
         targetSdk = 36
-        versionCode = 26
-        versionName = "2.3.0"
+        versionCode = 27
+        versionName = "2.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

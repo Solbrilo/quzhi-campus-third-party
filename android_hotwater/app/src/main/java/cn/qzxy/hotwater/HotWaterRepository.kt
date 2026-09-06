@@ -23,6 +23,10 @@ data class DashboardSnapshot(
     val isDeviceBusyByOther: Boolean = false,
     val isDeviceOnline: Boolean? = null,
     val usageStartedAtMillis: Long? = null,
+    val autoClosedOrderNo: String? = null,
+    val autoClosedHistoryId: Long? = null,
+    val autoClosedUsageStartedAtMillis: Long? = null,
+    val autoClosedUsageDurationMillis: Long? = null,
 )
 
 data class OperationResult(
@@ -34,6 +38,7 @@ data class OperationResult(
     val usageDurationMillis: Long? = null,
     val usageStartedAtMillis: Long? = null,
     val historyId: Long? = null,
+    val automaticClose: Boolean = false,
     val outcome: OperationOutcome,
 )
 
@@ -50,25 +55,36 @@ class HotWaterRepository(
     suspend fun check(config: HotWaterConfig): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
         val stateGeneration = store.loadStateGeneration()
-        // Probe authentication first so startup can route expired sessions to login
-        // without waiting for old settlement reconciliation.
+        // Probe authentication before entering the device workflow lock so an in-flight close
+        // does not hide credential expiry behind a potentially long device request.
         val userInfo = api.userInfo(config)
-        reconcilePendingSettlements(config, stateGeneration)
-        val snapshot = guardPendingSettlementBalance(
-            refreshSnapshot(
+        DEVICE_CONTROL_MUTEX.withLock {
+            reconcilePendingSettlements(config, stateGeneration)
+            val refreshedSnapshot = refreshSnapshot(
                 config,
                 prefetchedUserInfo = userInfo,
                 expectedStateGeneration = stateGeneration,
-            ),
-        )
-        ensureStateGeneration(stateGeneration)
-        OperationResult(
-            title = "余额已刷新",
-            summary = buildSummary(snapshot),
-            details = "",
-            snapshot = snapshot,
-            outcome = OperationOutcome.SUCCESS,
-        )
+            )
+            // buildSnapshot may have converted a server-side auto-closed session into a pending
+            // settlement. Reconcile that newly-created bill in the same refresh so the UI and the
+            // background worker see one consistent state immediately.
+            if (refreshedSnapshot.autoClosedOrderNo != null) {
+                reconcilePendingSettlements(config, stateGeneration)
+            }
+            val snapshot = guardPendingSettlementBalance(refreshedSnapshot)
+            ensureStateGeneration(stateGeneration)
+            OperationResult(
+                title = if (snapshot.autoClosedOrderNo != null) "热水已自动关闭" else "余额已刷新",
+                summary = buildSummary(snapshot),
+                details = "",
+                snapshot = snapshot,
+                historyId = snapshot.autoClosedHistoryId,
+                usageDurationMillis = snapshot.autoClosedUsageDurationMillis,
+                usageStartedAtMillis = snapshot.autoClosedUsageStartedAtMillis,
+                automaticClose = snapshot.autoClosedOrderNo != null,
+                outcome = OperationOutcome.SUCCESS,
+            )
+        }
     }
 
     suspend fun open(
@@ -394,6 +410,24 @@ class HotWaterRepository(
         val historyId = closedAtMillis
         val usageDurationMillis = usageSession?.let { closedAtMillis - it.startedAtMillis }
 
+        if (
+            HotWaterSettlement.canAutoCloseUsage(
+                orderNo = activeOrderNo,
+                session = usageSession,
+                remoteNoActiveOrder = isConfirmedWithoutActiveOrder(status),
+                nowMillis = closedAtMillis,
+                minimumAgeMillis = MIN_AUTO_CLOSE_USAGE_AGE_MS,
+            )
+        ) {
+            return@withContext buildAutomaticCloseResult(
+                config = config,
+                orderNo = activeOrderNo,
+                usageSession = usageSession!!,
+                closedAtMillis = closedAtMillis,
+                expectedStateGeneration = stateGeneration,
+            )
+        }
+
         detailBuilder.appendLine()
         detailBuilder.appendLine("Sending close request, orderNo=$activeOrderNo")
         ensureStateGeneration(stateGeneration)
@@ -599,6 +633,54 @@ class HotWaterRepository(
             usageStartedAtMillis = pending.usageStartedAtMillis,
             historyId = pending.historyId,
             outcome = if (confirmed) OperationOutcome.SUCCESS else OperationOutcome.PENDING,
+        )
+    }
+
+    private fun buildAutomaticCloseResult(
+        config: HotWaterConfig,
+        orderNo: String,
+        usageSession: UsageSession,
+        closedAtMillis: Long,
+        expectedStateGeneration: Long,
+    ): OperationResult {
+        val usageDurationMillis = (closedAtMillis - usageSession.startedAtMillis).coerceAtLeast(0L)
+        val persisted = store.savePendingSettlementAndEndUsage(
+            PendingSettlement(
+                historyId = closedAtMillis,
+                orderNo = orderNo,
+                closedAtMillis = closedAtMillis,
+                usageStartedAtMillis = usageSession.startedAtMillis,
+                usageDurationMillis = usageDurationMillis,
+                startBalanceYuan = HotWaterSettlement.balanceBeforePreauthorization(usageSession),
+                activeBalanceYuan = HotWaterSettlement.activeBalanceYuan(usageSession),
+                provisionalConsumptionYuan = null,
+                finalConsumptionYuan = null,
+                zeroConsumptionReported = false,
+                closeConfirmed = true,
+                stateGeneration = expectedStateGeneration,
+            ),
+            expectedStateGeneration = expectedStateGeneration,
+        )
+        if (!persisted) {
+            throw staleOperationCancellation()
+        }
+
+        val snapshot = buildFallbackSnapshot(
+            config = config,
+            balancePayload = null,
+            statusLabel = "检测到热水已自动关闭，账单正在同步。",
+            orderNo = null,
+        )
+        return OperationResult(
+            title = "热水已自动关闭",
+            summary = "检测到热水已自动关闭，账单正在同步。\n余额 ${snapshot.balanceLabel} 元",
+            details = "服务端已确认当前没有活动订单，未重复发送关水请求。",
+            snapshot = snapshot,
+            usageDurationMillis = usageDurationMillis,
+            usageStartedAtMillis = usageSession.startedAtMillis,
+            historyId = closedAtMillis,
+            automaticClose = true,
+            outcome = OperationOutcome.SUCCESS,
         )
     }
 
@@ -1004,6 +1086,10 @@ class HotWaterRepository(
         val busyByOther = isDeviceBusyByOther(statusPayload)
 
         val extractedOrderNo = findNestedValue(statusPayload, "orderNo")?.toString()?.takeIf { it.isNotBlank() }
+        var autoClosedOrderNo: String? = null
+        var autoClosedHistoryId: Long? = null
+        var autoClosedUsageStartedAtMillis: Long? = null
+        var autoClosedUsageDurationMillis: Long? = null
         if (busyByOther) {
             if (!store.clearActiveUsageForGeneration(expectedStateGeneration)) {
                 throw staleOperationCancellation()
@@ -1013,6 +1099,50 @@ class HotWaterRepository(
             // under one process-wide lock before persisting a recovered order.
             if (!store.saveOrderNoUnlessPending(extractedOrderNo, expectedStateGeneration)) {
                 ensureStateGeneration(expectedStateGeneration)
+            }
+        } else if (isConfirmedWithoutActiveOrder(statusPayload)) {
+            val cachedOrderNo = store.loadOrderNo()
+            val usageSession = store.loadUsageSession()
+            val hasPendingSettlement = cachedOrderNo?.let { orderNo ->
+                store.loadPendingSettlements().any { it.orderNo == orderNo }
+            } == true
+            val nowMillis = System.currentTimeMillis()
+            if (
+                !hasPendingSettlement &&
+                HotWaterSettlement.canAutoCloseUsage(
+                    orderNo = cachedOrderNo,
+                    session = usageSession,
+                    remoteNoActiveOrder = true,
+                    nowMillis = nowMillis,
+                    minimumAgeMillis = MIN_AUTO_CLOSE_USAGE_AGE_MS,
+                )
+            ) {
+                val activeOrderNo = cachedOrderNo!!
+                val session = usageSession!!
+                val persisted = store.savePendingSettlementAndEndUsage(
+                    PendingSettlement(
+                        historyId = nowMillis,
+                        orderNo = activeOrderNo,
+                        closedAtMillis = nowMillis,
+                        usageStartedAtMillis = session.startedAtMillis,
+                        usageDurationMillis = (nowMillis - session.startedAtMillis).coerceAtLeast(0L),
+                        startBalanceYuan = HotWaterSettlement.balanceBeforePreauthorization(session),
+                        activeBalanceYuan = HotWaterSettlement.activeBalanceYuan(session),
+                        provisionalConsumptionYuan = null,
+                        finalConsumptionYuan = null,
+                        zeroConsumptionReported = false,
+                        closeConfirmed = true,
+                        stateGeneration = expectedStateGeneration,
+                    ),
+                    expectedStateGeneration = expectedStateGeneration,
+                )
+                if (!persisted) {
+                    throw staleOperationCancellation()
+                }
+                autoClosedOrderNo = activeOrderNo
+                autoClosedHistoryId = nowMillis
+                autoClosedUsageStartedAtMillis = session.startedAtMillis
+                autoClosedUsageDurationMillis = (nowMillis - session.startedAtMillis).coerceAtLeast(0L)
             }
         }
 
@@ -1032,6 +1162,7 @@ class HotWaterRepository(
         val statusLabel = when {
             deviceOnline == false -> DEVICE_OFFLINE_STATUS_MESSAGE
             busyByOther -> DEVICE_BUSY_BY_OTHER_MESSAGE
+            autoClosedOrderNo != null -> "检测到热水已自动关闭，账单正在同步。"
             !cachedOrderNo.isNullOrBlank() -> "已缓存订单号，点击主按钮将尝试关热水。"
             statusPayload.optBoolean("success") -> "当前没有缓存订单号，点击主按钮将尝试开热水。"
             statusPayload.optString("errorMessage").isNotBlank() -> statusPayload.optString("errorMessage")
@@ -1054,6 +1185,10 @@ class HotWaterRepository(
             isDeviceBusyByOther = busyByOther,
             isDeviceOnline = deviceOnline,
             usageStartedAtMillis = if (cachedOrderNo.isNullOrBlank()) null else store.loadUsageSession()?.startedAtMillis,
+            autoClosedOrderNo = autoClosedOrderNo,
+            autoClosedHistoryId = autoClosedHistoryId,
+            autoClosedUsageStartedAtMillis = autoClosedUsageStartedAtMillis,
+            autoClosedUsageDurationMillis = autoClosedUsageDurationMillis,
         )
     }
 
@@ -1299,6 +1434,10 @@ class HotWaterRepository(
         private const val HOT_WATER_PREAUTHORIZATION_YUAN = 5.0
         private const val MAX_PENDING_BALANCE_FALLBACK_AGE_MS = 10 * 60 * 1_000L
         private const val MAX_UNCONFIRMED_CLOSE_GATE_MS = 15_000L
+        // The server may briefly report no order while an opening request is settling.
+        // Five minutes matches the observed idle auto-close window and avoids turning a
+        // transient status response into a local close while the user is still using water.
+        private const val MIN_AUTO_CLOSE_USAGE_AGE_MS = 5 * 60 * 1_000L
         private const val MAX_RECONCILIATION_LOCK_MS = 1_500L
         // onlineStatusId is static device metadata; the offline capture kept it at 1.
         private val ONLINE_STATE_KEYS = listOf(

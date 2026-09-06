@@ -1,6 +1,8 @@
 package cn.qzxy.hotwater
 
 import android.app.Application
+import android.content.ComponentName
+import android.service.quicksettings.TileService
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -10,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -84,6 +87,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var snCodeSaveJob: Job? = null
     private var snCodeSaveGeneration: Long = 0L
     private var settlementSyncJob: Job? = null
+    private var activeStateSyncJob: Job? = null
+    private var appInForeground = false
     private var busyOwner: BusyOwner? = null
 
     fun initialize() {
@@ -103,11 +108,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun refreshBalance(announce: Boolean = true) {
+    fun refreshBalance(
+        announce: Boolean = true,
+        recordHistory: Boolean = true,
+    ) {
         runOperation(
             busyMessage = if (announce) "正在刷新余额…" else "正在同步余额…",
             operationType = OperationHistory.OperationType.REFRESH,
             announceSuccess = announce,
+            recordHistory = recordHistory,
         ) { config ->
             repository.check(config)
         }
@@ -174,11 +183,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppForegrounded() {
+        appInForeground = true
         if (store.requiresReauthentication()) {
+            activeStateSyncJob?.cancel()
+            activeStateSyncJob = null
             showCredentialExpiryPrompt()
             return
         }
         refreshBalance(announce = false)
+        ensureActiveStateSyncLoop()
+    }
+
+    fun onAppBackgrounded() {
+        appInForeground = false
+        activeStateSyncJob?.cancel()
+        activeStateSyncJob = null
     }
 
     fun saveSnCode(snCode: String) {
@@ -330,6 +349,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         snCodeSaveJob = null
         settlementSyncJob?.cancel()
         settlementSyncJob = null
+        activeStateSyncJob?.cancel()
+        activeStateSyncJob = null
         HotWaterSettlementSyncScheduler.cancel(appContext)
         HotWaterWidgetProvider.cancelPendingActions(appContext)
         busyOwner = null
@@ -478,6 +499,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         busyMessage: String,
         operationType: OperationHistory.OperationType,
         announceSuccess: Boolean,
+        recordHistory: Boolean = true,
         block: suspend (HotWaterConfig) -> OperationResult,
     ) {
         if (store.requiresReauthentication()) {
@@ -521,13 +543,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                store.saveOperationResultHistory(operationType, result)
+                if (recordHistory || result.automaticClose) {
+                    val historyType = if (result.automaticClose) {
+                        OperationHistory.OperationType.CLOSE
+                    } else {
+                        operationType
+                    }
+                    store.saveOperationResultHistory(historyType, result)
+                }
                 _history.value = store.loadHistory()
                 if (store.loadPendingSettlements().isNotEmpty()) {
                     HotWaterSettlementSyncScheduler.enqueue(getApplication())
                 }
                 if (
-                    operationType == OperationHistory.OperationType.CLOSE &&
+                    (operationType == OperationHistory.OperationType.CLOSE || result.automaticClose) &&
                     result.historyId != null
                 ) {
                     schedulePostCloseSync(
@@ -536,6 +565,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         historyId = result.historyId,
                     )
                 }
+                ensureActiveStateSyncLoop()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -544,25 +574,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     showCredentialExpiryPrompt()
                     return@launch
                 }
-                _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
+                if (recordHistory) {
+                    _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
+                }
                 val message = HotWaterUiText.summarizeError(error)
-                _statusMessage.value = message
-                syncWidgetStatus("操作失败", message)
-
-                // 保存失败历史
-                val history = OperationHistory(
-                    type = operationType,
-                    success = false,
-                    message = message,
-                )
-                store.saveHistory(history)
-                _history.value = store.loadHistory()
-
-                // 触发失败反馈
-                _feedbackEvent.value = FeedbackEvent(
-                    type = FeedbackEvent.FeedbackType.ERROR,
-                    message = message,
-                )
+                if (recordHistory) {
+                    _statusMessage.value = message
+                    syncWidgetStatus("操作失败", message)
+                    // 保存失败历史
+                    val history = OperationHistory(
+                        type = operationType,
+                        success = false,
+                        message = message,
+                    )
+                    store.saveHistory(history)
+                    _history.value = store.loadHistory()
+                    // 触发失败反馈
+                    _feedbackEvent.value = FeedbackEvent(
+                        type = FeedbackEvent.FeedbackType.ERROR,
+                        message = message,
+                    )
+                }
             } finally {
                 if (generation == operationGeneration) {
                     releaseBusy(BusyOwner.OPERATION)
@@ -608,6 +640,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showCredentialExpiryPrompt() {
+        activeStateSyncJob?.cancel()
+        activeStateSyncJob = null
         store.markCredentialsExpired()
         val expiredConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         _config.value = expiredConfig
@@ -669,6 +703,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isBusy = false,
         )
         HotWaterWidgetUi.updateAllWidgets(getApplication())
+        TileService.requestListeningState(
+            getApplication(),
+            ComponentName(getApplication(), HotWaterTileService::class.java),
+        )
     }
 
     private fun syncNotificationState() {
@@ -680,8 +718,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun ensureActiveStateSyncLoop() {
+        if (!appInForeground || store.requiresReauthentication()) {
+            return
+        }
+        if (store.loadOrderNo().isNullOrBlank()) {
+            activeStateSyncJob?.cancel()
+            activeStateSyncJob = null
+            return
+        }
+        if (activeStateSyncJob?.isActive == true) {
+            return
+        }
+        activeStateSyncJob = viewModelScope.launch {
+            try {
+                while (appInForeground && !store.loadOrderNo().isNullOrBlank()) {
+                    delay(ACTIVE_STATE_SYNC_INTERVAL_MS)
+                    if (!appInForeground || store.loadOrderNo().isNullOrBlank()) {
+                        break
+                    }
+                    refreshBalance(announce = false, recordHistory = false)
+                }
+            } finally {
+                if (activeStateSyncJob === currentCoroutineContext()[Job]) {
+                    activeStateSyncJob = null
+                }
+            }
+        }
+    }
+
     companion object {
         private const val LOW_BALANCE_WARNING_YUAN = 5.0
+        private const val ACTIVE_STATE_SYNC_INTERVAL_MS = 30_000L
         private val POST_CLOSE_SYNC_DELAYS_MS = longArrayOf(
             350L,
             900L,
