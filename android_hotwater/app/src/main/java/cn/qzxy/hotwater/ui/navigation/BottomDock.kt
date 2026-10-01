@@ -3,6 +3,7 @@ package cn.qzxy.hotwater.ui.navigation
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,9 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -47,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
+import cn.qzxy.hotwater.designsystem.theme.DarkGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
@@ -76,7 +81,19 @@ internal fun BottomDock(
     require(labels.size == BOTTOM_DOCK_TAB_COUNT)
     require(selectedIndex in labels.indices)
 
-    val tokens = LocalGlassTokens.current
+    val palette = LocalGlassTokens.current
+    // The dock retains its translucent finish independently of the page palette.
+    val tokens = if (palette.meshBase == DarkGlassTokens.meshBase) palette.copy(
+        floatingSurface = Color(0x486D91C4), embeddedControlSurface = Color(0x42203047),
+        borderHi = Color(0x85FFFFFF), borderLo = Color(0x337DA7DB), innerHighlight = Color(0x75FFFFFF),
+        fallbackSurface = Color(0xF226354D), outerShadow = Color(0x52070F1F),
+        textPrimary = Color(0xFFF7FAFF), textSecondary = Color(0xD6EAF2FF), accentPrimary = Color(0xFF9CC4FF),
+    ) else palette.copy(
+        floatingSurface = Color(0x78FFFFFF), embeddedControlSurface = Color(0x80FFFFFF),
+        borderHi = Color(0xE6FFFFFF), borderLo = Color(0x2E416B9A), innerHighlight = Color(0xC2FFFFFF),
+        fallbackSurface = Color(0xF8F8FBFF), outerShadow = Color(0x30466F9D),
+        textPrimary = Color(0xFF14243B), textSecondary = Color(0xD6334D6B), accentPrimary = Color(0xFF3B6FAE),
+    )
     val environment = LocalGlassEnvironment.current
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -90,10 +107,25 @@ internal fun BottomDock(
     var settlingRtl by remember { mutableStateOf<Boolean?>(null) }
     val initialPhysicalIndex = logicalToPhysicalIndex(selectedIndex, isRtl)
     val indicatorPosition = remember { Animatable(initialPhysicalIndex.toFloat()) }
+    val dropletPulse = remember { Animatable(0f) }
+    var previousSelection by remember { mutableIntStateOf(selectedIndex) }
     var dragIndicatorPosition by remember { mutableFloatStateOf(initialPhysicalIndex.toFloat()) }
     val dragThresholdPx = with(density) { BOTTOM_DOCK_DRAG_THRESHOLD_DP.dp.toPx() }
     val hysteresisPx = with(density) { BOTTOM_DOCK_BOUNDARY_HYSTERESIS_DP.dp.toPx() }
     val tabWidthPx = contentWidthPx.takeIf { it > 0 }?.div(BOTTOM_DOCK_TAB_COUNT.toFloat()) ?: 0f
+
+    LaunchedEffect(selectedIndex, environment.motionEnabled, environment.glassIntensity) {
+        val changed = previousSelection != selectedIndex
+        previousSelection = selectedIndex
+        if (!environment.motionEnabled || environment.glassIntensity <= 0f) {
+            dropletPulse.snapTo(0f)
+        } else if (changed) {
+            dropletPulse.animateTo(1f, tween(durationMillis = 100))
+            dropletPulse.animateTo(0f, spring(dampingRatio = 0.48f, stiffness = 380f))
+        } else {
+            dropletPulse.animateTo(0f)
+        }
+    }
 
     LaunchedEffect(selectedIndex, isRtl, isDragging) {
         if (isDragging) return@LaunchedEffect
@@ -127,6 +159,7 @@ internal fun BottomDock(
             .glassMaterial(
                 material = GlassMaterial.Floating,
                 cornerRadius = 28.dp,
+                tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
             )
             .testTag("bottom_dock"),
     ) {
@@ -346,11 +379,29 @@ internal fun BottomDock(
                     .padding(horizontal = 3.dp)
                     .graphicsLayer {
                         alpha = if (isDragging) 0.92f else 1f
+                        val deformation = dropletPulse.value * environment.glassIntensity
+                        scaleX = 1f + 0.05f * deformation
+                        scaleY = 1f - 0.09f * deformation
                     }
                     .glassMaterial(
                         material = GlassMaterial.EmbeddedControl,
                         cornerRadius = 22.dp,
+                        tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
                     )
+                    .drawWithCache {
+                        val sheen = Brush.radialGradient(
+                            colors = listOf(tokens.innerHighlight, Color.Transparent),
+                            center = Offset(size.width * 0.3f, 0f),
+                            radius = size.width.coerceAtLeast(1f) * 0.75f,
+                        )
+                        onDrawWithContent {
+                            drawContent()
+                            if (!environment.preferOpaqueMaterials && environment.glassIntensity > 0f) {
+                                drawRect(sheen, alpha = environment.glassIntensity *
+                                    (0.24f + 0.2f * dropletPulse.value.coerceIn(0f, 1f)))
+                            }
+                        }
+                    }
                     .testTag("bottom_dock_indicator"),
             )
 

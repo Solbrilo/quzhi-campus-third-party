@@ -117,7 +117,7 @@ import kotlin.math.roundToInt
 
 /** The in-app destinations opened from the home screen's overflow button. */
 internal enum class MorePageDestination(val title: String) {
-    OVERVIEW("更多"),
+    OVERVIEW("设置"),
     FEEDBACK("问题反馈"),
     PRIVACY("隐私政策"),
     CREATORS("制作者"),
@@ -149,6 +149,11 @@ internal fun MorePage(
     onOpenExternal: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    embedded: Boolean = false,
+    loggedIn: Boolean = false,
+    accountBusy: Boolean = false,
+    onAccountAction: () -> Unit = {},
+    onOpenConfig: () -> Unit = {},
 ) {
     val pageStateHolder = rememberSaveableStateHolder()
     var showReleaseNotes by rememberSaveable { mutableStateOf(false) }
@@ -163,7 +168,7 @@ internal fun MorePage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val tokens = LocalGlassTokens.current
-            GlassPressable(
+            if (!embedded || destination != MorePageDestination.OVERVIEW) GlassPressable(
                 onClick = onBack,
                 material = GlassMaterial.Control,
                 cornerRadius = 18.dp,
@@ -171,9 +176,9 @@ internal fun MorePage(
                     .size(48.dp)
                     .semantics {
                         contentDescription = if (destination == MorePageDestination.OVERVIEW) {
-                            "关闭更多页面"
+                            "返回用水页面"
                         } else {
-                            "返回更多页面"
+                            "返回设置页面"
                         }
                     },
             ) {
@@ -237,13 +242,17 @@ internal fun MorePage(
                             onNavigate = onNavigate,
                             onRequestClearAllData = { showClearAllDialog = true },
                             onOpenExternal = onOpenExternal,
+                            loggedIn = loggedIn,
+                            accountBusy = accountBusy,
+                            onAccountAction = onAccountAction,
+                            onOpenConfig = onOpenConfig,
                         )
 
                         MorePageDestination.FEEDBACK -> FeedbackPage()
                         MorePageDestination.PRIVACY -> PrivacyPolicyPage()
                         MorePageDestination.CREATORS -> CreatorsPage(onOpenExternal = onOpenExternal)
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(if (embedded) bottomDockClearance() else 12.dp))
                 }
             }
         }
@@ -330,6 +339,10 @@ private fun MoreOverviewPage(
     onNavigate: (MorePageDestination) -> Unit,
     onRequestClearAllData: () -> Unit,
     onOpenExternal: (String) -> Unit,
+    loggedIn: Boolean,
+    accountBusy: Boolean,
+    onAccountAction: () -> Unit,
+    onOpenConfig: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -348,11 +361,11 @@ private fun MoreOverviewPage(
                     .clip(RoundedCornerShape(22.dp)),
             )
             Spacer(modifier = Modifier.width(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "趣智校园热水",
                     color = tokens.textPrimary,
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
@@ -360,6 +373,15 @@ private fun MoreOverviewPage(
                     color = tokens.textSecondary,
                     fontSize = 14.sp,
                 )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            GlassPressable(
+                onClick = onAccountAction, enabled = !accountBusy,
+                material = GlassMaterial.Control, cornerRadius = 18.dp,
+                modifier = Modifier.height(48.dp),
+            ) {
+                Text(if (loggedIn) "退出登录" else "登录", color = tokens.accentPrimary,
+                    fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp))
             }
         }
 
@@ -438,6 +460,10 @@ private fun MoreOverviewPage(
                 enabled = !installing,
                 isLoading = checking,
             )
+            MoreActionRow(MoreAction(
+                title = "查看配置", summary = "查看、编辑或导入导出账号与设备配置",
+                icon = Icons.Outlined.Settings, onClick = onOpenConfig,
+            ))
         }
 
         Column(
@@ -1408,7 +1434,7 @@ private fun PrivacyPolicyPage() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "最后更新于 2026 年 8 月。",
+            text = "最后更新于 2026 年 10 月 1 日。",
             color = tokens.textTertiary,
             fontSize = 12.sp,
         )
@@ -1420,28 +1446,33 @@ private fun PrivacyPolicyPage() {
         )
         PrivacyPolicyHeading(text = "信息收集与使用")
         Text(
-            text = "应用仅在你主动登录、导入配置、绑定设备或使用相关功能时处理必要信息，用于完成请求、恢复应用状态和展示结果，不用于与功能无关的画像或广告。",
+            text = "应用在你登录、导入配置、绑定设备或使用相关功能时处理必要信息，用于完成请求、恢复状态和展示结果。登录可使用密码或短信验证码，两者仅用于本次登录，不会长期保存。账单和校园消息从趣智校园服务器获取；应用进入前台会同步消息，并在本机保存未读与提醒状态，不用于广告或用户画像。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,
         )
         PrivacyPolicyHeading(text = "本地保存")
         Text(
-            text = "账号配置、设备信息、账单记录以及提交成功的反馈摘要可能保存在本机。登录密码仅在登录过程中使用，不会作为配置长期保存；主题等显示偏好只用于本机界面。",
+            text = "账号凭据和设备配置使用系统支持的加密存储。必要的订单与结算状态、消息已读状态、反馈记录及显示偏好保存在本机；消息正文仅在内存中展示。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,
         )
         PrivacyPolicyHeading(text = "网络与权限")
         Text(
-            text = "应用会在你主动使用相关功能时，通过网络请求热水服务；网络权限也用于版本检查。相机权限仅在扫描设备二维码时使用，通知权限用于状态提醒。你可以拒绝非必要权限，手动填写配置和使用其他可用功能不受影响。",
+            text = "网络用于热水服务、账单、消息、版本检查、主动反馈及已开启的匿名统计。相机仅用于扫描设备二维码；附近设备权限仅用于发现热水器。Android 11 及以下的蓝牙扫描需要位置权限和系统定位开启，应用不会获取或上传地理坐标。通知权限用于用水状态提醒；消息弹窗与未读红点在应用内展示。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,
         )
+        PrivacyPolicyHeading(text = "匿名使用统计")
+        Text(
+            text = "开启匿名使用统计后，应用会发送使用日期和匿名标识，用于汇总应用使用量，不包含账号、手机号或硬件标识。你可以随时在设置的“查看配置”页面底部关闭；已完成的匿名汇总无法追溯到个人。",
+            color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 22.sp,
+        )
         PrivacyPolicyHeading(text = "反馈与用户选择")
         Text(
-            text = "提交问题反馈时，仅发送你填写的邮箱、反馈内容、类型和应用版本。请勿在反馈中填写密码、Token、学号或其他不必要的敏感信息。你可以在更多页面的“清空所有信息”入口移除应用在本机保存的配置、记录、反馈、显示设置和引导状态，也可以通过 Android 系统设置清除应用数据。政策内容会在处理方式发生重要变化时更新。",
+            text = "提交问题反馈时，仅发送你填写的邮箱、反馈内容、类型和应用版本。请勿在反馈中填写密码、Token、学号或其他不必要的敏感信息。你可以在设置页的“清空所有信息”入口移除应用在本机保存的配置、记录、消息已读状态、反馈、显示设置和引导状态；匿名统计标识会一并删除并关闭后续统计，也可以通过 Android 系统设置清除应用数据。政策内容会在处理方式发生重要变化时更新。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,

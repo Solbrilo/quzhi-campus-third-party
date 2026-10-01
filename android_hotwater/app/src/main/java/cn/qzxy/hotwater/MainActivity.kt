@@ -13,6 +13,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -138,6 +141,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.onAppForegrounded()
+        lifecycleScope.launch(Dispatchers.IO) { AnonymousActivity.recordOpen(applicationContext) }
     }
 
     override fun onStop() {
@@ -269,7 +273,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun clearAllUserData() {
-        val cleared = viewModel.clearAllUserData()
+        val activityCleared = AnonymousActivity.clear(applicationContext)
+        val cleared = viewModel.clearAllUserData() && activityCleared
         onboardingPreferences.clear()
         ThemeModePreferences.clear(this)
         themeMode = ThemeMode.SYSTEM

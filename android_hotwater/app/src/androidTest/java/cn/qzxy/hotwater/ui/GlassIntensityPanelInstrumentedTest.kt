@@ -22,6 +22,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,6 +38,19 @@ import org.junit.Test
 class GlassIntensityPanelInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun zeroIntensityCanBeRestoredAndRepeatedlyReenabled() {
+        setPanel(initialIntensity = 0f)
+        listOf(0.75f, 0.01f, 0f, 1f, 0f, 0.75f).forEach { value ->
+            android.util.Log.i("GlassRegression", "Panel intensity=$value")
+            composeRule.onNodeWithTag(GlassIntensitySliderTag)
+                .performSemanticsAction(SemanticsActions.SetProgress) { it(value) }
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag(GlassIntensityValueTag)
+                .assertTextEquals("${(value * 100).toInt()}%")
+        }
+    }
 
     @Test
     fun sliderExposesContinuousRangeAndCurrentPercentage() {
@@ -165,7 +180,7 @@ class GlassIntensityPanelInstrumentedTest {
                     fontScale = fontScale,
                 ),
             ) {
-                GlassTheme(themeMode = ThemeMode.LIGHT) {
+                GlassTheme(themeMode = ThemeMode.LIGHT, glassIntensity = intensity) {
                     Box(modifier = Modifier.width(width)) {
                         GlassIntensityPanel(
                             glassIntensity = intensity,

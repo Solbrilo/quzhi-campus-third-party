@@ -9,12 +9,21 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.highlight.Highlight
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
@@ -52,6 +61,8 @@ fun Modifier.glassMaterial(
     pressed: Boolean = false,
     enabled: Boolean = true,
     tokens: GlassTokens = LocalGlassTokens.current,
+    liquidRim: Boolean = false,
+    liquidTintScale: Float = 1f,
 ): Modifier {
     val environment = LocalGlassEnvironment.current
     val resolved = resolveGlassMaterial(
@@ -71,14 +82,36 @@ fun Modifier.glassMaterial(
             0.35f,
         )
     }
-    val surfaceModifier = if (
+    val liquidBackdrop = if (material == GlassMaterial.Floating) environment.floatingBackdrop
+        else environment.backgroundBackdrop
+    // The theme disables the entire capture graph at zero, including its sources.
+    val surfaceModifier = if (environment.liquidAvailable && liquidBackdrop != null) {
+        val intensity = environment.glassIntensity
+        Modifier.drawBackdrop(
+            backdrop = liquidBackdrop,
+            shape = { shape },
+            effects = {
+                if (intensity > 0f && size.isSpecified && size.width > 0f && size.height > 0f) {
+                    blur((1f + intensity * 5f).dp.toPx())
+                    lens((5f + intensity * 13f).dp.toPx(), (intensity * 24f).dp.toPx(),
+                        depthEffect = true, chromaticAberration = intensity > 0.85f)
+                }
+            },
+            highlight = if (liquidRim) ({ if (intensity > 0f) Highlight.Default else null }) else null,
+            shadow = null,
+            onDrawBackdrop = { drawBackdrop -> if (intensity > 0f) drawBackdrop() },
+            onDrawSurface = {
+                drawRect(if (intensity > 0f) resolved.surface.withAlphaScale(liquidTintScale)
+                    else if (resolved.canBlur) resolved.fallback else resolved.surface)
+            },
+        )
+    } else if (
         resolved.canBlur &&
-        environment.blurAvailable &&
-        environment.glassIntensity > 0f
+        environment.blurAvailable
     ) {
         Modifier.hazeEffect(state = environment.hazeState) {
-            blurEnabled = true
-            blurRadius = resolved.blurRadius
+            blurEnabled = environment.glassIntensity > 0f
+            blurRadius = resolved.blurRadius.coerceAtLeast(0.1.dp)
             noiseFactor = resolved.noiseFactor
             backgroundColor = tokens.meshBase
             tints = listOf(HazeTint(resolved.surface))
@@ -121,7 +154,6 @@ fun Modifier.glassMaterial(
         .clip(shape)
         .then(surfaceModifier)
         .drawWithCache {
-            val radius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx())
             val strokeWidth = if (environment.preferOpaqueMaterials) {
                 2.dp.toPx()
             } else {
@@ -133,7 +165,14 @@ fun Modifier.glassMaterial(
                     tokens.textPrimary.copy(alpha = 0.34f),
                 )
             } else {
-                listOf(tokens.borderHi, tokens.borderLo)
+                val strength = 0.45f + 0.55f * environment.glassIntensity
+                listOf(
+                    tokens.borderHi.withAlphaScale(strength),
+                    tokens.borderHi.withAlphaScale(strength * 0.45f),
+                    tokens.borderLo.withAlphaScale(0.5f),
+                    tokens.borderHi.withAlphaScale(strength * 0.3f),
+                    tokens.borderLo,
+                )
             }
             val border = Brush.linearGradient(
                 colors = if (pressed) {
@@ -141,6 +180,8 @@ fun Modifier.glassMaterial(
                 } else {
                     borderColors
                 },
+                start = Offset.Zero,
+                end = Offset(size.width * 0.65f, size.height),
             )
             val highlight = if (environment.preferOpaqueMaterials) {
                 if (pressed) {
@@ -159,15 +200,50 @@ fun Modifier.glassMaterial(
             } else {
                 strokeWidth
             }
+            // Inset the stroke so the shape clip does not cut away its outer half.
+            val inset = strokeWidth / 2f
+            val edgeSize = Size((size.width - strokeWidth).coerceAtLeast(0f),
+                (size.height - strokeWidth).coerceAtLeast(0f))
+            val curve = (cornerRadius.toPx() - inset).coerceIn(0f,
+                minOf(edgeSize.width, edgeSize.height) / 2f)
+            val radius = CornerRadius(curve, curve)
+            val right = size.width - inset
+            val bottom = size.height - inset
+            val upperRim = Path().apply {
+                moveTo(inset, inset + curve)
+                if (curve > 0f) arcTo(Rect(inset, inset, inset + curve * 2f, inset + curve * 2f),
+                    180f, 90f, false)
+                lineTo(right - curve, inset)
+                if (curve > 0f) arcTo(Rect(right - curve * 2f, inset, right, inset + curve * 2f),
+                    270f, 90f, false)
+            }
+            val lowerRim = Path().apply {
+                moveTo(inset, bottom - curve)
+                if (curve > 0f) arcTo(Rect(inset, bottom - curve * 2f, inset + curve * 2f, bottom),
+                    180f, -90f, false)
+                lineTo(right - curve, bottom)
+                if (curve > 0f) arcTo(Rect(right - curve * 2f, bottom - curve * 2f, right, bottom),
+                    90f, -90f, false)
+            }
+            val rimLight = Brush.linearGradient(
+                0f to highlight.withAlphaScale(0.12f),
+                0.22f to highlight,
+                0.58f to highlight.withAlphaScale(0.6f),
+                1f to highlight.withAlphaScale(0.04f),
+                start = Offset.Zero,
+                end = Offset(size.width, 0f),
+            )
 
             onDrawWithContent {
                 drawContent()
                 drawRoundRect(
                     brush = border,
+                    topLeft = Offset(inset, inset),
+                    size = edgeSize,
                     cornerRadius = radius,
                     style = Stroke(width = strokeWidth),
                 )
-                drawLine(
+                if (environment.preferOpaqueMaterials) drawLine(
                     color = highlight,
                     start = Offset(
                         cornerRadius.toPx() * 0.55f,
@@ -179,6 +255,13 @@ fun Modifier.glassMaterial(
                     ),
                     strokeWidth = highlightStrokeWidth,
                 )
+                else {
+                    drawPath(if (pressed) lowerRim else upperRim, rimLight,
+                        style = Stroke(width = highlightStrokeWidth, cap = StrokeCap.Round))
+                    drawPath(if (pressed) upperRim else lowerRim,
+                        resolved.shadow.withAlphaScale(0.35f * environment.glassIntensity),
+                        style = Stroke(width = highlightStrokeWidth, cap = StrokeCap.Round))
+                }
             }
         }
 }

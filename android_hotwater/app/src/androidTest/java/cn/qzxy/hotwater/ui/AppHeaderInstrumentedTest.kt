@@ -32,18 +32,18 @@ class AppHeaderInstrumentedTest {
     }
 
     @Test
-    fun moreButtonDescribesAndInvokesTheInAppMorePage() {
+    fun messageButtonDescribesAndInvokesTheMessagePage() {
         var moreClicks = 0
-        setHeaderContent(onOpenMore = { moreClicks += 1 })
+        setHeaderContent(onOpenMessages = { moreClicks += 1 })
 
         composeRule.onNodeWithTag(OverflowMenuButtonTag)
-            .assert(hasContentDescription("打开更多页面"))
+            .assert(hasContentDescription("消息"))
             .performClick()
 
         composeRule.runOnIdle { assertEquals(1, moreClicks) }
     }
 
-    private fun setHeaderContent(onOpenMore: () -> Unit = {}) {
+    private fun setHeaderContent(onOpenMessages: () -> Unit = {}) {
         composeRule.setContent {
             GlassTheme {
                 Box(
@@ -51,7 +51,7 @@ class AppHeaderInstrumentedTest {
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    AppHeader(onOpenMore = onOpenMore)
+                    AppHeader(onOpenMessages = onOpenMessages)
                 }
             }
         }

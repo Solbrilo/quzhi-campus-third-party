@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
@@ -21,6 +22,8 @@ import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
+import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
+import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -30,6 +33,34 @@ import kotlin.math.abs
 class BottomDockGlassInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun recordedPageAndDockSurviveRepeatedZeroIntensityTransitions() {
+        val intensity = mutableFloatStateOf(0f)
+        val theme = mutableStateOf(ThemeMode.DARK)
+        composeRule.setContent {
+            GlassTheme(themeMode = theme.value, glassIntensity = intensity.floatValue) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().glassHazeSource(1f)) {
+                        Box(Modifier.size(240.dp).glassMaterial(GlassMaterial.Panel, 24.dp))
+                    }
+                    BottomDock(
+                        labels = listOf("用水", "账单", "设置"), selectedIndex = 0,
+                        onSelected = { _, _ -> }, onDragStateChanged = {},
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
+            }
+        }
+        listOf(ThemeMode.DARK, ThemeMode.LIGHT).forEach { mode ->
+            composeRule.runOnIdle { theme.value = mode }
+            listOf(0f, 0.75f, 0.01f, 0f, 1f, 0f, 0.75f).forEach { value ->
+                android.util.Log.i("GlassRegression", "Dock theme=$mode intensity=$value")
+                composeRule.runOnIdle { intensity.floatValue = value }
+                assertTrue(captureDockPixels().isNotEmpty())
+            }
+        }
+    }
 
     @Test
     fun dockSamplesSiblingContentAndRespondsToIntensity() {

@@ -174,11 +174,20 @@ fun HotWaterRoot(
         targetState = rootScreen,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            if (motionEnabled) {
-                slideInHorizontally(tween(360)) { it / 10 } + fadeIn(tween(280)) togetherWith
+            when {
+                !motionEnabled -> fadeIn(tween(90)) togetherWith fadeOut(tween(70))
+                initialState == RootScreen.LOGIN && targetState == RootScreen.MAIN -> {
+                    // Keep the parent stationary underneath the departing login page.
+                    (fadeIn(tween(180)) togetherWith
+                        (slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220))))
+                        .apply { targetContentZIndex = -1f }
+                }
+                initialState == RootScreen.MAIN && targetState == RootScreen.LOGIN -> {
+                    ((slideInHorizontally(tween(280)) { it } + fadeIn(tween(220))) togetherWith
+                        fadeOut(tween(180))).apply { targetContentZIndex = 1f }
+                }
+                else -> slideInHorizontally(tween(360)) { it / 10 } + fadeIn(tween(280)) togetherWith
                     slideOutHorizontally(tween(260)) { -it / 12 } + fadeOut(tween(220))
-            } else {
-                fadeIn(tween(90)) togetherWith fadeOut(tween(70))
             }
         },
         label = "root_flow_transition",

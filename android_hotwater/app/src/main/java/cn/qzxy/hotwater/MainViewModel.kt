@@ -78,6 +78,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         billsController.load(store.loadConfig(), query, force)
     }
 
+    private val messagePreferences = MessagePreferences(application)
+    private val messagesController = ServerMessagesController(viewModelScope, HotWaterApi(), messagePreferences) {
+        showCredentialExpiryPrompt()
+    }
+    val serverMessages = messagesController.state
+
+    fun loadMessages(announce: Boolean = false) {
+        if (store.requiresReauthentication()) return
+        messagesController.load(store.loadConfig(), announce)
+    }
+    fun markMessageRead(message: ServerMessage) = messagesController.markRead(message)
+    fun markAllMessagesRead() = messagesController.markAllRead()
+    fun dismissMessageAnnouncement() = messagesController.dismissAnnouncement()
+
+    fun logout() {
+        if (_busy.value) return
+        viewModelScope.launch {
+            HotWaterRepository.withDeviceControl {
+                if (_busy.value) return@withDeviceControl
+                if (!store.loadOrderNo().isNullOrBlank() || store.loadUsageSession() != null ||
+                    store.loadPendingSettlements().any { !it.closeConfirmed }) {
+                    reportFeedback(FeedbackEvent.FeedbackType.WARNING, "请先关水并确认结束，再退出登录")
+                    return@withDeviceControl
+                }
+                ++operationGeneration
+                operationJob?.cancel()
+                cancelQzxyLogin()
+                cancelNearbyPairing()
+                stopNearbyScan()
+                ++snCodeSaveGeneration
+                snCodeSaveJob?.cancel()
+                ++smsCodeGeneration
+                smsCodeJob?.cancel()
+                settlementSyncJob?.cancel()
+                activeStateSyncJob?.cancel()
+                HotWaterSettlementSyncScheduler.cancel(getApplication())
+                HotWaterWidgetProvider.cancelPendingActions(getApplication())
+                if (!store.clearAll()) {
+                    reportFeedback(FeedbackEvent.FeedbackType.ERROR, "退出登录失败，请重试")
+                    return@withDeviceControl
+                }
+                billsController.clear()
+                messagesController.clear()
+                _config.value = HotWaterConfig()
+                _snapshot.value = buildPlaceholderSnapshot(_config.value)
+                _credentialExpired.value = false
+                _qzxyLoginState.value = QzxyLoginState()
+                _nearbyDevices.value = emptyList()
+                _nearbyPairState.value = NearbyPairState()
+                _snCodeSaveState.value = SnCodeSaveState()
+                syncNotificationState()
+                syncWidgetStatus("尚未登录", "请打开应用登录")
+                reportFeedback(FeedbackEvent.FeedbackType.SUCCESS, "已退出登录")
+            }
+        }
+    }
+
     private val _snapshot = MutableStateFlow<DashboardSnapshot?>(null)
     val snapshot: StateFlow<DashboardSnapshot?> = _snapshot.asStateFlow()
 
@@ -140,6 +197,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         initialized = true
         val preparedConfig = persistRuntimeInfoIfNeeded(store.loadConfig())
         _config.value = preparedConfig
+        messagesController.bind(preparedConfig)
+        loadMessages(announce = true)
         _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
         syncNotificationState()
 
@@ -213,6 +272,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _credentialExpired.value = false
         }
         _config.value = prepared
+        messagesController.bind(prepared)
+        loadMessages(announce = true)
         _snapshot.value = buildPlaceholderSnapshot(prepared)
         store.saveWidgetState(
             title = "配置已就绪",
@@ -232,6 +293,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAppForegrounded() {
         appInForeground = true
+        loadMessages(announce = true)
         if (store.requiresReauthentication()) {
             activeStateSyncJob?.cancel()
             activeStateSyncJob = null
@@ -387,6 +449,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     store.saveConfig(prepared)
                     ++operationGeneration
                     _config.value = prepared
+                    messagesController.bind(prepared)
                     _snapshot.value = buildPlaceholderSnapshot(prepared).copy(deviceName = binding.deviceName,
                         locationLabel = binding.locationLabel.ifBlank { "位置待刷新" })
                     syncNotificationState()
@@ -464,6 +527,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val prepared = existing.copy(snCode = normalized)
                 store.saveConfig(prepared)
                 _config.value = prepared
+                messagesController.bind(prepared)
                 _snapshot.value = buildPlaceholderSnapshot(prepared)
                 syncNotificationState()
                 syncWidgetStatus("设备码已绑定", "设备二维码已保存。")
@@ -596,9 +660,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val feedbackStoreCleared = runCatching {
             FeedbackHistoryStore(appContext).clear()
         }.getOrDefault(false)
-        val allStoresCleared = storeCleared && feedbackStoreCleared
+        val messagesCleared = messagePreferences.clear()
+        val allStoresCleared = storeCleared && feedbackStoreCleared && messagesCleared
 
         billsController.clear()
+        messagesController.clear()
         _smsCodeState.value = SmsCodeState()
         _nearbyDevices.value = emptyList()
         _nearbyPairState.value = NearbyPairState()
@@ -691,8 +757,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 store.saveConfig(prepared)
                 billsController.bind(prepared)
                 store.clearCredentialsExpired()
+                loadMessages(announce = true)
                 _credentialExpired.value = false
                 _config.value = prepared
+                messagesController.bind(prepared)
                 _snapshot.value = buildPlaceholderSnapshot(prepared)
                 syncNotificationState()
                 if (store.loadPendingSettlements().isNotEmpty()) {
@@ -901,6 +969,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showCredentialExpiryPrompt() {
+        messagesController.clear()
         billsController.clear()
         cancelNearbyPairing()
         stopNearbyScan()

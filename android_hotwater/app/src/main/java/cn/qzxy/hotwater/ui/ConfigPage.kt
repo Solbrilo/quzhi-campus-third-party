@@ -22,6 +22,9 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.ui.platform.LocalContext
+import cn.qzxy.hotwater.AnonymousActivity
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,13 +69,13 @@ fun ConfigPage(
     onSave: (HotWaterConfig) -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
-    onOpenLogin: () -> Unit,
-    onOpenNearbyDevices: () -> Unit,
     onScanSnCode: () -> Unit,
     scannedSnCode: String?,
     onScannedSnCodeConsumed: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
+    val context = LocalContext.current
+    var activityEnabled by remember { mutableStateOf(AnonymousActivity.isEnabled(context)) }
     val scrollState = rememberScrollState()
     val focusManager = LocalFocusManager.current
     val haptic = LocalHapticFeedback.current
@@ -186,25 +189,9 @@ fun ConfigPage(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "登录趣智校园自动填入账号字段，也可以手动补全或扫码绑定设备。",
+                text = "可在设置页登录以自动填写账号字段，也可以在这里手动补全或扫码绑定设备。",
                 color = tokens.textSecondary,
                 fontSize = 13.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-            GlassButton(
-                text = "登录趣智校园",
-                onClick = onOpenLogin,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-            GlassButton(
-                text = "选择附近设备",
-                onClick = onOpenNearbyDevices,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -460,6 +447,18 @@ fun ConfigPage(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
+        }
+
+        Row(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("匿名使用统计", color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("仅统计每日使用量，不上传账号或设备信息", color = tokens.textSecondary, fontSize = 12.sp)
+            }
+            Switch(checked = activityEnabled, onCheckedChange = {
+                activityEnabled = it
+                AnonymousActivity.setEnabled(context, it)
+            }, modifier = Modifier.semantics { contentDescription = "匿名使用统计" })
         }
 
         // 底部间距

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import cn.qzxy.hotwater.designsystem.theme.GlassTokens
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
@@ -45,6 +46,7 @@ fun GlassPressable(
     onClickLabel: String? = null,
     material: GlassMaterial? = GlassMaterial.Control,
     cornerRadius: Dp = 22.dp,
+    tokens: GlassTokens = LocalGlassTokens.current,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     contentAlignment: Alignment = Alignment.Center,
     disabledAlpha: Float = 0.52f,
@@ -54,7 +56,6 @@ fun GlassPressable(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val environment = LocalGlassEnvironment.current
-    val tokens = LocalGlassTokens.current
     val haptic = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -111,6 +112,7 @@ fun GlassPressable(
             cornerRadius = cornerRadius,
             pressed = isPressed && enabled,
             enabled = enabled,
+            tokens = tokens,
         )
     } else {
         Modifier

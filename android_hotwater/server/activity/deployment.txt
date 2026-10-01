@@ -1,0 +1,3 @@
+Deployed UTC: 20261001T093408Z
+Backup: /root/maintenance-backups/hotwater-activity-20261001T093408Z
+Staging: /tmp/hotwater-activity-20261001T093408Z

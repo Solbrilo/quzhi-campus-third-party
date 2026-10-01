@@ -6,6 +6,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import cn.qzxy.hotwater.designsystem.theme.DarkGlassTokens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -79,31 +85,29 @@ fun OperationsPage(
             )
         }
 
-        // 模式提示
-        item {
-            Text(
-                text = when {
-                    snapshot?.isDeviceBusyByOther == true -> "当前模式 · 等待设备空闲"
-                    snapshot?.hasCachedOrder == true -> "当前模式 · 关闭热水"
-                    else -> "当前模式 · 开启热水"
-                },
-                color = tokens.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-        }
-
         // 圆形开/关按钮
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(280.dp),
+                    .height(312.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val buttonColor = if (snapshot?.hasCachedOrder == true) tokens.accentError else tokens.accentPrimary
 
+                Box(Modifier.size(296.dp).background(tokens.powerOuterSurface, CircleShape))
+                Box(Modifier.size(266.dp).background(tokens.powerInnerSurface, CircleShape))
+                Canvas(Modifier.size(296.dp)) {
+                    val glow = if (snapshot?.hasCachedOrder == true) tokens.accentError else Color(0xFF6F97FF)
+                    drawCircle(Brush.radialGradient(
+                        0f to Color.Transparent,
+                        0.69f to Color.Transparent,
+                        0.76f to glow.copy(alpha = 0.16f),
+                        0.86f to glow.copy(alpha = 0.04f),
+                        1f to Color.Transparent,
+                        radius = size.minDimension / 2f,
+                    ))
+                }
                 // 加载环（仅在 busy 时显示）
                 if (busy) {
                     LoadingRing(color = buttonColor)
@@ -141,9 +145,9 @@ private fun BalanceCard(
             .fillMaxWidth()
             .glassMaterial(
                 material = GlassMaterial.Panel,
-                cornerRadius = 28.dp,
+                cornerRadius = 24.dp,
             )
-            .padding(12.dp)
+            .padding(14.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -160,7 +164,7 @@ private fun BalanceCard(
                 Text(
                     text = if (snapshot?.balanceLabel == "--") "¥ --" else "¥ ${snapshot?.balanceLabel ?: "--"}",
                     color = tokens.textPrimary,
-                    fontSize = 28.sp,
+                    fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 UsageTimer(startedAtMillis = snapshot?.usageStartedAtMillis)
@@ -169,11 +173,11 @@ private fun BalanceCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                RechargeButton(onClick = onOpenRecharge)
                 RefreshButton(
                     onClick = onRefreshBalance,
                     enabled = !busy,
                 )
+                RechargeButton(onClick = onOpenRecharge)
             }
         }
 
@@ -181,7 +185,7 @@ private fun BalanceCard(
         Box(
             modifier = Modifier
                 .background(
-                    tokens.accentPrimary.copy(alpha = 0.15f),
+                    tokens.statusSurface,
                     RoundedCornerShape(10.dp)
                 )
                 .padding(horizontal = 8.dp, vertical = 3.dp)
@@ -215,10 +219,11 @@ private fun BalanceCard(
                 onClick = onOpenNearbyDevices,
                 enabled = !busy,
                 material = GlassMaterial.EmbeddedControl,
-                cornerRadius = 12.dp,
-                modifier = Modifier.height(44.dp),
+                cornerRadius = 18.dp,
+                tokens = tokens.copy(embeddedControlSurface = tokens.softButtonSurface),
+                modifier = Modifier.height(36.dp),
             ) {
-                Text("切换设备", color = tokens.accentPrimary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                Text("切换设备", color = tokens.softButtonText, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp))
             }
         }
         Spacer(modifier = Modifier.height(2.dp))
@@ -277,10 +282,11 @@ private fun RefreshButton(
         enabled = enabled,
         role = Role.Button,
         onClickLabel = "刷新余额",
+        tokens = tokens.copy(controlSurface = tokens.softButtonSurface),
         material = GlassMaterial.Control,
-        cornerRadius = 14.dp,
+        cornerRadius = 22.dp,
         modifier = Modifier
-            .size(48.dp)
+            .size(44.dp)
             .semantics {
                 contentDescription = "刷新余额"
                 stateDescription = if (enabled) "可用" else "正在处理"
@@ -289,7 +295,7 @@ private fun RefreshButton(
         Icon(
             imageVector = Icons.Outlined.Refresh,
             contentDescription = null,
-            tint = tokens.textPrimary,
+            tint = tokens.softButtonText,
             modifier = Modifier.size(18.dp),
         )
     }
@@ -302,16 +308,17 @@ private fun RechargeButton(onClick: () -> Unit) {
         onClick = onClick,
         role = Role.Button,
         onClickLabel = "前往支付宝充值",
+        tokens = tokens.copy(controlSurface = tokens.accentPrimary),
         material = GlassMaterial.Control,
-        cornerRadius = 14.dp,
+        cornerRadius = 22.dp,
         modifier = Modifier
-            .size(48.dp)
+            .size(44.dp)
             .semantics { contentDescription = "充值" },
     ) {
         Icon(
             imageVector = Icons.Outlined.AccountBalanceWallet,
             contentDescription = null,
-            tint = tokens.accentPrimary,
+            tint = tokens.accentButtonText,
             modifier = Modifier.size(20.dp),
         )
     }
@@ -369,7 +376,7 @@ private fun LoadingRingCanvas(
 
     Box(
         modifier = Modifier
-            .size(260.dp)
+            .size(284.dp)
             .rotate(rotation),
         contentAlignment = Alignment.Center
     ) {
@@ -405,6 +412,14 @@ private fun ToggleButton(
     onToggle: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
+    val dark = tokens.meshBase == DarkGlassTokens.meshBase
+    val buttonSurface = if (isCloseMode) {
+        if (dark) Color(0xFF542B2D) else Color(0xFFFFE2DE)
+    } else if (dark) Color(0xFF172A44) else Color(0xFFEDF6FF)
+    val buttonInk = if (isCloseMode) {
+        if (dark) Color(0xFFFFB4AB) else Color(0xFFB3261E)
+    } else if (dark) Color(0xFFE9F1FF) else Color(0xFF23457D)
+    val buttonRim = if (isCloseMode) tokens.accentError else Color(0xFF6F97FF)
     val actionLabel = if (isCloseMode) "关闭热水" else "开启热水"
 
     GlassPressable(
@@ -412,11 +427,14 @@ private fun ToggleButton(
         enabled = enabled,
         role = Role.Switch,
         onClickLabel = actionLabel,
-        material = GlassMaterial.Control,
-        cornerRadius = 115.dp,
+        material = null,
+        cornerRadius = 114.dp,
         hapticFeedback = { null },
         modifier = Modifier
-            .size(230.dp)
+            .size(228.dp)
+            .shadow(18.dp, CircleShape, ambientColor = buttonRim.copy(alpha = 0.25f), spotColor = buttonRim.copy(alpha = 0.25f))
+            .background(buttonSurface, CircleShape)
+            .border(2.dp, buttonRim.copy(alpha = if (dark) 0.28f else 0.16f), CircleShape)
             .semantics {
                 contentDescription = actionLabel
                 toggleableState = ToggleableState(isCloseMode)
@@ -430,8 +448,8 @@ private fun ToggleButton(
     ) {
         Text(
             text = if (isCloseMode) "关" else "开",
-            color = tokens.textPrimary,
-            fontSize = 56.sp,
+            color = buttonInk,
+            fontSize = 60.sp,
             fontWeight = FontWeight.Bold
         )
     }

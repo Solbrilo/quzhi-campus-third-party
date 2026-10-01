@@ -25,3 +25,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+# AndroidLiquidGlass / Backdrop
+
+The Android liquid material renderer uses io.github.kyant0:backdrop:1.0.0
+from Kyant's AndroidLiquidGlass project, copyright 2025 Kyant,
+licensed under the Apache License, Version 2.0. The unmodified dependency
+provides background sampling, blur, refraction and highlights.
+Source: https://github.com/Kyant0/AndroidLiquidGlass
+License: app/src/main/assets/licenses/AndroidLiquidGlass-LICENSE.txt

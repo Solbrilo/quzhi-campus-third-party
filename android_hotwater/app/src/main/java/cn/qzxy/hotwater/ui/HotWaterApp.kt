@@ -44,7 +44,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -93,6 +93,8 @@ import cn.qzxy.hotwater.AppReleaseNote
 import cn.qzxy.hotwater.AppReleaseNotesResult
 import cn.qzxy.hotwater.FeedbackEvent
 import cn.qzxy.hotwater.accountRequestKey
+import cn.qzxy.hotwater.hasAccount
+import cn.qzxy.hotwater.messageAccountKey
 import cn.qzxy.hotwater.MainViewModel
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
@@ -111,7 +113,7 @@ import kotlinx.coroutines.launch
 private enum class AppScreen(val tabIndex: Int) {
     OPERATIONS(0),
     RECORDS(1),
-    CONFIG(2),
+    SETTINGS(2),
 }
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -149,6 +151,10 @@ fun HotWaterApp(
     var renderedMoreDestination by rememberSaveable {
         mutableStateOf(MorePageDestination.OVERVIEW)
     }
+    var showConfig by rememberSaveable { mutableStateOf(false) }
+    var showMessages by rememberSaveable { mutableStateOf(false) }
+    var selectedMessageRevision by rememberSaveable { mutableStateOf<String?>(null) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
     var showLowBalanceDialog by remember { mutableStateOf(false) }
     var showDevicePicker by rememberSaveable { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -174,7 +180,8 @@ fun HotWaterApp(
 
     LaunchedEffect(openConfigRequest) {
         if (openConfigRequest > 0) {
-            currentScreen = AppScreen.CONFIG
+            currentScreen = AppScreen.SETTINGS
+            showConfig = true
         }
     }
 
@@ -182,6 +189,12 @@ fun HotWaterApp(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
     val billsState by viewModel.serverBills.collectAsStateWithLifecycle()
+    val messages by viewModel.serverMessages.collectAsStateWithLifecycle()
+    val credentialsExpired by viewModel.credentialExpired.collectAsStateWithLifecycle()
+    val onAccountAction: () -> Unit = {
+        if (config.hasAccount() && !credentialsExpired) showLogoutDialog = true else onOpenLogin()
+    }
+    LaunchedEffect(messageAccountKey(config)) { selectedMessageRevision = null }
     val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
     val networkValidated = rememberValidatedNetworkState()
     val connectionStatus = resolveAppConnectionStatus(
@@ -194,21 +207,20 @@ fun HotWaterApp(
         )
     }
 
-    BackHandler(enabled = moreDestination != null) {
-        moreDestination = when (moreDestination) {
-            MorePageDestination.OVERVIEW -> null
-            null -> null
-            else -> MorePageDestination.OVERVIEW.also {
-                renderedMoreDestination = MorePageDestination.OVERVIEW
-            }
-        }
+    BackHandler(enabled = moreDestination != null && !showConfig && !showMessages) {
+        moreDestination = null
     }
 
     BackHandler(
-        enabled = moreDestination == null && currentScreen != AppScreen.OPERATIONS,
+        enabled = moreDestination == null && !showConfig && !showMessages && currentScreen != AppScreen.OPERATIONS,
     ) {
         dockDragging = false
         currentScreen = AppScreen.OPERATIONS
+    }
+
+    BackHandler(enabled = showConfig && !showMessages) { showConfig = false }
+    BackHandler(enabled = showMessages) {
+        if (selectedMessageRevision != null) selectedMessageRevision = null else showMessages = false
     }
 
     LaunchedEffect(feedbackEvent) {
@@ -452,10 +464,13 @@ fun HotWaterApp(
         ) {
             AppHeader(
                 connectionStatus = connectionStatus,
-                onOpenMore = {
-                    renderedMoreDestination = MorePageDestination.OVERVIEW
-                    moreDestination = MorePageDestination.OVERVIEW
+                onOpenMessages = {
+                    selectedMessageRevision = null
+                    showMessages = true
+                    viewModel.dismissMessageAnnouncement()
+                    viewModel.loadMessages()
                 },
+                hasUnreadMessages = messages.hasUnread,
                 modifier = Modifier
                     .windowInsetsPadding(
                         WindowInsets.safeDrawing.only(
@@ -503,7 +518,7 @@ fun HotWaterApp(
                 },
                 label = "screen_transition",
             ) { screen ->
-                val stateKey = if (screen == AppScreen.CONFIG) {
+                val stateKey = if (screen == AppScreen.SETTINGS) {
                     "${screen.name}:$configStateGeneration"
                 } else {
                     screen.name
@@ -541,20 +556,31 @@ fun HotWaterApp(
                             active = currentScreen == AppScreen.RECORDS,
                             onLoad = viewModel::loadServerBills,
                         )
-                        AppScreen.CONFIG -> ConfigPage(
-                            config = config,
-                            busy = busy,
-                            onSave = { viewModel.saveConfig(it) },
-                            onExport = onExportConfig,
-                            onImport = onImportConfig,
-                            onOpenLogin = onOpenLogin,
-                            onOpenNearbyDevices = {
-                                viewModel.clearNearbyPairState()
-                                showDevicePicker = true
+                        AppScreen.SETTINGS -> MorePage(
+                            destination = MorePageDestination.OVERVIEW,
+                            motionEnabled = motionEnabled,
+                            checkResult = updateCheckResult, checking = checkingUpdate,
+                            installing = downloadingUpdate, releaseNotes = releaseNotes,
+                            releaseNotesLoading = releaseNotesLoading, releaseNotesError = releaseNotesError,
+                            themeMode = themeMode, onThemeModeChange = onThemeModeChange,
+                            glassIntensity = glassIntensity, onGlassIntensityChange = onGlassIntensityChange,
+                            onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
+                            onResetGlassIntensity = onResetGlassIntensity,
+                            onCheckForUpdate = { checkForUpdate(true) }, onLoadReleaseNotes = loadReleaseNotes,
+                            onNavigate = { renderedMoreDestination = it; moreDestination = it },
+                            onClearAllUserData = {
+                                saveableStateHolder.removeState("config:$configStateGeneration")
+                                configStateGeneration++
+                                showConfig = false
+                                onClearAllUserData()
                             },
-                            onScanSnCode = onScanSnCode,
-                            scannedSnCode = scannedSnCode,
-                            onScannedSnCodeConsumed = onScannedSnCodeConsumed,
+                            onOpenExternal = { url -> runCatching { uriHandler.openUri(url) } },
+                            onBack = { currentScreen = AppScreen.OPERATIONS },
+                            embedded = true,
+                            loggedIn = config.hasAccount() && !credentialsExpired,
+                            accountBusy = busy,
+                            onAccountAction = onAccountAction,
+                            onOpenConfig = { showConfig = true },
                         )
                     }
                 }
@@ -562,7 +588,7 @@ fun HotWaterApp(
         }
 
         BottomDock(
-            labels = listOf("用水", "账单", "配置"),
+            labels = listOf("用水", "账单", "设置"),
             selectedIndex = currentScreen.tabIndex,
             onSelected = { index, source ->
                 val nextScreen = AppScreen.entries[index]
@@ -660,7 +686,7 @@ fun HotWaterApp(
                     // Drop the previous registry as well as changing its key.
                     // This prevents cleared form values from remaining in the
                     // nested SaveableStateHolder until the next recreation.
-                    saveableStateHolder.removeState("${AppScreen.CONFIG.name}:$configStateGeneration")
+                    saveableStateHolder.removeState("config:$configStateGeneration")
                     configStateGeneration++
                     moreDestination = null
                     renderedMoreDestination = MorePageDestination.OVERVIEW
@@ -675,15 +701,7 @@ fun HotWaterApp(
                             )
                         }
                 },
-                onBack = {
-                    moreDestination = if (destination == MorePageDestination.OVERVIEW) {
-                        null
-                    } else {
-                        MorePageDestination.OVERVIEW.also {
-                            renderedMoreDestination = MorePageDestination.OVERVIEW
-                        }
-                    }
-                },
+                onBack = { moreDestination = null },
                 modifier = Modifier
                     .fillMaxSize()
                     .background(tokens.meshBase)
@@ -691,6 +709,69 @@ fun HotWaterApp(
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(horizontal = 20.dp, vertical = 18.dp),
             )
+        }
+        if (showConfig) {
+            Column(Modifier.fillMaxSize().background(tokens.meshBase)
+                .windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                SubpageHeader("配置", onBack = { showConfig = false })
+                saveableStateHolder.SaveableStateProvider("config:$configStateGeneration") {
+                    ConfigPage(config = config, busy = busy, onSave = viewModel::saveConfig,
+                        onExport = onExportConfig, onImport = onImportConfig,
+                        onScanSnCode = onScanSnCode, scannedSnCode = scannedSnCode,
+                        onScannedSnCodeConsumed = onScannedSnCodeConsumed)
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = showMessages,
+            enter = if (motionEnabled) {
+                slideInHorizontally(tween(280)) { it } + fadeIn(tween(220))
+            } else fadeIn(tween(90)),
+            exit = if (motionEnabled) {
+                slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220))
+            } else fadeOut(tween(70)),
+            label = "messages_page_visibility",
+        ) {
+            MessagesPage(state = messages, selectedRevision = selectedMessageRevision,
+                onMarkAllRead = viewModel::markAllMessagesRead,
+                onSelect = { viewModel.markMessageRead(it); selectedMessageRevision = it.revision },
+                onRefresh = { viewModel.loadMessages() }, onLogin = onOpenLogin,
+                onBack = {
+                    if (selectedMessageRevision != null) selectedMessageRevision = null else showMessages = false
+                },
+                modifier = Modifier.fillMaxSize().background(tokens.meshBase)
+                    .windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp))
+        }
+        if (showLogoutDialog) {
+            AlertDialog(onDismissRequest = { showLogoutDialog = false },
+                modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+                containerColor = Color.Transparent, tonalElevation = 0.dp,
+                title = { Text("退出登录？", color = tokens.textPrimary) },
+                text = { Text("将移除本机账号和设备配置，显示设置会保留。用水中请先关水。", color = tokens.textSecondary) },
+                confirmButton = { GlassDialogAction("退出登录", {
+                    showLogoutDialog = false
+                    saveableStateHolder.removeState("config:$configStateGeneration")
+                    configStateGeneration++
+                    viewModel.logout()
+                }, emphasized = true) },
+                dismissButton = { GlassDialogAction("取消", { showLogoutDialog = false }) })
+        }
+        messages.announcement?.takeIf { !showMessages && !showLogoutDialog && !showUpdateDialog }?.let { notice ->
+            AlertDialog(onDismissRequest = viewModel::dismissMessageAnnouncement,
+                modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
+                containerColor = Color.Transparent, tonalElevation = 0.dp,
+                title = { Text("新消息", color = tokens.textPrimary) },
+                text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(notice.title, color = tokens.textPrimary, fontWeight = FontWeight.Bold)
+                    Text(notice.publishedAt, color = tokens.textSecondary)
+                } },
+                confirmButton = { GlassDialogAction("查看详情", {
+                    viewModel.markMessageRead(notice)
+                    selectedMessageRevision = notice.revision
+                    showMessages = true
+                }, emphasized = true) },
+                dismissButton = { GlassDialogAction("稍后查看", viewModel::dismissMessageAnnouncement) })
         }
     }
 }
@@ -830,7 +911,8 @@ private fun FeedbackBanner(
 @Composable
 internal fun AppHeader(
     connectionStatus: AppConnectionStatus = AppConnectionStatus.UNKNOWN,
-    onOpenMore: () -> Unit,
+    onOpenMessages: () -> Unit,
+    hasUnreadMessages: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGlassTokens.current
@@ -877,20 +959,24 @@ internal fun AppHeader(
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
+        Box {
         GlassPressable(
-            onClick = onOpenMore,
+            onClick = onOpenMessages,
             material = GlassMaterial.Control,
             cornerRadius = 24.dp,
             modifier = Modifier
                 .size(48.dp)
-                .testTag(OverflowMenuButtonTag)
-                .semantics { contentDescription = "打开更多页面" },
+                .testTag(MessageBellButtonTag)
+                .semantics { contentDescription = if (hasUnreadMessages) "消息，有未读消息" else "消息" },
         ) {
             Icon(
-                imageVector = Icons.Outlined.MoreVert,
+                imageVector = Icons.Outlined.NotificationsNone,
                 contentDescription = null,
                 tint = tokens.textPrimary,
             )
+        }
+        if (hasUnreadMessages) Box(Modifier.align(Alignment.TopEnd).padding(3.dp)
+            .size(9.dp).clip(CircleShape).background(tokens.accentError))
         }
     }
 }
@@ -902,7 +988,8 @@ internal fun bottomDockClearance(): Dp {
     return 76.dp + with(density) { bottomSafeInset.toDp() }
 }
 
-internal const val OverflowMenuButtonTag = "overflow_menu_button"
+internal const val MessageBellButtonTag = "message_bell_button"
+internal const val OverflowMenuButtonTag = MessageBellButtonTag
 
 @Composable
 private fun GlassDialogAction(

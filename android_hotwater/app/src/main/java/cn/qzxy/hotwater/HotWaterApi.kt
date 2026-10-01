@@ -30,7 +30,7 @@ interface HotWaterRemoteDataSource {
     suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject
 }
 
-class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource {
+class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, ServerMessageRemoteDataSource {
     companion object {
         private const val BASE_URL = "https://v3-api.china-qzxy.cn"
 
@@ -116,6 +116,14 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource {
     override suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/consumeOrder/result/query", buildForm(config, orderNo))
     }
+
+    override suspend fun messageList(config: HotWaterConfig): JSONObject = get(
+        "/project/push/list",
+        baseQuery(config) + mapOf(
+            "telephone" to config.telephone,
+            "phoneSystem" to config.phoneSystem.ifBlank { "android" },
+        ),
+    )
 
     override suspend fun billList(config: HotWaterConfig, month: String): JSONObject {
         return get(

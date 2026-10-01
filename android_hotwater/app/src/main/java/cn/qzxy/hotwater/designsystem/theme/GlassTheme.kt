@@ -26,6 +26,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import cn.qzxy.hotwater.designsystem.motion.rememberMotionEnabled
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -38,6 +43,10 @@ data class GlassEnvironment(
     val preferOpaqueMaterials: Boolean,
     /** Shared material strength, normalized to the inclusive [0f, 1f] range. */
     val glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
+    val backgroundBackdrop: LayerBackdrop? = null,
+    val contentBackdrop: LayerBackdrop? = null,
+    val floatingBackdrop: Backdrop? = null,
+    val liquidAvailable: Boolean = false,
 )
 
 private val PreviewGlassEnvironment = GlassEnvironment(
@@ -93,15 +102,23 @@ private fun GlassThemeContent(
     val preferOpaqueMaterials = rememberPreferOpaqueMaterials()
     val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2 &&
         view.isHardwareAccelerated &&
-        !preferOpaqueMaterials
-    val hazeState = rememberHazeState(blurEnabled = blurAvailable)
+        !preferOpaqueMaterials &&
+        normalizedGlassIntensity > 0f
+    val liquidAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && blurAvailable
+    // Use only one capture engine and disable both sources and consumers at zero.
+    // An empty effect still records RenderNodes; it is not an off switch.
+    val hazeAvailable = blurAvailable && !liquidAvailable
+    val hazeState = rememberHazeState(blurEnabled = hazeAvailable)
     val motionEnabled = rememberMotionEnabled()
+    val backgroundBackdrop = rememberLayerBackdrop()
+    val contentBackdrop = rememberLayerBackdrop()
+    val floatingBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val environment = remember(
         hazeState,
         blurAvailable,
         motionEnabled,
         preferOpaqueMaterials,
-        normalizedGlassIntensity,
+        normalizedGlassIntensity, backgroundBackdrop, contentBackdrop, floatingBackdrop, liquidAvailable,
     ) {
         GlassEnvironment(
             hazeState = hazeState,
@@ -109,6 +126,10 @@ private fun GlassThemeContent(
             motionEnabled = motionEnabled,
             preferOpaqueMaterials = preferOpaqueMaterials,
             glassIntensity = normalizedGlassIntensity,
+            backgroundBackdrop = backgroundBackdrop,
+            contentBackdrop = contentBackdrop,
+            floatingBackdrop = floatingBackdrop,
+            liquidAvailable = liquidAvailable,
         )
     }
 
@@ -142,14 +163,14 @@ private fun GlassThemeContent(
             Box(modifier = Modifier.fillMaxSize()) {
                 GlassMeshBackground(
                     tokens = tokens,
-                    modifier = if (blurAvailable) {
+                    modifier = (if (hazeAvailable) {
                         Modifier.hazeSource(
                             state = hazeState,
                             zIndex = 0f,
                         )
                     } else {
                         Modifier
-                    },
+                    }).then(if (liquidAvailable) Modifier.layerBackdrop(backgroundBackdrop) else Modifier),
                 )
                 content()
             }
@@ -160,14 +181,14 @@ private fun GlassThemeContent(
 @Composable
 fun Modifier.glassHazeSource(zIndex: Float): Modifier {
     val environment = LocalGlassEnvironment.current
-    return if (environment.blurAvailable) {
-        hazeSource(
-            state = environment.hazeState,
-            zIndex = zIndex,
-        )
-    } else {
-        this
-    }
+    // Panels sample a separate background layer; only the dock samples page content.
+    return if (environment.liquidAvailable) {
+        if (zIndex == 1f && environment.contentBackdrop != null) {
+            layerBackdrop(environment.contentBackdrop)
+        } else this
+    } else if (environment.blurAvailable) {
+        hazeSource(state = environment.hazeState, zIndex = zIndex)
+    } else this
 }
 
 @Composable
