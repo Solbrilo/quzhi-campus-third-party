@@ -104,6 +104,7 @@ fun QrScannerPage(
     scanResetKey: Int = 0,
     navigationEnabled: Boolean = true,
     isProcessing: Boolean = false,
+    bindingError: String = "",
     onBack: () -> Unit,
     onScanned: (String) -> Unit,
     onSkip: (() -> Unit)? = null,
@@ -351,6 +352,7 @@ fun QrScannerPage(
                 Text(
                     text = when {
                         isProcessing -> "正在保存设备码…"
+                        bindingError.isNotBlank() -> bindingError
                         scanError != null -> scanError.orEmpty()
                         else -> "将二维码放入取景框内，识别后会自动填入设备码"
                     },

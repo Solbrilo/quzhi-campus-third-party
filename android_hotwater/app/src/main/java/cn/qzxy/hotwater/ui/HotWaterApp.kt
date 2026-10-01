@@ -92,6 +92,7 @@ import cn.qzxy.hotwater.AppUpdateManager
 import cn.qzxy.hotwater.AppReleaseNote
 import cn.qzxy.hotwater.AppReleaseNotesResult
 import cn.qzxy.hotwater.FeedbackEvent
+import cn.qzxy.hotwater.accountRequestKey
 import cn.qzxy.hotwater.MainViewModel
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
@@ -149,6 +150,7 @@ fun HotWaterApp(
         mutableStateOf(MorePageDestination.OVERVIEW)
     }
     var showLowBalanceDialog by remember { mutableStateOf(false) }
+    var showDevicePicker by rememberSaveable { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateCheckResult by remember { mutableStateOf<AppUpdateCheckResult?>(null) }
     var releaseNotes by remember { mutableStateOf<List<AppReleaseNote>?>(null) }
@@ -179,7 +181,7 @@ fun HotWaterApp(
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
-    val history by viewModel.history.collectAsStateWithLifecycle()
+    val billsState by viewModel.serverBills.collectAsStateWithLifecycle()
     val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
     val networkValidated = rememberValidatedNetworkState()
     val connectionStatus = resolveAppConnectionStatus(
@@ -345,6 +347,14 @@ fun HotWaterApp(
                     hapticFeedback = { null },
                 )
             },
+        )
+    }
+
+    if (showDevicePicker) {
+        NearbyDevicePickerDialog(
+            viewModel = viewModel,
+            currentSnCode = config.snCode,
+            onDismiss = { showDevicePicker = false },
         )
     }
 
@@ -520,8 +530,17 @@ fun HotWaterApp(
                             },
                             onRefreshBalance = { viewModel.refreshBalance() },
                             onOpenRecharge = onOpenAlipayRecharge,
+                            onOpenNearbyDevices = {
+                                viewModel.clearNearbyPairState()
+                                showDevicePicker = true
+                            },
                         )
-                        AppScreen.RECORDS -> RecordsPage(history = history)
+                        AppScreen.RECORDS -> RecordsPage(
+                            state = billsState,
+                            accountKey = config.accountRequestKey(),
+                            active = currentScreen == AppScreen.RECORDS,
+                            onLoad = viewModel::loadServerBills,
+                        )
                         AppScreen.CONFIG -> ConfigPage(
                             config = config,
                             busy = busy,
@@ -529,6 +548,10 @@ fun HotWaterApp(
                             onExport = onExportConfig,
                             onImport = onImportConfig,
                             onOpenLogin = onOpenLogin,
+                            onOpenNearbyDevices = {
+                                viewModel.clearNearbyPairState()
+                                showDevicePicker = true
+                            },
                             onScanSnCode = onScanSnCode,
                             scannedSnCode = scannedSnCode,
                             onScannedSnCodeConsumed = onScannedSnCodeConsumed,
@@ -853,11 +876,6 @@ internal fun AppHeader(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
             }
-            Text(
-                text = "一键控制你的校园热水",
-                color = tokens.textSecondary,
-                fontSize = 14.sp,
-            )
         }
         GlassPressable(
             onClick = onOpenMore,

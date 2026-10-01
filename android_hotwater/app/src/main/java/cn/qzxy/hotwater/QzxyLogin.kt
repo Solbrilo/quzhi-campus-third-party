@@ -5,6 +5,7 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -19,12 +20,20 @@ import kotlin.coroutines.resumeWithException
 
 private const val QZXY_BASE_URL = "https://v3-api.china-qzxy.cn"
 const val QZXY_LOGIN_CLIENT_VERSION = "1.1.11"
+const val QZXY_SMS_LOGIN_CLIENT_VERSION = "6.5.24"
+
+enum class QzxyLoginMethod {
+    SMS,
+    PASSWORD,
+}
 
 data class QzxyLoginCredentials(
     val telephone: String,
-    val password: String,
-    val phoneSystem: String,
-    val version: String,
+    val password: String = "",
+    val phoneSystem: String = "android",
+    val version: String = QZXY_LOGIN_CLIENT_VERSION,
+    val method: QzxyLoginMethod = QzxyLoginMethod.PASSWORD,
+    val smsCode: String = "",
 )
 
 data class QzxyAuthResult(
@@ -51,10 +60,6 @@ data class QzxyLoginResult(
     val phoneSystem: String? = null,
     val version: String? = null,
 ) {
-    /**
-     * Device codes are account-bound in practice. Keep one only when this login belongs to the
-     * already configured phone number; a different account must choose or enter its own device.
-     */
     fun mergeInto(existing: HotWaterConfig): HotWaterConfig {
         val merged = auth.mergeInto(existing)
         val sameAccount = existing.telephone.isBlank() || existing.telephone == merged.telephone
@@ -69,6 +74,7 @@ data class QzxyLoginResult(
 
 interface QzxyLoginRemoteDataSource {
     suspend fun login(credentials: QzxyLoginCredentials): QzxyLoginResult
+    suspend fun sendVerificationCode(telephone: String)
 }
 
 class QzxyLoginApi(
@@ -76,16 +82,35 @@ class QzxyLoginApi(
 ) : QzxyLoginRemoteDataSource {
     override suspend fun login(credentials: QzxyLoginCredentials): QzxyLoginResult {
         require(credentials.telephone.isNotBlank()) { "请输入趣智校园手机号" }
-        require(credentials.password.isNotBlank()) { "请输入趣智校园密码" }
-
+        val sms = credentials.method == QzxyLoginMethod.SMS
         val request = Request.Builder()
-            .url("$QZXY_BASE_URL/user/login")
-            .post(QzxyLoginProtocol.buildRequestBody(credentials))
+            .url("$QZXY_BASE_URL${if (sms) "/user/registerAndLogin" else "/user/login"}")
+            .post(if (sms) buildSmsBody(credentials) else buildPasswordBody(credentials))
             .headers(commonHeaders())
             .build()
-
-        return QzxyLoginProtocol.parseResponse(execute(request))
+        return QzxyLoginProtocol.parseResponse(execute(request), credentials.telephone.trim())
     }
+
+    override suspend fun sendVerificationCode(telephone: String) {
+        val normalized = telephone.trim()
+        require(QzxyLoginProtocol.isValidTelephone(normalized)) { "请输入有效的 11 位手机号" }
+        val url = ("$QZXY_BASE_URL/user/verification/code/get").toHttpUrl().newBuilder()
+            .addQueryParameter("telephone", normalized)
+            .addQueryParameter("secret", QzxyLoginProtocol.smsSecret(normalized))
+            .addQueryParameter("typeId", "3")
+            .addQueryParameter("platform", "1")
+            .build()
+        val request = Request.Builder().url(url).get().headers(commonHeaders()).build()
+        QzxyLoginProtocol.requireSuccessfulResponse(execute(request))
+    }
+
+    private fun buildPasswordBody(credentials: QzxyLoginCredentials): FormBody {
+        require(credentials.password.isNotBlank()) { "请输入趣智校园密码" }
+        return QzxyLoginProtocol.buildRequestBody(credentials)
+    }
+
+    private fun buildSmsBody(credentials: QzxyLoginCredentials): FormBody =
+        QzxyLoginProtocol.buildSmsLoginRequestBody(credentials)
 
     private suspend fun execute(request: Request): JSONObject {
         return suspendCancellableCoroutine { continuation ->
@@ -100,18 +125,14 @@ class QzxyLoginApi(
                     response.use {
                         if (continuation.isCancelled) return
                         try {
-                            val body = response.body.string()
+                            val body = response.body?.string().orEmpty()
                             if (!response.isSuccessful) {
-                                continuation.resumeWithException(
-                                    IOException("趣智校园登录请求失败 (HTTP ${response.code})"),
-                                )
+                                continuation.resumeWithException(IOException("趣智校园请求失败 (HTTP ${response.code})"))
                                 return
                             }
                             continuation.resume(if (body.isBlank()) JSONObject() else JSONObject(body))
                         } catch (error: JSONException) {
-                            continuation.resumeWithException(
-                                IOException("趣智校园返回了无效的登录响应", error),
-                            )
+                            continuation.resumeWithException(IOException("趣智校园返回了无效的响应", error))
                         } catch (error: Exception) {
                             continuation.resumeWithException(error)
                         }
@@ -123,10 +144,7 @@ class QzxyLoginApi(
 
     private fun commonHeaders() = okhttp3.Headers.Builder()
         .add("Accept", "application/json, text/plain, */*")
-        .add(
-            "User-Agent",
-            "Mozilla/5.0 (Linux; Android 14; AppleWebKit/537.36 Mobile Safari/537.36)",
-        )
+        .add("User-Agent", "Mozilla/5.0 (Linux; Android 14; AppleWebKit/537.36 Mobile Safari/537.36)")
         .build()
 
     companion object {
@@ -143,9 +161,7 @@ class QzxyLoginApi(
 
 object QzxyLoginProtocol {
     fun encodePassword(password: String): String {
-        // The official client sends the uppercase MD5 tail instead of the plaintext password.
-        val digest = MessageDigest.getInstance("MD5")
-            .digest(password.toByteArray(Charsets.UTF_8))
+        val digest = MessageDigest.getInstance("MD5").digest(password.toByteArray(Charsets.UTF_8))
         val hex = CharArray(digest.size * 2)
         val alphabet = "0123456789ABCDEF"
         digest.forEachIndexed { index, byte ->
@@ -154,6 +170,16 @@ object QzxyLoginProtocol {
             hex[index * 2 + 1] = alphabet[value and 0x0F]
         }
         return String(hex).takeLast(10)
+    }
+
+    fun isValidTelephone(telephone: String): Boolean = Regex("^1[3-9][0-9]{9}$").matches(telephone.trim())
+
+    fun smsSecret(telephone: String): String {
+        val normalized = telephone.trim()
+        require(isValidTelephone(normalized)) { "请输入有效的 11 位手机号" }
+        val raw = normalized.take(3) + normalized.takeLast(4) + "klcx"
+        val digest = MessageDigest.getInstance("MD5").digest(raw.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     fun buildRequestBody(credentials: QzxyLoginCredentials): FormBody {
@@ -166,17 +192,20 @@ object QzxyLoginProtocol {
             .build()
     }
 
-    fun parseResponse(response: JSONObject): QzxyLoginResult {
-        val hasErrorCode = response.has("errorCode") && !response.isNull("errorCode")
-        val errorCode = response.optionalInt("errorCode")
-        if (!response.optBoolean("success") || (hasErrorCode && errorCode != 0)) {
-            val message = response.optString("errorMessage")
-                .ifBlank { response.optString("message") }
-                .ifBlank { response.optString("msg") }
-                .ifBlank { "趣智校园账号或密码错误，或登录已被拒绝" }
-            throw IOException(if (errorCode != null && errorCode != 0) "$message（错误码 $errorCode）" else message)
-        }
+    fun buildSmsLoginRequestBody(credentials: QzxyLoginCredentials): FormBody {
+        require(isValidTelephone(credentials.telephone)) { "请输入有效的 11 位手机号" }
+        require(Regex("^[0-9]{6}$").matches(credentials.smsCode.trim())) { "请输入 6 位短信验证码" }
+        return FormBody.Builder()
+            .add("telephone", credentials.telephone.trim())
+            .add("smsCode", credentials.smsCode.trim())
+            .add("type", "5")
+            .add("phoneSystem", credentials.phoneSystem.ifBlank { "android" })
+            .add("version", credentials.version.ifBlank { QZXY_SMS_LOGIN_CLIENT_VERSION })
+            .build()
+    }
 
+    fun parseResponse(response: JSONObject, requestedTelephone: String? = null): QzxyLoginResult {
+        requireSuccessfulResponse(response)
         val data = response.optJSONObject("data")
             ?: throw IOException("趣智校园登录响应缺少账号信息")
         val account = data.optJSONObject("userAccount")
@@ -186,7 +215,9 @@ object QzxyLoginProtocol {
             userId = data.positiveInt("userId"),
             accountId = account.positiveInt("accountId"),
             loginCode = data.requiredText("loginCode"),
-            telephone = data.requiredText("telephone"),
+            telephone = data.optionalText("telephone")
+                ?: requestedTelephone?.trim()?.takeIf(::isValidTelephone)
+                ?: throw IOException("趣智校园登录响应缺少 telephone"),
         )
         if (auth.projectId == null || auth.userId == null || auth.accountId == null) {
             throw IOException("趣智校园登录响应缺少项目或账户编号")
@@ -198,10 +229,19 @@ object QzxyLoginProtocol {
         )
     }
 
-    private fun JSONObject.positiveInt(key: String): Int? {
-        if (!has(key) || isNull(key)) return null
-        return optionalInt(key)?.takeIf { it > 0 }
+    fun requireSuccessfulResponse(response: JSONObject) {
+        val hasErrorCode = response.has("errorCode") && !response.isNull("errorCode")
+        val errorCode = response.optionalInt("errorCode")
+        if (!response.optBoolean("success") || (hasErrorCode && errorCode != 0)) {
+            val message = response.optionalText("errorMessage")
+                ?: response.optionalText("message")
+                ?: response.optionalText("msg")
+                ?: "趣智校园请求被拒绝"
+            throw IOException(if (errorCode != null && errorCode != 0) "$message（错误码 $errorCode）" else message)
+        }
     }
+
+    private fun JSONObject.positiveInt(key: String): Int? = optionalInt(key)?.takeIf { it > 0 }
 
     private fun JSONObject.optionalInt(key: String): Int? {
         if (!has(key) || isNull(key)) return null

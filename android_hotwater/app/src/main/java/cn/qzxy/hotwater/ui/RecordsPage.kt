@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -24,24 +25,30 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cn.qzxy.hotwater.OperationHistory
+import cn.qzxy.hotwater.BillQuery
+import cn.qzxy.hotwater.ServerBillsState
+import java.time.YearMonth
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
@@ -54,113 +61,89 @@ private data class BillPickerOption(
 )
 
 @Composable
-fun RecordsPage(history: List<OperationHistory>) {
+fun RecordsPage(
+    state: ServerBillsState,
+    accountKey: String,
+    active: Boolean = true,
+    onLoad: (BillQuery, Boolean) -> Unit,
+) {
     val tokens = LocalGlassTokens.current
-    val allEntries = remember(history) { buildBillEntries(history) }
-    val availableYears = remember(allEntries) {
-        allEntries.map(BillEntry::year).distinct().sortedDescending()
-    }
+    val now = YearMonth.now()
     var scope by rememberSaveable { mutableStateOf(BillScope.MONTH) }
-    var selectedYear by rememberSaveable { mutableStateOf<Int?>(null) }
-    var selectedMonth by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectedYear by rememberSaveable { mutableIntStateOf(now.year) }
+    var selectedMonth by rememberSaveable { mutableIntStateOf(now.monthValue) }
     var grouping by rememberSaveable { mutableStateOf(BillGrouping.MONTH) }
     var collapsedGroupKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    var appliedCollapseDefaultsKey by rememberSaveable { mutableStateOf("") }
-
-    val activeYear = selectedYear?.takeIf { it in availableYears } ?: availableYears.firstOrNull()
-    val activeMonth = selectedMonth?.takeIf { it in 1..12 }
-        ?: allEntries.firstOrNull { it.year == activeYear }?.month
-        ?: 1
-    val filteredEntries = remember(allEntries, scope, activeYear, activeMonth) {
+    val query = BillQuery(selectedYear, if (scope == BillScope.MONTH) selectedMonth else null)
+    val matchingState = state.query == query
+    val entries = remember(state.bills, matchingState, query) {
         filterBillEntries(
-            entries = allEntries,
+            entries = buildBillEntries(if (matchingState) state.bills else emptyList()),
             scope = scope,
-            year = activeYear,
-            month = activeMonth,
+            year = selectedYear,
+            month = selectedMonth,
         )
     }
-    val summary = remember(filteredEntries) { summarizeBillEntries(filteredEntries) }
-    val groups = remember(filteredEntries, grouping) {
-        groupBillEntries(filteredEntries, grouping)
-    }
-    val collapseDefaultsKey = grouping.name + ":" + groups.joinToString(separator = "|") { it.key }
+    val summary = remember(entries) { summarizeBillEntries(entries) }
+    val groups = remember(entries, grouping) { groupBillEntries(entries, grouping) }
+    LaunchedEffect(query, accountKey, active) { if (active) onLoad(query, true) }
+    LaunchedEffect(query, grouping, accountKey) { collapsedGroupKeys = emptyList() }
 
-    LaunchedEffect(collapseDefaultsKey) {
-        if (appliedCollapseDefaultsKey != collapseDefaultsKey) {
-            collapsedGroupKeys = groups.drop(1).map(BillGroup::key)
-            appliedCollapseDefaultsKey = collapseDefaultsKey
-        }
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "账单",
-                    color = tokens.textPrimary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "按结算时间查看月度或年度用水汇总。",
-                    color = tokens.textSecondary,
-                    fontSize = 13.sp,
-                )
-            }
-        }
-
-        if (allEntries.isEmpty()) {
-            item { EmptyBillState() }
-        } else {
-            item {
-                BillFilters(
-                    scope = scope,
-                    onScopeChange = { scope = it },
-                    availableYears = availableYears,
-                    activeYear = activeYear,
-                    onYearChange = { selectedYear = it },
-                    selectedMonth = activeMonth,
-                    onMonthChange = { selectedMonth = it },
-                    grouping = grouping,
-                    onGroupingChange = { grouping = it },
-                )
-            }
-            item {
-                BillSummaryCard(
-                    title = when (scope) {
-                        BillScope.YEAR -> "${activeYear ?: "--"} 年度汇总"
-                        BillScope.MONTH -> "${activeYear ?: "--"}年${activeMonth}月汇总"
-                    },
-                    summary = summary,
-                )
-            }
-
-            if (filteredEntries.isEmpty()) {
-                item { EmptyFilteredBillState() }
-            } else {
-                groups.forEach { group ->
-                    val collapsed = group.key in collapsedGroupKeys
-                    item(key = "bill_group_${group.key}") {
-                        BillGroupSection(
-                            group = group,
-                            collapsed = collapsed,
-                            onClick = {
-                                collapsedGroupKeys = if (collapsed) {
-                                    collapsedGroupKeys - group.key
-                                } else {
-                                    collapsedGroupKeys + group.key
-                                }
-                            },
-                        )
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("账单", color = tokens.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                GlassPressable(onClick = { onLoad(query, true) }, enabled = !state.loading,
+                    material = GlassMaterial.Control, cornerRadius = 16.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+                    Text("刷新", color = tokens.accentPrimary, fontSize = 14.sp)
                 }
             }
         }
-
-        item { Spacer(modifier = Modifier.height(bottomDockClearance())) }
+        item {
+            BillFilters(scope, { scope = it }, (now.year downTo 2010).toList(), selectedYear,
+                { selectedYear = it }, selectedMonth, { selectedMonth = it }, grouping, { grouping = it })
+        }
+        if (state.loading || !matchingState) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(color = tokens.accentPrimary, strokeWidth = 2.dp,
+                        modifier = Modifier.size(22.dp))
+                    Text("正在同步服务器账单…", color = tokens.textSecondary, fontSize = 13.sp)
+                }
+            }
+        }
+        if (matchingState && state.message.isNotBlank()) {
+            item {
+                Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 18.dp).padding(16.dp)) {
+                    Text(state.message, color = tokens.accentWarning, fontSize = 13.sp)
+                    if (state.failedMonths.isNotEmpty()) Text(
+                        "未同步月份：" + state.failedMonths.joinToString { it.toString() },
+                        color = tokens.textSecondary, fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        }
+        if (entries.isNotEmpty()) {
+            item {
+                BillSummaryCard(
+                    title = if (scope == BillScope.YEAR) "${selectedYear}年度汇总" else "${selectedYear}年${selectedMonth}月汇总",
+                    summary = summary,
+                )
+            }
+            groups.forEach { group ->
+                item(key = group.key) {
+                    BillGroupSection(group, group.key in collapsedGroupKeys) {
+                        collapsedGroupKeys = if (group.key in collapsedGroupKeys) collapsedGroupKeys - group.key else collapsedGroupKeys + group.key
+                    }
+                }
+            }
+        } else if (matchingState && state.loaded && !state.loading) {
+            item { EmptyFilteredBillState() }
+        }
+        item { Spacer(Modifier.height(bottomDockClearance())) }
     }
 }
 
@@ -317,14 +300,34 @@ private fun BillPicker(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            containerColor = tokens.fallbackSurface,
+            tonalElevation = 0.dp,
+            shadowElevation = 8.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, tokens.borderHi.copy(alpha = 0.55f)),
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = {
+                        Text(
+                            text = option.label,
+                            color = tokens.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    },
                     onClick = {
                         expanded = false
                         onSelected(option)
                     },
+                    colors = MenuDefaults.itemColors(
+                        textColor = tokens.textPrimary,
+                        leadingIconColor = tokens.textSecondary,
+                        trailingIconColor = tokens.textSecondary,
+                        disabledTextColor = tokens.textTertiary,
+                        disabledLeadingIconColor = tokens.textTertiary,
+                        disabledTrailingIconColor = tokens.textTertiary,
+                    ),
                 )
             }
         }
@@ -360,19 +363,19 @@ private fun BillSummaryCard(
                 modifier = Modifier.weight(1f),
             )
             BillMetric(
-                label = "用水时长",
-                value = formatBillDuration(summary.totalDurationMillis),
+                label = "消费笔数",
+                value = "${summary.recordCount} 笔",
                 modifier = Modifier.weight(1f),
             )
         }
         Text(
-            text = "${summary.recordCount} 笔用水，已结算 ${summary.settledCount} 笔",
+            text = "${summary.settledCount} 笔已获取金额 · 以服务器账单为准",
             color = tokens.textSecondary,
             fontSize = 12.sp,
         )
         if (summary.pendingCount > 0) {
             Text(
-                text = "${summary.pendingCount} 笔金额待同步，未计入金额合计",
+                text = "${summary.pendingCount} 笔未返回有效金额，未计入合计",
                 color = tokens.accentWarning,
                 fontSize = 12.sp,
             )
@@ -518,30 +521,6 @@ private fun BillGroupHeader(
 }
 
 @Composable
-private fun EmptyBillState() {
-    val tokens = LocalGlassTokens.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 18.dp)
-            .padding(20.dp),
-    ) {
-        Text(
-            text = "暂无账单",
-            color = tokens.textPrimary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "关闭一次热水后，消费金额和用水时长会显示在这里。",
-            color = tokens.textSecondary,
-            fontSize = 13.sp,
-        )
-    }
-}
-
-@Composable
 private fun EmptyFilteredBillState() {
     val tokens = LocalGlassTokens.current
     Column(
@@ -568,58 +547,20 @@ private fun EmptyFilteredBillState() {
 @Composable
 private fun ConsumptionRecordRow(entry: BillEntry) {
     val tokens = LocalGlassTokens.current
-    val record = entry.history
-    val amountLabel = record.getConsumptionAmountLabel() ?: "待同步"
-    val timeLabel = record.getUsageStartedAtLabel()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = "热水消费",
-                    color = tokens.textPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = if (timeLabel == null) {
-                        "结算于 ${record.getFormattedDate()}"
-                    } else {
-                        "开始于 $timeLabel"
-                    },
-                    color = tokens.textSecondary,
-                    fontSize = 12.sp,
-                )
+    val bill = entry.bill
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(bill.description, color = tokens.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(bill.consumeDate.ifBlank { "服务器未提供消费时间" }, color = tokens.textSecondary, fontSize = 12.sp)
             }
-            Text(
-                text = amountLabel,
-                color = if (record.consumptionYuan == null) tokens.accentWarning else tokens.accentError,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Text(bill.amountMilliYuan?.let(::formatBillAmount) ?: "待同步",
+                color = if (bill.amountMilliYuan == null) tokens.accentWarning else tokens.accentError,
+                fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = "用水时长",
-                color = tokens.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = record.getUsageDurationLabel() ?: "待同步",
-                color = tokens.textPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-            )
+        if (bill.orderNo != null || bill.orderId.isNotBlank()) {
+            Text("订单：${bill.orderNo ?: bill.orderId}", color = tokens.textTertiary, fontSize = 11.sp)
         }
     }
 }

@@ -32,12 +32,13 @@ private enum class RootScreen {
     ONBOARDING_QUOTE,
     ONBOARDING_LOGIN,
     ONBOARDING_SCANNER,
+    ONBOARDING_NEARBY,
     ONBOARDING_COMPLETE,
 }
 
 internal enum class OnboardingResumeDestination {
     MAIN,
-    SCANNER,
+    NEARBY,
     LOGIN,
 }
 
@@ -50,7 +51,7 @@ internal fun resolveOnboardingResumeDestination(
             config.userId != null &&
             config.accountId != null &&
             config.loginCode.isNotBlank() &&
-            config.telephone.isNotBlank() -> OnboardingResumeDestination.SCANNER
+            config.telephone.isNotBlank() -> OnboardingResumeDestination.NEARBY
         else -> OnboardingResumeDestination.LOGIN
     }
 }
@@ -87,6 +88,7 @@ fun HotWaterRoot(
     val config by viewModel.config.collectAsStateWithLifecycle()
     val loginState by viewModel.qzxyLoginState.collectAsStateWithLifecycle()
     val snCodeSaveState by viewModel.snCodeSaveState.collectAsStateWithLifecycle()
+    val smsCodeState by viewModel.smsCodeState.collectAsStateWithLifecycle()
     val credentialExpired by viewModel.credentialExpired.collectAsStateWithLifecycle()
     val onboardingScanSaving = snCodeSaveState.loading
 
@@ -98,6 +100,7 @@ fun HotWaterRoot(
         val onOnboardingScreen = rootScreen == RootScreen.ONBOARDING_QUOTE ||
             rootScreen == RootScreen.ONBOARDING_LOGIN ||
             rootScreen == RootScreen.ONBOARDING_SCANNER ||
+            rootScreen == RootScreen.ONBOARDING_NEARBY ||
             rootScreen == RootScreen.ONBOARDING_COMPLETE
         when {
             onboardingRequired && !onOnboardingScreen -> {
@@ -114,10 +117,11 @@ fun HotWaterRoot(
         if (!loginState.success) return@LaunchedEffect
         if (rootScreen == RootScreen.ONBOARDING_LOGIN) {
             viewModel.clearSnCodeSaveState()
+            viewModel.clearNearbyPairState()
         }
         rootScreen = when (rootScreen) {
             RootScreen.LOGIN -> RootScreen.MAIN
-            RootScreen.ONBOARDING_LOGIN -> RootScreen.ONBOARDING_SCANNER
+            RootScreen.ONBOARDING_LOGIN -> RootScreen.ONBOARDING_NEARBY
             else -> return@LaunchedEffect
         }
         viewModel.clearQzxyLoginState()
@@ -137,10 +141,7 @@ fun HotWaterRoot(
                 viewModel.clearSnCodeSaveState()
                 rootScreen = RootScreen.ONBOARDING_COMPLETE
             }
-            snCodeSaveState.message.isNotBlank() -> {
-                viewModel.clearSnCodeSaveState()
-                onboardingScanResetKey++
-            }
+            snCodeSaveState.message.isNotBlank() -> onboardingScanResetKey++
         }
     }
 
@@ -156,12 +157,14 @@ fun HotWaterRoot(
         if (rootScreen == RootScreen.ONBOARDING_SCANNER) {
             viewModel.clearSnCodeSaveState()
         }
+        if (rootScreen == RootScreen.ONBOARDING_NEARBY) viewModel.cancelNearbyPairing()
         val leavingLogin = rootScreen == RootScreen.LOGIN || rootScreen == RootScreen.ONBOARDING_LOGIN
         rootScreen = when (rootScreen) {
             RootScreen.LOGIN, RootScreen.CONFIG_SCANNER -> RootScreen.MAIN
             RootScreen.ONBOARDING_LOGIN -> RootScreen.ONBOARDING_QUOTE
-            RootScreen.ONBOARDING_SCANNER -> RootScreen.ONBOARDING_LOGIN
-            RootScreen.ONBOARDING_COMPLETE -> RootScreen.ONBOARDING_SCANNER
+            RootScreen.ONBOARDING_SCANNER -> RootScreen.ONBOARDING_NEARBY
+            RootScreen.ONBOARDING_NEARBY -> RootScreen.ONBOARDING_LOGIN
+            RootScreen.ONBOARDING_COMPLETE -> RootScreen.ONBOARDING_NEARBY
             else -> rootScreen
         }
         if (leavingLogin) viewModel.cancelQzxyLogin() else viewModel.clearQzxyLoginState()
@@ -209,7 +212,10 @@ fun HotWaterRoot(
                 RootScreen.LOGIN -> LoginPage(
                     initialTelephone = config.telephone,
                     loginState = loginState,
+                    smsCodeState = smsCodeState,
                     onLogin = viewModel::loginToQzxy,
+                    onSendVerificationCode = viewModel::sendVerificationCode,
+                    onCredentialsChanged = viewModel::invalidateLoginRequest,
                     showBackButton = !credentialExpired,
                     onSkip = if (credentialExpired) {
                         {
@@ -242,9 +248,10 @@ fun HotWaterRoot(
                                 onOnboardingCompleted()
                                 rootScreen = RootScreen.MAIN
                             }
-                            OnboardingResumeDestination.SCANNER -> {
+                            OnboardingResumeDestination.NEARBY -> {
                                 viewModel.clearSnCodeSaveState()
-                                rootScreen = RootScreen.ONBOARDING_SCANNER
+                                viewModel.clearNearbyPairState()
+                                rootScreen = RootScreen.ONBOARDING_NEARBY
                             }
                             OnboardingResumeDestination.LOGIN -> {
                                 viewModel.clearQzxyLoginState()
@@ -257,7 +264,10 @@ fun HotWaterRoot(
                 RootScreen.ONBOARDING_LOGIN -> LoginPage(
                     initialTelephone = config.telephone,
                     loginState = loginState,
+                    smsCodeState = smsCodeState,
                     onLogin = viewModel::loginToQzxy,
+                    onSendVerificationCode = viewModel::sendVerificationCode,
+                    onCredentialsChanged = viewModel::invalidateLoginRequest,
                     onBack = {
                         viewModel.cancelQzxyLogin()
                         rootScreen = RootScreen.ONBOARDING_QUOTE
@@ -265,7 +275,28 @@ fun HotWaterRoot(
                     onSkip = {
                         viewModel.cancelQzxyLogin()
                         viewModel.clearSnCodeSaveState()
-                        rootScreen = RootScreen.ONBOARDING_SCANNER
+                        viewModel.clearNearbyPairState()
+                        rootScreen = RootScreen.ONBOARDING_NEARBY
+                    },
+                )
+
+                RootScreen.ONBOARDING_NEARBY -> NearbyDevicesPage(
+                    viewModel = viewModel,
+                    active = rootScreen == RootScreen.ONBOARDING_NEARBY,
+                    currentSnCode = config.snCode,
+                    onBack = {
+                        viewModel.clearNearbyPairState()
+                        rootScreen = RootScreen.ONBOARDING_LOGIN
+                    },
+                    onScanQrCode = { rootScreen = RootScreen.ONBOARDING_SCANNER },
+                    onPaired = {
+                        viewModel.clearNearbyPairState()
+                        rootScreen = RootScreen.ONBOARDING_COMPLETE
+                    },
+                    onSkip = {
+                        viewModel.clearNearbyPairState()
+                        onOnboardingCompleted()
+                        rootScreen = RootScreen.MAIN
                     },
                 )
 
@@ -275,9 +306,10 @@ fun HotWaterRoot(
                     scanResetKey = onboardingScanResetKey,
                     navigationEnabled = !onboardingScanSaving,
                     isProcessing = onboardingScanSaving,
+                    bindingError = snCodeSaveState.message,
                     onBack = {
                         viewModel.clearSnCodeSaveState()
-                        rootScreen = RootScreen.ONBOARDING_LOGIN
+                        rootScreen = RootScreen.ONBOARDING_NEARBY
                     },
                     onScanned = { snCode ->
                         if (onboardingScanSaving) return@QrScannerPage

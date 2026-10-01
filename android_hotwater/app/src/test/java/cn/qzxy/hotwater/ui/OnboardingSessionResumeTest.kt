@@ -23,9 +23,9 @@ class OnboardingSessionResumeTest {
     }
 
     @Test
-    fun `existing account missing sn code resumes at scanner`() {
+    fun `existing account missing sn code resumes at nearby devices`() {
         assertEquals(
-            OnboardingResumeDestination.SCANNER,
+            OnboardingResumeDestination.NEARBY,
             resolveOnboardingResumeDestination(configuredSession.copy(snCode = "")),
         )
     }

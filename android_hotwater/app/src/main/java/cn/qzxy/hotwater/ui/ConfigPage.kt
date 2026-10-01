@@ -67,6 +67,7 @@ fun ConfigPage(
     onExport: () -> Unit,
     onImport: () -> Unit,
     onOpenLogin: () -> Unit,
+    onOpenNearbyDevices: () -> Unit,
     onScanSnCode: () -> Unit,
     scannedSnCode: String?,
     onScannedSnCodeConsumed: () -> Unit,
@@ -194,6 +195,14 @@ fun ConfigPage(
             GlassButton(
                 text = "登录趣智校园",
                 onClick = onOpenLogin,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            GlassButton(
+                text = "选择附近设备",
+                onClick = onOpenNearbyDevices,
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )

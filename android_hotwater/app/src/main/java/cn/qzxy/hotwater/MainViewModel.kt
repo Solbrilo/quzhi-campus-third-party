@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
-import java.util.Locale
+import kotlinx.coroutines.sync.withPermit
 
 data class FeedbackEvent(
     val type: FeedbackType,
@@ -34,6 +34,24 @@ data class QzxyLoginState(
     val message: String = "",
 )
 
+data class SmsCodeState(
+    val loading: Boolean = false,
+    val sent: Boolean = false,
+    val remainingSeconds: Int = 0,
+    val message: String = "",
+)
+
+data class NearbyScanState(
+    val scanning: Boolean = false,
+    val message: String = "",
+)
+
+data class NearbyPairState(
+    val loading: Boolean = false,
+    val success: Boolean = false,
+    val message: String = "",
+)
+
 data class SnCodeSaveState(
     val loading: Boolean = false,
     val success: Boolean = false,
@@ -46,11 +64,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         OPERATION,
         QZXY_LOGIN,
         SN_CODE_SAVE,
+        NEARBY_PAIR,
     }
 
     private val store = HotWaterConfigStore(application)
     private val repository = HotWaterRepository(HotWaterApi(), store)
     private val qzxyLoginApi: QzxyLoginRemoteDataSource = QzxyLoginApi()
+    private val billsController = ServerBillsController(viewModelScope, HotWaterApi()) { showCredentialExpiryPrompt() }
+    val serverBills = billsController.state
+
+    fun loadServerBills(query: BillQuery, force: Boolean = false) {
+        if (store.requiresReauthentication()) { showCredentialExpiryPrompt(); return }
+        billsController.load(store.loadConfig(), query, force)
+    }
 
     private val _snapshot = MutableStateFlow<DashboardSnapshot?>(null)
     val snapshot: StateFlow<DashboardSnapshot?> = _snapshot.asStateFlow()
@@ -64,14 +90,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _config = MutableStateFlow(store.loadConfig())
     val config: StateFlow<HotWaterConfig> = _config.asStateFlow()
 
-    private val _history = MutableStateFlow(store.loadHistory())
-    val history: StateFlow<List<OperationHistory>> = _history.asStateFlow()
-
     private val _feedbackEvent = MutableStateFlow<FeedbackEvent?>(null)
     val feedbackEvent: StateFlow<FeedbackEvent?> = _feedbackEvent.asStateFlow()
 
     private val _qzxyLoginState = MutableStateFlow(QzxyLoginState())
     val qzxyLoginState: StateFlow<QzxyLoginState> = _qzxyLoginState.asStateFlow()
+
+    private val _smsCodeState = MutableStateFlow(SmsCodeState())
+    val smsCodeState: StateFlow<SmsCodeState> = _smsCodeState.asStateFlow()
+
+    private val _nearbyDevices = MutableStateFlow<List<NearbyDevice>>(emptyList())
+    val nearbyDevices: StateFlow<List<NearbyDevice>> = _nearbyDevices.asStateFlow()
+
+    private val _nearbyScanState = MutableStateFlow(NearbyScanState())
+    val nearbyScanState: StateFlow<NearbyScanState> = _nearbyScanState.asStateFlow()
+
+    private val _nearbyPairState = MutableStateFlow(NearbyPairState())
+    val nearbyPairState: StateFlow<NearbyPairState> = _nearbyPairState.asStateFlow()
 
     private val _snCodeSaveState = MutableStateFlow(SnCodeSaveState())
     val snCodeSaveState: StateFlow<SnCodeSaveState> = _snCodeSaveState.asStateFlow()
@@ -82,6 +117,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var initialized = false
     private var qzxyLoginJob: Job? = null
     private var qzxyLoginGeneration: Long = 0L
+    private var smsCodeJob: Job? = null
+    private var smsCodeGeneration: Long = 0L
+    private var nearbyScanner: NearbyDeviceScanner? = null
+    private var nearbyScanGeneration = 0L
+    private var nearbyScanOwner: Any? = null
+    private var nearbyLookupJob: Job? = null
+    private var nearbyPairJob: Job? = null
+    private var nearbyPairGeneration: Long = 0L
+    private val nearbyDeviceApi: HotWaterRemoteDataSource = HotWaterApi()
     private var operationJob: Job? = null
     private var operationGeneration: Long = 0L
     private var snCodeSaveJob: Job? = null
@@ -147,6 +191,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveConfig(rawConfig: HotWaterConfig) {
+        cancelNearbyPairing()
+        stopNearbyScan()
+        invalidateLoginRequest()
         settlementSyncJob?.cancel()
         settlementSyncJob = null
         val previous = persistRuntimeInfoIfNeeded(store.loadConfig())
@@ -158,6 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             store.clearActiveUsageState()
         }
         store.saveConfig(prepared)
+        billsController.bind(prepared)
         if (prepared.isComplete()) {
             // A complete imported/manual configuration is an explicit replacement for an expired
             // credential. Keep the user in the app and let the next request validate it normally.
@@ -198,12 +246,187 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         appInForeground = false
         activeStateSyncJob?.cancel()
         activeStateSyncJob = null
+        stopNearbyScan()
+    }
+
+    fun sendVerificationCode(telephone: String) {
+        val normalized = telephone.trim()
+        if (_smsCodeState.value.loading || _smsCodeState.value.remainingSeconds > 0) return
+        if (!QzxyLoginProtocol.isValidTelephone(normalized)) {
+            _smsCodeState.value = SmsCodeState(message = "请输入 11 位手机号")
+            return
+        }
+        smsCodeJob?.cancel()
+        val generation = ++smsCodeGeneration
+        _smsCodeState.value = SmsCodeState(loading = true)
+        smsCodeJob = viewModelScope.launch {
+            try {
+                qzxyLoginApi.sendVerificationCode(normalized)
+                if (generation != smsCodeGeneration) return@launch
+                _smsCodeState.value = SmsCodeState(sent = true, remainingSeconds = SMS_CODE_COOLDOWN_SECONDS)
+                for (remaining in (SMS_CODE_COOLDOWN_SECONDS - 1) downTo 0) {
+                    delay(1_000L)
+                    if (generation != smsCodeGeneration) return@launch
+                    _smsCodeState.value = _smsCodeState.value.copy(remainingSeconds = remaining)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (generation == smsCodeGeneration) {
+                    _smsCodeState.value = SmsCodeState(message = HotWaterUiText.summarizeError(error))
+                }
+            } finally {
+                if (generation == smsCodeGeneration) smsCodeJob = null
+            }
+        }
+    }
+
+    fun startNearbyScan(owner: Any) {
+        stopNearbyScan()
+        nearbyScanOwner = owner
+        val generation = ++nearbyScanGeneration
+        val lookupJob = kotlinx.coroutines.SupervisorJob(viewModelScope.coroutineContext[Job])
+        nearbyLookupJob = lookupJob
+        val lookupScope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + lookupJob)
+        val lookupPermits = kotlinx.coroutines.sync.Semaphore(3)
+        val lookupConfig = store.loadConfig()
+        val queriedAddresses = mutableSetOf<String>()
+        _nearbyDevices.value = emptyList()
+        _nearbyScanState.value = NearbyScanState(scanning = true)
+        val scanner = NearbyDeviceScanner(
+            context = getApplication(),
+            onDeviceFound = { device ->
+                if (generation == nearbyScanGeneration) {
+                    val previous = _nearbyDevices.value.firstOrNull { it.normalizedMac == device.normalizedMac }
+                    _nearbyDevices.value = (_nearbyDevices.value.filterNot { it.normalizedMac == device.normalizedMac } +
+                        device.copy(binding = previous?.binding)).sortedByDescending { it.rssi }
+                    if (lookupConfig.hasAccount() && queriedAddresses.size < 40 && queriedAddresses.add(device.normalizedMac)) {
+                        lookupScope.launch {
+                            val binding = try {
+                                lookupPermits.withPermit {
+                                    NearbyDevicePayload.parseBinding(nearbyDeviceApi.deviceInfoForMac(lookupConfig, device.macAddress))
+                                }
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { null }
+                            if (generation == nearbyScanGeneration && store.loadConfig().accountRequestKey() == lookupConfig.accountRequestKey()) {
+                                _nearbyDevices.value = _nearbyDevices.value.map {
+                                    if (it.normalizedMac == device.normalizedMac) it.copy(binding = binding) else it
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            onFinished = {
+                if (generation == nearbyScanGeneration) _nearbyScanState.value = _nearbyScanState.value.copy(scanning = false)
+            },
+            onError = { message ->
+                if (generation == nearbyScanGeneration) _nearbyScanState.value = NearbyScanState(message = message)
+            },
+        )
+        nearbyScanner = scanner
+        scanner.start()
+    }
+
+    fun stopNearbyScan(owner: Any? = null) {
+        if (owner != null && nearbyScanOwner !== owner) return
+        nearbyScanOwner = null
+        nearbyScanGeneration++
+        nearbyLookupJob?.cancel()
+        nearbyLookupJob = null
+        nearbyScanner?.stop()
+        nearbyScanner = null
+        if (_nearbyScanState.value.scanning) {
+            _nearbyScanState.value = _nearbyScanState.value.copy(scanning = false)
+        }
+    }
+
+    fun clearNearbyPairState() {
+        if (!_nearbyPairState.value.loading) _nearbyPairState.value = NearbyPairState()
+    }
+
+    fun cancelNearbyPairing() {
+        nearbyPairGeneration++
+        nearbyPairJob?.cancel()
+        nearbyPairJob = null
+        _nearbyPairState.value = NearbyPairState()
+        releaseBusy(BusyOwner.NEARBY_PAIR)
+    }
+
+    fun pairNearbyDevice(device: NearbyDevice) {
+        val code = device.macAddress
+        if (_busy.value || _nearbyPairState.value.loading) return
+        val normalized = QrCodeParser.normalizeSnCode(code)
+        if (normalized == null) { _nearbyPairState.value = NearbyPairState(message = "设备码格式无效"); return }
+        val baseConfig = store.loadConfig()
+        if (!baseConfig.hasAccount()) {
+            _nearbyPairState.value = NearbyPairState(message = "请先登录趣智校园，或使用扫码配对")
+            return
+        }
+        val stateGeneration = store.loadStateGeneration()
+        val generation = ++nearbyPairGeneration
+        stopNearbyScan()
+        acquireBusy(BusyOwner.NEARBY_PAIR)
+        _nearbyPairState.value = NearbyPairState(loading = true)
+        nearbyPairJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val binding = NearbyDevicePayload.parseBinding(nearbyDeviceApi.deviceInfoForMac(baseConfig, code))
+                val committed = HotWaterRepository.withDeviceControl {
+                    if (generation != nearbyPairGeneration || stateGeneration != store.loadStateGeneration() ||
+                        store.loadConfig() != baseConfig) return@withDeviceControl false
+                    DeviceSwitchPolicy.blockingMessage(baseConfig, binding.snCode, store.loadOrderNo(),
+                        store.loadUsageSession(), store.loadPendingSettlements())?.let { error(it) }
+                    if (baseConfig.snCode == binding.snCode) return@withDeviceControl true
+                    settlementSyncJob?.cancel()
+                    settlementSyncJob = null
+                    HotWaterSettlementSyncScheduler.cancel(getApplication())
+                    HotWaterWidgetProvider.cancelPendingActions(getApplication())
+                    // macAddress is the PHONE's runtime MAC in this project, not the heater's BLE MAC.
+                    val prepared = baseConfig.copy(snCode = binding.snCode)
+                    if (baseConfig.hasDifferentIdentityFrom(prepared)) store.clearActiveUsageState()
+                    store.saveConfig(prepared)
+                    ++operationGeneration
+                    _config.value = prepared
+                    _snapshot.value = buildPlaceholderSnapshot(prepared).copy(deviceName = binding.deviceName,
+                        locationLabel = binding.locationLabel.ifBlank { "位置待刷新" })
+                    syncNotificationState()
+                    syncWidgetStatus("设备已绑定", binding.deviceName)
+                    true
+                }
+                if (generation != nearbyPairGeneration) return@launch
+                if (committed) {
+                    val message = "已绑定 ${binding.deviceName}"
+                    // Login may have left a warning feedback event saying that snCode is still
+                    // missing. Replace it at the moment the nearby-device binding is committed,
+                    // otherwise that stale warning reappears when the main page is shown.
+                    _statusMessage.value = message
+                    _feedbackEvent.value = FeedbackEvent(
+                        type = FeedbackEvent.FeedbackType.SUCCESS,
+                        message = message,
+                    )
+                    _nearbyPairState.value = NearbyPairState(success = true, message = message)
+                } else {
+                    _nearbyPairState.value = NearbyPairState(message = "账号或设备配置已更新，请重新选择")
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: CredentialExpiredException) {
+                if (generation == nearbyPairGeneration) { _nearbyPairState.value = NearbyPairState(); showCredentialExpiryPrompt() }
+            } catch (error: Exception) {
+                if (generation == nearbyPairGeneration) _nearbyPairState.value = NearbyPairState(message = HotWaterUiText.summarizeError(error))
+            } finally {
+                if (generation == nearbyPairGeneration) { releaseBusy(BusyOwner.NEARBY_PAIR); nearbyPairJob = null }
+            }
+            if (generation == nearbyPairGeneration && _nearbyPairState.value.success && _config.value.isComplete()) {
+                refreshBalance(announce = false)
+            }
+        }.also { it.start() }
     }
 
     fun saveSnCode(snCode: String) {
-        val normalized = snCode.trim().replace(":", "").uppercase(Locale.ROOT)
-        if (normalized.isBlank()) {
-            _snCodeSaveState.value = SnCodeSaveState(message = "设备码不能为空")
+        cancelNearbyPairing()
+        val normalized = QrCodeParser.normalizeSnCode(snCode)
+        if (normalized == null) {
+            _snCodeSaveState.value = SnCodeSaveState(message = "设备码应为 12 位十六进制字符")
             return
         }
         val previousOperation = operationJob
@@ -232,6 +455,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
                 val existing = persistRuntimeInfoIfNeeded(store.loadConfig())
+                DeviceSwitchPolicy.blockingMessage(existing, normalized, store.loadOrderNo(),
+                    store.loadUsageSession(), store.loadPendingSettlements())?.let { error(it) }
                 val changed = existing.snCode != normalized
                 if (changed) {
                     store.clearActiveUsageState()
@@ -303,12 +528,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun cancelQzxyLogin() {
+    fun invalidateLoginRequest() {
         qzxyLoginGeneration++
         qzxyLoginJob?.cancel()
         qzxyLoginJob = null
         releaseBusy(BusyOwner.QZXY_LOGIN)
         clearQzxyLoginState()
+    }
+
+    fun cancelQzxyLogin() {
+        invalidateLoginRequest()
     }
 
     /**
@@ -345,6 +574,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         operationJob = null
         qzxyLoginJob?.cancel()
         qzxyLoginJob = null
+        smsCodeGeneration++
+        smsCodeJob?.cancel()
+        smsCodeJob = null
+        nearbyPairGeneration++
+        nearbyPairJob?.cancel()
+        nearbyPairJob = null
+        stopNearbyScan()
         snCodeSaveJob?.cancel()
         snCodeSaveJob = null
         settlementSyncJob?.cancel()
@@ -362,9 +598,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrDefault(false)
         val allStoresCleared = storeCleared && feedbackStoreCleared
 
+        billsController.clear()
+        _smsCodeState.value = SmsCodeState()
+        _nearbyDevices.value = emptyList()
+        _nearbyPairState.value = NearbyPairState()
+        _nearbyScanState.value = NearbyScanState()
         val emptyConfig = HotWaterConfig()
         _config.value = emptyConfig
-        _history.value = emptyList()
         _snapshot.value = buildPlaceholderSnapshot(emptyConfig)
         _credentialExpired.value = false
         _qzxyLoginState.value = QzxyLoginState()
@@ -384,15 +624,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loginToQzxy(telephone: String, password: String) {
+        loginToQzxy(QzxyLoginMethod.PASSWORD, telephone, password)
+    }
+
+    fun loginToQzxy(method: QzxyLoginMethod, telephone: String, credential: String) {
         if (_qzxyLoginState.value.loading) return
-        if (telephone.isBlank() || password.isBlank()) {
-            _qzxyLoginState.value = QzxyLoginState(message = "请输入趣智校园手机号和密码")
-            reportFeedback(FeedbackEvent.FeedbackType.WARNING, "请输入趣智校园手机号和密码")
+        val normalizedTelephone = telephone.trim()
+        val normalizedCredential = if (method == QzxyLoginMethod.SMS) credential.trim() else credential
+        val invalidMessage = when {
+            normalizedTelephone.isBlank() -> "请输入趣智校园手机号"
+            method == QzxyLoginMethod.SMS && !QzxyLoginProtocol.isValidTelephone(normalizedTelephone) -> "请输入有效的 11 位手机号"
+            method == QzxyLoginMethod.SMS && !Regex("^[0-9]{6}$").matches(normalizedCredential) -> "请输入 6 位短信验证码"
+            method == QzxyLoginMethod.PASSWORD && normalizedCredential.isBlank() -> "请输入趣智校园密码"
+            else -> null
+        }
+        if (invalidMessage != null) {
+            _qzxyLoginState.value = QzxyLoginState(message = invalidMessage)
+            reportFeedback(FeedbackEvent.FeedbackType.WARNING, invalidMessage)
             return
         }
 
+        cancelNearbyPairing()
+        stopNearbyScan()
+        billsController.clear()
         HotWaterSettlementSyncScheduler.cancel(getApplication())
-
         val previousOperation = operationJob
         val previousSave = snCodeSaveJob
         ++operationGeneration
@@ -416,20 +671,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (snCodeSaveJob === previousSave) snCodeSaveJob = null
                 val result = qzxyLoginApi.login(
                     QzxyLoginCredentials(
-                        telephone = telephone,
-                        password = password,
+                        telephone = normalizedTelephone,
+                        password = if (method == QzxyLoginMethod.PASSWORD) normalizedCredential else "",
+                        smsCode = if (method == QzxyLoginMethod.SMS) normalizedCredential else "",
+                        method = method,
                         phoneSystem = "android",
-                        version = QZXY_LOGIN_CLIENT_VERSION,
+                        version = if (method == QzxyLoginMethod.SMS) {
+                            QZXY_SMS_LOGIN_CLIENT_VERSION
+                        } else {
+                            QZXY_LOGIN_CLIENT_VERSION
+                        },
                     ),
                 )
                 if (generation != qzxyLoginGeneration) return@launch
                 val existing = persistRuntimeInfoIfNeeded(store.loadConfig())
-                val prepared = persistRuntimeInfoIfNeeded(result.mergeInto(existing))
-                if (existing.hasDifferentIdentityFrom(prepared)) {
-                    store.clearActiveUsageState()
-                }
+                val prepared = RuntimeDeviceInfoResolver.enrichConfig(getApplication(), result.mergeInto(existing))
+                if (existing.hasDifferentIdentityFrom(prepared)) store.clearActiveUsageState()
                 HotWaterSettlementSyncScheduler.cancel(getApplication())
                 store.saveConfig(prepared)
+                billsController.bind(prepared)
                 store.clearCredentialsExpired()
                 _credentialExpired.value = false
                 _config.value = prepared
@@ -440,9 +700,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (prepared.snCode.isBlank()) {
-                    val message = "登录成功，账号字段已自动填充；还需填写或选择该账号的 snCode。"
+                    val message = "登录成功，账号字段已自动填充；还需选择或扫码绑定设备。"
                     _statusMessage.value = message
-                    syncWidgetStatus("等待补充设备码", message)
+                    syncWidgetStatus("等待绑定设备", message)
                     _feedbackEvent.value = FeedbackEvent(FeedbackEvent.FeedbackType.WARNING, message)
                     _qzxyLoginState.value = QzxyLoginState(success = true, message = message)
                 } else {
@@ -551,7 +811,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     store.saveOperationResultHistory(historyType, result)
                 }
-                _history.value = store.loadHistory()
+                if ((operationType == OperationHistory.OperationType.CLOSE || result.automaticClose) && serverBills.value.loaded) {
+                    loadServerBills(serverBills.value.query, force = true)
+                }
                 if (store.loadPendingSettlements().isNotEmpty()) {
                     HotWaterSettlementSyncScheduler.enqueue(getApplication())
                 }
@@ -588,7 +850,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         message = message,
                     )
                     store.saveHistory(history)
-                    _history.value = store.loadHistory()
                     // 触发失败反馈
                     _feedbackEvent.value = FeedbackEvent(
                         type = FeedbackEvent.FeedbackType.ERROR,
@@ -630,9 +891,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (operationGenerationAtClose != operationGeneration) return@launch
 
                 result.snapshot?.let { _snapshot.value = it }
-                _history.value = store.loadHistory()
                 syncNotificationState()
                 if (store.loadPendingSettlements().none { it.historyId == historyId }) {
+                    if (serverBills.value.loaded) loadServerBills(serverBills.value.query, force = true)
                     return@launch
                 }
             }
@@ -640,6 +901,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showCredentialExpiryPrompt() {
+        billsController.clear()
+        cancelNearbyPairing()
+        stopNearbyScan()
         activeStateSyncJob?.cancel()
         activeStateSyncJob = null
         store.markCredentialsExpired()
@@ -747,8 +1011,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    override fun onCleared() {
+        stopNearbyScan()
+        super.onCleared()
+    }
+
     companion object {
         private const val LOW_BALANCE_WARNING_YUAN = 5.0
+        private const val SMS_CODE_COOLDOWN_SECONDS = 60
         private const val ACTIVE_STATE_SYNC_INTERVAL_MS = 30_000L
         private val POST_CLOSE_SYNC_DELAYS_MS = longArrayOf(
             350L,

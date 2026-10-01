@@ -1613,12 +1613,37 @@ class HotWaterRepositoryTest {
         assertEquals(1.25, HotWaterPayload.consumptionYuanIncludingZero(payload) ?: -1.0, 0.001)
     }
 
+    @Test
+    fun staleDeviceRequestsCannotControlAfterSwitchEvenWhenReadingTheNewGeneration() = runBlocking {
+        val api = FakeHotWaterApi(balanceResponses = emptyList(), statusResponses = emptyList())
+        val store = FakeSessionStore(orderNo = "new-device-order")
+        store.configCurrent = false
+        val repository = HotWaterRepository(api, store)
+        assertTrue(runCatching { repository.open(completeConfig, pollDelayMs = 0) }.exceptionOrNull() is CancellationException)
+        assertTrue(runCatching { repository.close(completeConfig, pollDelayMs = 0) }.exceptionOrNull() is CancellationException)
+        assertEquals(0, api.openCalls)
+        assertEquals(0, api.closeCalls)
+        assertEquals("new-device-order", store.loadOrderNo())
+    }
+
+    @Test
+    fun aRefreshChecksIdentityAgainAfterWaitingForDeviceControl() = runBlocking {
+        val store = FakeSessionStore(orderNo = "new-device-order")
+        val api = FakeHotWaterApi(balanceResponses = emptyList(), statusResponses = emptyList(),
+            onUserInfoRequest = { store.configCurrent = false })
+        val result = runCatching { HotWaterRepository(api, store).check(completeConfig) }
+        assertTrue(result.exceptionOrNull() is CancellationException)
+        assertEquals("new-device-order", store.loadOrderNo())
+    }
+
     private class FakeSessionStore(
         private var orderNo: String? = null,
         var usageSession: UsageSession? = null,
         pendingSettlements: List<PendingSettlement> = emptyList(),
     ) : HotWaterSessionStore {
         var stateGeneration: Long = 0L
+        var configCurrent = true
+        override fun isConfigCurrent(config: HotWaterConfig): Boolean = configCurrent
         val pendingSettlements = pendingSettlements
             .map { pending ->
                 if (pending.stateGeneration == -1L) pending.copy(stateGeneration = stateGeneration) else pending

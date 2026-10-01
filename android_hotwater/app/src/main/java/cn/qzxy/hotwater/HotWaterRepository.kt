@@ -54,11 +54,13 @@ class HotWaterRepository(
 ) {
     suspend fun check(config: HotWaterConfig): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
+        if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
         val stateGeneration = store.loadStateGeneration()
         // Probe authentication before entering the device workflow lock so an in-flight close
         // does not hide credential expiry behind a potentially long device request.
         val userInfo = api.userInfo(config)
         DEVICE_CONTROL_MUTEX.withLock {
+            if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
             reconcilePendingSettlements(config, stateGeneration)
             val refreshedSnapshot = refreshSnapshot(
                 config,
@@ -101,6 +103,7 @@ class HotWaterRepository(
         pollDelayMs: Long,
     ): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
+        if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
         val stateGeneration = store.loadStateGeneration()
         reconcilePendingSettlements(config, stateGeneration)
 
@@ -353,6 +356,7 @@ class HotWaterRepository(
         settlementRefreshDelayMs: Long,
     ): OperationResult = withContext(Dispatchers.IO) {
         require(config.isComplete()) { "Please complete all required config fields first." }
+        if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
         val stateGeneration = store.loadStateGeneration()
 
         val usageSession = store.loadUsageSession()
@@ -1447,6 +1451,7 @@ class HotWaterRepository(
             "onlineStatus",
             "tcpDeviceOnline",
         )
+        internal suspend fun <T> withDeviceControl(block: suspend () -> T): T = DEVICE_CONTROL_MUTEX.withLock { block() }
         private val DEVICE_CONTROL_MUTEX = Mutex()
         private val SETTLEMENT_RECONCILIATION_MUTEX = Mutex()
     }

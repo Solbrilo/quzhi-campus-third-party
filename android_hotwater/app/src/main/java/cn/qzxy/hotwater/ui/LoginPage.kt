@@ -46,7 +46,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.qzxy.hotwater.QzxyLoginProtocol
+import cn.qzxy.hotwater.QzxyLoginMethod
 import cn.qzxy.hotwater.QzxyLoginState
+import cn.qzxy.hotwater.SmsCodeState
 import cn.qzxy.hotwater.designsystem.component.GlassButton
 import cn.qzxy.hotwater.designsystem.component.GlassInput
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
@@ -58,7 +61,10 @@ import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 fun LoginPage(
     initialTelephone: String,
     loginState: QzxyLoginState,
-    onLogin: (String, String) -> Unit,
+    smsCodeState: SmsCodeState = SmsCodeState(),
+    onLogin: (QzxyLoginMethod, String, String) -> Unit,
+    onSendVerificationCode: (String) -> Unit = {},
+    onCredentialsChanged: () -> Unit = {},
     onBack: () -> Unit,
     onSkip: (() -> Unit)? = null,
     showBackButton: Boolean = true,
@@ -67,7 +73,18 @@ fun LoginPage(
     val focusManager = LocalFocusManager.current
     var telephone by rememberSaveable(initialTelephone) { mutableStateOf(initialTelephone) }
     var password by remember { mutableStateOf("") }
+    var smsCode by remember { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var smsMode by rememberSaveable { mutableStateOf(true) }
+
+    fun submit() {
+        focusManager.clearFocus()
+        onLogin(
+            if (smsMode) QzxyLoginMethod.SMS else QzxyLoginMethod.PASSWORD,
+            telephone.trim(),
+            if (smsMode) smsCode else password,
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -93,117 +110,136 @@ fun LoginPage(
                         onClick = onBack,
                         material = GlassMaterial.Control,
                         cornerRadius = 24.dp,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .semantics { contentDescription = "返回" },
+                        modifier = Modifier.size(48.dp).semantics { contentDescription = "返回" },
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = null,
-                            tint = tokens.textPrimary,
-                        )
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, null, tint = tokens.textPrimary)
                     }
                 }
                 Column(modifier = Modifier.padding(start = if (showBackButton) 16.dp else 0.dp)) {
-                    Text(
-                        text = "登录趣智校园",
-                        color = tokens.textPrimary,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "连接你的校园账号",
-                        color = tokens.textSecondary,
-                        fontSize = 14.sp,
-                    )
+                    Text("登录趣智校园", color = tokens.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                    Text("连接你的校园账号", color = tokens.textSecondary, fontSize = 14.sp)
                 }
             }
 
             Spacer(modifier = Modifier.height(28.dp))
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassMaterial(GlassMaterial.Panel, 24.dp)
-                    .padding(20.dp),
+                modifier = Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(20.dp),
             ) {
-                GlassInput(
-                    value = telephone,
-                    onValueChange = { telephone = it },
-                    label = "手机号",
-                    placeholder = "趣智校园手机号",
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Phone,
-                        imeAction = ImeAction.Next,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                    ),
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                GlassInput(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = "密码",
-                    placeholder = "趣智校园密码",
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            focusManager.clearFocus()
-                            if (telephone.isNotBlank() && password.isNotBlank() && !loginState.loading) {
-                                onLogin(telephone.trim(), password)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    LoginMethodButton(
+                        text = "验证码登录",
+                        selected = smsMode,
+                        onClick = {
+                            if (!smsMode) {
+                                onCredentialsChanged()
+                                smsMode = true
+                                password = ""
                             }
                         },
-                    ),
-                    visualTransformation = if (passwordVisible) {
-                        VisualTransformation.None
-                    } else {
-                        PasswordVisualTransformation()
+                        modifier = Modifier.weight(1f),
+                    )
+                    LoginMethodButton(
+                        text = "密码登录",
+                        selected = !smsMode,
+                        onClick = {
+                            if (smsMode) {
+                                onCredentialsChanged()
+                                smsMode = false
+                                smsCode = ""
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                GlassInput(
+                    value = telephone,
+                    onValueChange = {
+                        onCredentialsChanged()
+                        telephone = it.filter(Char::isDigit).take(11)
+                        smsCode = ""
                     },
-                    trailingContent = {
-                        GlassPressable(
-                            onClick = { passwordVisible = !passwordVisible },
-                            material = GlassMaterial.EmbeddedControl,
-                            cornerRadius = 18.dp,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .semantics {
+                    label = "手机号",
+                    placeholder = "趣智校园手机号",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                if (smsMode) {
+                    GlassInput(
+                        value = smsCode,
+                        onValueChange = { onCredentialsChanged(); smsCode = it.filter(Char::isDigit).take(6) },
+                        label = "短信验证码",
+                        placeholder = "请输入验证码",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { if (!loginState.loading) submit() }),
+                        trailingContentWidth = 104.dp,
+                        trailingContent = {
+                            GlassPressable(
+                                onClick = { onSendVerificationCode(telephone.trim()) },
+                                enabled = !loginState.loading && !smsCodeState.loading && smsCodeState.remainingSeconds == 0 &&
+                                    QzxyLoginProtocol.isValidTelephone(telephone),
+                                material = GlassMaterial.EmbeddedControl,
+                                cornerRadius = 16.dp,
+                                modifier = Modifier.height(40.dp),
+                            ) {
+                                Text(
+                                    text = when {
+                                        smsCodeState.loading -> "发送中"
+                                        smsCodeState.remainingSeconds > 0 -> "${smsCodeState.remainingSeconds}s"
+                                        else -> "获取验证码"
+                                    },
+                                    color = if (smsCodeState.remainingSeconds == 0) tokens.accentPrimary else tokens.textTertiary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                )
+                            }
+                        },
+                    )
+                    if (smsCodeState.message.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(smsCodeState.message, color = tokens.accentError, fontSize = 13.sp)
+                    }
+                } else {
+                    GlassInput(
+                        value = password,
+                        onValueChange = { onCredentialsChanged(); password = it },
+                        label = "密码",
+                        placeholder = "趣智校园密码",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { if (!loginState.loading) submit() }),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingContent = {
+                            GlassPressable(
+                                onClick = { passwordVisible = !passwordVisible },
+                                material = GlassMaterial.EmbeddedControl,
+                                cornerRadius = 18.dp,
+                                modifier = Modifier.size(40.dp).semantics {
                                     contentDescription = if (passwordVisible) "隐藏密码" else "显示密码"
                                 },
-                        ) {
-                            Icon(
-                                imageVector = if (passwordVisible) {
-                                    Icons.Outlined.VisibilityOff
-                                } else {
-                                    Icons.Outlined.Visibility
-                                },
-                                contentDescription = null,
-                                tint = tokens.textSecondary,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    },
-                )
-
-                if (loginState.message.isNotBlank() && !loginState.success) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = loginState.message,
-                        color = tokens.accentError,
-                        fontSize = 13.sp,
+                            ) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = null,
+                                    tint = tokens.textSecondary,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                        },
                     )
                 }
 
+                if (loginState.message.isNotBlank() && !loginState.success) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(loginState.message, color = tokens.accentError, fontSize = 13.sp)
+                }
                 Spacer(modifier = Modifier.height(18.dp))
                 GlassButton(
                     text = if (loginState.loading) "正在登录" else "登录",
-                    onClick = {
-                        focusManager.clearFocus()
-                        onLogin(telephone.trim(), password)
-                    },
-                    enabled = !loginState.loading && telephone.isNotBlank() && password.isNotBlank(),
+                    onClick = ::submit,
+                    enabled = !loginState.loading && telephone.isNotBlank() &&
+                        (if (smsMode) smsCode.length == 6 && QzxyLoginProtocol.isValidTelephone(telephone) else password.isNotBlank()),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (onSkip != null) {
@@ -213,26 +249,42 @@ fun LoginPage(
                         enabled = !loginState.loading,
                         material = GlassMaterial.EmbeddedControl,
                         cornerRadius = 20.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp),
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
                     ) {
-                        Text(
-                            text = "跳过登录",
-                            color = tokens.textSecondary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                        Text("跳过登录", color = tokens.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
                 Text(
-                    text = "密码只用于本次登录，不会保存在设备中。",
+                    text = if (smsMode) "验证码只用于本次登录；未注册的手机号将由趣智校园创建账号。" else "密码只用于本次登录，不会保存在设备中。",
                     color = tokens.textTertiary,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }
-
         }
+    }
+}
+
+@Composable
+private fun LoginMethodButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalGlassTokens.current
+    GlassPressable(
+        onClick = onClick,
+        selected = selected,
+        material = if (selected) GlassMaterial.Control else GlassMaterial.EmbeddedControl,
+        cornerRadius = 14.dp,
+        modifier = modifier.height(42.dp),
+    ) {
+        Text(
+            text = text,
+            color = if (selected) tokens.accentPrimary else tokens.textSecondary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }

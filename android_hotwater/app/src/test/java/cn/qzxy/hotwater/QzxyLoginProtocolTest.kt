@@ -105,4 +105,35 @@ class QzxyLoginProtocolTest {
         assertTrue(error is IOException)
         assertEquals("用户名或密码不正确（错误码 401）", error?.message)
     }
+    @Test
+    fun `sms request contains only verification credentials and matches reference protocol`() {
+        val credentials = QzxyLoginCredentials(
+            telephone = " 13800138000 ", smsCode = " 123456 ",
+            method = QzxyLoginMethod.SMS, version = QZXY_SMS_LOGIN_CLIENT_VERSION,
+        )
+        val body = QzxyLoginProtocol.buildSmsLoginRequestBody(credentials)
+        val fields = (0 until body.size).associate { body.name(it) to body.value(it) }
+        assertEquals("13800138000", fields["telephone"])
+        assertEquals("123456", fields["smsCode"])
+        assertEquals("5", fields["type"])
+        assertEquals("6.5.24", fields["version"])
+        assertTrue("password" !in fields)
+        assertEquals("f000554d9cb90c44bd0ae2ded9a847aa", QzxyLoginProtocol.smsSecret("13800138000"))
+    }
+
+    @Test
+    fun `sms login uses requested phone when service omits telephone`() {
+        val response = JSONObject("""{"success":true,"data":{"userId":2,"loginCode":"test-session",
+            "userAccount":{"projectId":3,"accountId":4}}}""")
+        assertEquals("13800138000", QzxyLoginProtocol.parseResponse(response, "13800138000").auth.telephone)
+        assertTrue(runCatching { QzxyLoginProtocol.parseResponse(response) }.isFailure)
+    }
+
+    @Test
+    fun `invalid sms inputs fail locally`() {
+        assertTrue(runCatching { QzxyLoginProtocol.smsSecret("abcdefghijk") }.isFailure)
+        assertTrue(runCatching { QzxyLoginProtocol.buildSmsLoginRequestBody(
+            QzxyLoginCredentials(telephone = "13800138000", smsCode = "12")) }.isFailure)
+    }
+
 }

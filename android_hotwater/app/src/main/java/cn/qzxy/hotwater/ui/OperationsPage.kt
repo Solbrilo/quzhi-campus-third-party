@@ -60,6 +60,7 @@ fun OperationsPage(
     onToggle: () -> Unit,
     onRefreshBalance: () -> Unit,
     onOpenRecharge: () -> Unit,
+    onOpenNearbyDevices: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
 
@@ -74,6 +75,7 @@ fun OperationsPage(
                 busy = busy,
                 onRefreshBalance = onRefreshBalance,
                 onOpenRecharge = onOpenRecharge,
+                onOpenNearbyDevices = onOpenNearbyDevices,
             )
         }
 
@@ -130,6 +132,7 @@ private fun BalanceCard(
     busy: Boolean,
     onRefreshBalance: () -> Unit,
     onOpenRecharge: () -> Unit,
+    onOpenNearbyDevices: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
 
@@ -198,11 +201,26 @@ private fun BalanceCard(
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = "设备：${snapshot?.deviceName ?: "热水设备待刷新"}",
-            color = tokens.textSecondary,
-            fontSize = 11.sp
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "设备：${snapshot?.deviceName ?: "热水设备待刷新"}",
+                color = tokens.textSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f),
+            )
+            GlassPressable(
+                onClick = onOpenNearbyDevices,
+                enabled = !busy,
+                material = GlassMaterial.EmbeddedControl,
+                cornerRadius = 12.dp,
+                modifier = Modifier.height(44.dp),
+            ) {
+                Text("切换设备", color = tokens.accentPrimary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp))
+            }
+        }
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = "账号：${snapshot?.userLabel ?: "未填写账号"}",

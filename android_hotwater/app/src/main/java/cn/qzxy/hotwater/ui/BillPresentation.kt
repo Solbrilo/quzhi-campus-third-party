@@ -1,11 +1,8 @@
 package cn.qzxy.hotwater.ui
 
-import cn.qzxy.hotwater.HotWaterPayload
-import cn.qzxy.hotwater.OperationHistory
+import cn.qzxy.hotwater.ServerBill
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.time.Instant
-import java.time.ZoneId
 
 internal enum class BillScope {
     YEAR,
@@ -18,7 +15,7 @@ internal enum class BillGrouping {
 }
 
 internal data class BillEntry(
-    val history: OperationHistory,
+    val bill: ServerBill,
     val endedAtMillis: Long,
     val year: Int,
     val month: Int,
@@ -29,7 +26,6 @@ internal data class BillSummary(
     val settledCount: Int,
     val pendingCount: Int,
     val totalMilliYuan: Long,
-    val totalDurationMillis: Long,
 )
 
 internal data class BillGroup(
@@ -39,30 +35,10 @@ internal data class BillGroup(
     val summary: BillSummary,
 )
 
-internal fun buildBillEntries(
-    history: List<OperationHistory>,
-    zoneId: ZoneId = ZoneId.systemDefault(),
-): List<BillEntry> {
-    return history.asSequence()
-        .filter { it.type == OperationHistory.OperationType.CLOSE && it.success }
-        .mapNotNull { record ->
-            if (record.timestamp <= 0L) return@mapNotNull null
-            val dateTime = runCatching {
-                Instant.ofEpochMilli(record.timestamp).atZone(zoneId)
-            }.getOrNull() ?: return@mapNotNull null
-            BillEntry(
-                history = record,
-                endedAtMillis = record.timestamp,
-                year = dateTime.year,
-                month = dateTime.monthValue,
-            )
-        }
-        .sortedWith(
-            compareByDescending<BillEntry> { it.endedAtMillis }
-                .thenByDescending { it.history.id },
-        )
-        .toList()
-}
+internal fun buildBillEntries(bills: List<ServerBill>): List<BillEntry> = bills
+    .distinctBy { it.id }
+    .map { BillEntry(it, it.timestamp ?: 0L, it.period.year, it.period.monthValue) }
+    .sortedWith(compareByDescending<BillEntry> { it.year }.thenByDescending { it.month }.thenByDescending { it.endedAtMillis })
 
 internal fun filterBillEntries(
     entries: List<BillEntry>,
@@ -107,11 +83,9 @@ internal fun summarizeBillEntries(entries: List<BillEntry>): BillSummary {
     var settledCount = 0
     var pendingCount = 0
     var totalMilliYuan = 0L
-    var totalDurationMillis = 0L
 
     entries.forEach { entry ->
-        val milliYuan = entry.history.consumptionYuan
-            ?.let(HotWaterPayload::toMilliYuan)
+        val milliYuan = entry.bill.amountMilliYuan
             ?.takeIf { it >= 0L }
         if (milliYuan == null) {
             pendingCount += 1
@@ -119,10 +93,6 @@ internal fun summarizeBillEntries(entries: List<BillEntry>): BillSummary {
             settledCount += 1
             totalMilliYuan = saturatingAdd(totalMilliYuan, milliYuan)
         }
-        totalDurationMillis = saturatingAdd(
-            totalDurationMillis,
-            (entry.history.usageDurationMillis ?: 0L).coerceAtLeast(0L),
-        )
     }
 
     return BillSummary(
@@ -130,7 +100,6 @@ internal fun summarizeBillEntries(entries: List<BillEntry>): BillSummary {
         settledCount = settledCount,
         pendingCount = pendingCount,
         totalMilliYuan = totalMilliYuan,
-        totalDurationMillis = totalDurationMillis,
     )
 }
 
@@ -142,18 +111,6 @@ internal fun formatBillAmount(totalMilliYuan: Long): String {
             .movePointLeft(3)
             .setScale(2, RoundingMode.HALF_UP)
         "¥$yuan"
-    }
-}
-
-internal fun formatBillDuration(durationMillis: Long): String {
-    val totalSeconds = (durationMillis / 1_000L).coerceAtLeast(0L)
-    val hours = totalSeconds / 3_600L
-    val minutes = (totalSeconds % 3_600L) / 60L
-    val seconds = totalSeconds % 60L
-    return if (hours > 0L) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%02d:%02d".format(minutes, seconds)
     }
 }
 

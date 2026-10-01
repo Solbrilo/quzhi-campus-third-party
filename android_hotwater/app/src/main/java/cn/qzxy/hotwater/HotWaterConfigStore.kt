@@ -32,6 +32,7 @@ data class PendingSettlement(
 private const val UNASSIGNED_STATE_GENERATION = -1L
 
 interface HotWaterSessionStore {
+    fun isConfigCurrent(config: HotWaterConfig): Boolean
     fun loadStateGeneration(): Long
     fun loadOrderNo(): String?
     fun saveOrderNo(orderNo: String)
@@ -146,6 +147,11 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
                 .remove(KEY_REQUIRES_REAUTHENTICATION)
                 .apply()
         }
+    }
+
+    override fun isConfigCurrent(config: HotWaterConfig): Boolean = synchronized(PERSISTED_STATE_LOCK) {
+        val current = loadConfig()
+        !current.hasDifferentIdentityFrom(config) && current.loginCode == config.loginCode
     }
 
     override fun loadStateGeneration(): Long = synchronized(PERSISTED_STATE_LOCK) {

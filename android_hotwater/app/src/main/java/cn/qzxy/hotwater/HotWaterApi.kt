@@ -19,6 +19,8 @@ import kotlin.coroutines.resumeWithException
 interface HotWaterRemoteDataSource {
     suspend fun userInfo(config: HotWaterConfig): JSONObject
     suspend fun deviceInfo(config: HotWaterConfig): JSONObject
+    suspend fun deviceInfoForMac(config: HotWaterConfig, macAddress: String): JSONObject =
+        deviceInfo(config.copy(snCode = macAddress))
     suspend fun balance(config: HotWaterConfig): JSONObject
     suspend fun status(config: HotWaterConfig): JSONObject
     suspend fun openHotWater(config: HotWaterConfig): JSONObject
@@ -28,7 +30,7 @@ interface HotWaterRemoteDataSource {
     suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject
 }
 
-class HotWaterApi : HotWaterRemoteDataSource {
+class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource {
     companion object {
         private const val BASE_URL = "https://v3-api.china-qzxy.cn"
 
@@ -56,11 +58,17 @@ class HotWaterApi : HotWaterRemoteDataSource {
         )
     }
 
-    override suspend fun deviceInfo(config: HotWaterConfig): JSONObject {
+    override suspend fun deviceInfo(config: HotWaterConfig): JSONObject =
+        deviceInfoForMac(config, config.snCode)
+
+    override suspend fun deviceInfoForMac(
+        config: HotWaterConfig,
+        macAddress: String,
+    ): JSONObject {
         return get(
             "/device/info/mac",
             baseQuery(config) + mapOf(
-                "macAddress" to config.snCode,
+                "macAddress" to macAddress,
                 "phoneSystem" to config.phoneSystem.ifBlank { "Android" },
                 "version" to config.version.ifBlank { "0.0.1" },
             ),
@@ -107,6 +115,19 @@ class HotWaterApi : HotWaterRemoteDataSource {
 
     override suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject {
         return postForm("/order/consumeOrder/result/query", buildForm(config, orderNo))
+    }
+
+    override suspend fun billList(config: HotWaterConfig, month: String): JSONObject {
+        return get(
+            "/order/query/account/bill/list",
+            baseQuery(config) + mapOf(
+                "month" to month,
+                "billRequestType" to 2,
+                "telPhone" to config.telephone,
+                "phoneSystem" to config.phoneSystem.ifBlank { "android" },
+                "version" to config.version.ifBlank { QZXY_LOGIN_CLIENT_VERSION },
+            ),
+        )
     }
 
     private suspend fun get(endpoint: String, query: Map<String, Any>): JSONObject {
