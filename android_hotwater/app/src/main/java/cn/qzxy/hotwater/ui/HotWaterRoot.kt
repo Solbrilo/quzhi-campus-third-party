@@ -23,12 +23,14 @@ import cn.qzxy.hotwater.AppUpdateManager
 import cn.qzxy.hotwater.HotWaterConfig
 import cn.qzxy.hotwater.MainViewModel
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
+import cn.qzxy.hotwater.designsystem.theme.ThemePalette
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 
 private enum class RootScreen {
     MAIN,
     LOGIN,
     CONFIG_SCANNER,
+    DEVICE_SCANNER,
     ONBOARDING_QUOTE,
     ONBOARDING_LOGIN,
     ONBOARDING_SCANNER,
@@ -63,6 +65,9 @@ fun HotWaterRoot(
     updateManager: AppUpdateManager,
     onboardingRequired: Boolean,
     onOnboardingCompleted: () -> Unit,
+    startupOverlayVisible: Boolean = false,
+    themePalette: ThemePalette = ThemePalette.SKY,
+    onThemePaletteChange: (ThemePalette) -> Unit = {},
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     glassIntensity: Float,
@@ -133,13 +138,13 @@ fun HotWaterRoot(
         snCodeSaveState.success,
         snCodeSaveState.message,
     ) {
-        if (rootScreen != RootScreen.ONBOARDING_SCANNER || snCodeSaveState.loading) {
+        if (rootScreen !in listOf(RootScreen.ONBOARDING_SCANNER, RootScreen.DEVICE_SCANNER) || snCodeSaveState.loading) {
             return@LaunchedEffect
         }
         when {
             snCodeSaveState.success -> {
                 viewModel.clearSnCodeSaveState()
-                rootScreen = RootScreen.ONBOARDING_COMPLETE
+                rootScreen = if (rootScreen == RootScreen.DEVICE_SCANNER) RootScreen.MAIN else RootScreen.ONBOARDING_COMPLETE
             }
             snCodeSaveState.message.isNotBlank() -> onboardingScanResetKey++
         }
@@ -151,7 +156,7 @@ fun HotWaterRoot(
         if (rootScreen == RootScreen.LOGIN && credentialExpired) {
             return@BackHandler
         }
-        if (rootScreen == RootScreen.ONBOARDING_SCANNER && onboardingScanSaving) {
+        if (rootScreen in listOf(RootScreen.ONBOARDING_SCANNER, RootScreen.DEVICE_SCANNER) && onboardingScanSaving) {
             return@BackHandler
         }
         if (rootScreen == RootScreen.ONBOARDING_SCANNER) {
@@ -160,7 +165,7 @@ fun HotWaterRoot(
         if (rootScreen == RootScreen.ONBOARDING_NEARBY) viewModel.cancelNearbyPairing()
         val leavingLogin = rootScreen == RootScreen.LOGIN || rootScreen == RootScreen.ONBOARDING_LOGIN
         rootScreen = when (rootScreen) {
-            RootScreen.LOGIN, RootScreen.CONFIG_SCANNER -> RootScreen.MAIN
+            RootScreen.LOGIN, RootScreen.CONFIG_SCANNER, RootScreen.DEVICE_SCANNER -> RootScreen.MAIN
             RootScreen.ONBOARDING_LOGIN -> RootScreen.ONBOARDING_QUOTE
             RootScreen.ONBOARDING_SCANNER -> RootScreen.ONBOARDING_NEARBY
             RootScreen.ONBOARDING_NEARBY -> RootScreen.ONBOARDING_LOGIN
@@ -197,6 +202,8 @@ fun HotWaterRoot(
                 RootScreen.MAIN -> HotWaterApp(
                     viewModel = viewModel,
                     updateManager = updateManager,
+                    startupOverlayVisible = startupOverlayVisible,
+                    themePalette = themePalette, onThemePaletteChange = onThemePaletteChange,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
                     glassIntensity = glassIntensity,
@@ -214,6 +221,10 @@ fun HotWaterRoot(
                         rootScreen = RootScreen.LOGIN
                     },
                     onScanSnCode = { rootScreen = RootScreen.CONFIG_SCANNER },
+                    onAddDeviceByQr = {
+                        viewModel.clearSnCodeSaveState()
+                        rootScreen = RootScreen.DEVICE_SCANNER
+                    },
                     scannedSnCode = pendingConfigSnCode,
                     onScannedSnCodeConsumed = { pendingConfigSnCode = null },
                 )
@@ -309,7 +320,7 @@ fun HotWaterRoot(
                     },
                 )
 
-                RootScreen.ONBOARDING_SCANNER -> QrScannerPage(
+                RootScreen.ONBOARDING_SCANNER, RootScreen.DEVICE_SCANNER -> QrScannerPage(
                     title = "绑定你的热水器",
                     allowManualSnCodeEntry = true,
                     scanResetKey = onboardingScanResetKey,
@@ -318,7 +329,7 @@ fun HotWaterRoot(
                     bindingError = snCodeSaveState.message,
                     onBack = {
                         viewModel.clearSnCodeSaveState()
-                        rootScreen = RootScreen.ONBOARDING_NEARBY
+                        rootScreen = if (screen == RootScreen.DEVICE_SCANNER) RootScreen.MAIN else RootScreen.ONBOARDING_NEARBY
                     },
                     onScanned = { snCode ->
                         if (onboardingScanSaving) return@QrScannerPage

@@ -51,8 +51,10 @@ enum class OperationOutcome {
 class HotWaterRepository(
     private val api: HotWaterRemoteDataSource,
     private val store: HotWaterSessionStore,
+    private val expectedStateGeneration: Long? = null,
 ) {
     suspend fun check(config: HotWaterConfig): OperationResult = withContext(Dispatchers.IO) {
+        expectedStateGeneration?.let(::ensureStateGeneration)
         require(config.isComplete()) { "Please complete all required config fields first." }
         if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
         val stateGeneration = store.loadStateGeneration()
@@ -102,6 +104,7 @@ class HotWaterRepository(
         pollAttempts: Int,
         pollDelayMs: Long,
     ): OperationResult = withContext(Dispatchers.IO) {
+        expectedStateGeneration?.let(::ensureStateGeneration)
         require(config.isComplete()) { "Please complete all required config fields first." }
         if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
         val stateGeneration = store.loadStateGeneration()
@@ -210,8 +213,6 @@ class HotWaterRepository(
         var finalOpenResult: JSONObject? = null
         var busyByOtherPayload: JSONObject? = null
         var deviceOnlineOverride: Boolean? = null
-        var offlineProbeSeen = false
-        var offlineProbeOrderNo: String? = null
 
         for (index in 0 until pollAttempts) {
             ensureStateGeneration(stateGeneration)
@@ -226,26 +227,10 @@ class HotWaterRepository(
             val responseOrderNo = findNestedValue(openResult, "orderNo")
                 ?.toString()
                 ?.takeIf { it.isNotBlank() }
-            when (val probeState = openResultOnlineState(openResult, orderNo)) {
-                false -> {
-                    deviceOnlineOverride = false
-                    offlineProbeSeen = true
-                    if (offlineProbeOrderNo.isNullOrBlank()) {
-                        offlineProbeOrderNo = orderNo ?: responseOrderNo
-                    }
-                }
-                true -> {
-                    // A positive result must be a confirmed result for this request. A generic
-                    // online-looking field cannot clear an earlier communication failure.
-                    val matchesOfflineProbe = !offlineProbeSeen ||
-                        (!offlineProbeOrderNo.isNullOrBlank() &&
-                            responseOrderNo == offlineProbeOrderNo)
-                    val confirmedResult = isConfirmedOpenResult(openResult, orderNo)
-                    if (confirmedResult && matchesOfflineProbe) {
-                        deviceOnlineOverride = true
-                    }
-                }
-                null -> Unit
+            // Communication delays are pending, not proof that the heater is offline.
+            // A matching acknowledgement supersedes a transient negative probe.
+            openResultOnlineState(openResult, orderNo)?.let {
+                deviceOnlineOverride = it
             }
 
             if (isDeviceBusyByOther(openResult)) {
@@ -355,6 +340,7 @@ class HotWaterRepository(
         settlementRefreshAttempts: Int,
         settlementRefreshDelayMs: Long,
     ): OperationResult = withContext(Dispatchers.IO) {
+        expectedStateGeneration?.let(::ensureStateGeneration)
         require(config.isComplete()) { "Please complete all required config fields first." }
         if (!store.isConfigCurrent(config)) throw staleOperationCancellation()
         val stateGeneration = store.loadStateGeneration()
@@ -1362,19 +1348,14 @@ class HotWaterRepository(
         payload: JSONObject,
         expectedOrderNo: String?,
     ): Boolean? {
-        val errorCode = payload.optInt("errorCode", -1)
-        val errorMessage = payload.optString("errorMessage")
-        if (
-            isExplicitDeviceOffline(payload) ||
-            (
-                errorCode == OPEN_RESULT_NETWORK_ERROR_CODE &&
-                    errorMessage.contains(OPEN_RESULT_NETWORK_SLOW_MESSAGE)
-                )
-        ) {
-            return false
-        }
-        reportedDeviceOnlineState(payload)?.let { return it }
-        return if (isConfirmedOpenResult(payload, expectedOrderNo)) true else null
+        val responseOrderNo = payload.optJSONObject("data")?.optString("orderNo")?.trim()
+        if (!expectedOrderNo.isNullOrBlank() && !responseOrderNo.isNullOrBlank() &&
+            responseOrderNo != expectedOrderNo
+        ) return null
+        // An acknowledged order is stronger evidence than a cached online flag.
+        if (isConfirmedOpenResult(payload, expectedOrderNo)) return true
+        if (isExplicitDeviceOffline(payload)) return false
+        return reportedDeviceOnlineState(payload)?.takeIf { !it }
     }
 
     private fun isOpenResultSuccessful(
@@ -1428,10 +1409,8 @@ class HotWaterRepository(
     companion object {
         private const val DEVICE_BUSY_ERROR_CODE = 307
         private const val DEVICE_OFFLINE_ERROR_CODE = 306
-        private const val OPEN_RESULT_NETWORK_ERROR_CODE = 1
         private const val DEVICE_OFFLINE_MESSAGE = "设备不在线"
         private const val DEVICE_OFFLINE_MESSAGE_ALT = "设备离线"
-        private const val OPEN_RESULT_NETWORK_SLOW_MESSAGE = "网络通讯慢"
         private const val DEVICE_OFFLINE_STATUS_MESSAGE = "热水器不在线，请确认寝室供电后重试。"
         private const val DEVICE_BUSY_BY_OTHER_MESSAGE = "已有他人正在使用这台设备，请稍后再试。"
         private const val MIN_SETTLEMENT_REFRESH_ATTEMPTS = 2

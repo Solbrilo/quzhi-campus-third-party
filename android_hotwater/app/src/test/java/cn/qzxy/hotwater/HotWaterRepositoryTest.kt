@@ -371,7 +371,7 @@ class HotWaterRepositoryTest {
     }
 
     @Test
-    fun open_networkSlowResultMarksDeviceOfflineEvenWhenStatusRefreshSucceeds() = runBlocking {
+    fun open_networkSlowResultDoesNotMisreportOffline() = runBlocking {
         val api = FakeHotWaterApi(
             balanceResponses = listOf(balancePayload(15.0)),
             statusResponses = listOf(successPayload()),
@@ -390,18 +390,14 @@ class HotWaterRepositoryTest {
             pollDelayMs = 0L,
         )
 
-        assertEquals(false, result.snapshot?.isDeviceOnline)
-        assertEquals("热水器不在线", result.title)
-        assertEquals(OperationOutcome.WARNING, result.outcome)
-        assertEquals(
-            "热水器不在线，请确认寝室供电后重试。",
-            result.snapshot?.statusLabel,
-        )
-        assertTrue(result.summary.contains("请确认寝室供电后重试"))
+        assertNull(result.snapshot?.isDeviceOnline)
+        assertEquals(OperationOutcome.PENDING, result.outcome)
+        assertFalse(result.title.contains("不在线"))
+        assertFalse(result.summary.contains("不在线"))
     }
 
     @Test
-    fun open_networkSlowResultIsPreservedInFallbackSnapshot() = runBlocking {
+    fun open_networkSlowFallbackRemainsUnknown() = runBlocking {
         val result = HotWaterRepository(
             FakeHotWaterApi(
                 balanceResponses = listOf(balancePayload(15.0)),
@@ -422,7 +418,7 @@ class HotWaterRepositoryTest {
             pollDelayMs = 0L,
         )
 
-        assertEquals(false, result.snapshot?.isDeviceOnline)
+        assertNull(result.snapshot?.isDeviceOnline)
     }
 
     @Test
@@ -528,11 +524,11 @@ class HotWaterRepositoryTest {
                 openResultResponses = listOf(
                     JSONObject()
                         .put("success", true)
-                        .put("errorCode", 1)
+                        .put("errorCode", 306)
                         .put("errorMessage", "网络通讯慢,请稍后再试")
                         .put("data", JSONObject.NULL),
                     successPayload().apply {
-                        getJSONObject("data").put("orderNo", "order-other")
+                        getJSONObject("data").put("orderNo", "order-other").put("state", 1).put("result", 0)
                     },
                 ),
             ),
@@ -547,7 +543,7 @@ class HotWaterRepositoryTest {
     }
 
     @Test
-    fun open_unknownOrderOfflineProbeCannotBeOverwrittenByLaterSuccess() = runBlocking {
+    fun open_pendingUnknownOrderRecoversOnConfirmedSuccess() = runBlocking {
         val result = HotWaterRepository(
             FakeHotWaterApi(
                 balanceResponses = listOf(balancePayload(15.0)),
@@ -573,7 +569,38 @@ class HotWaterRepositoryTest {
             pollDelayMs = 0L,
         )
 
-        assertEquals(false, result.snapshot?.isDeviceOnline)
+        assertEquals(true, result.snapshot?.isDeviceOnline)
+    }
+
+    @Test
+    fun open_confirmationRecoversFromExplicitOfflineAndStaleOnlineFlag() = runBlocking {
+        val result = HotWaterRepository(
+            FakeHotWaterApi(
+                balanceResponses = listOf(balancePayload(15.0)),
+                statusResponses = listOf(successPayload()),
+                openResultResponses = listOf(
+                    JSONObject()
+                        .put("success", true)
+                        .put("errorCode", 306)
+                        .put("errorMessage", "网络通讯慢,请稍后再试")
+                        .put("data", JSONObject.NULL),
+                    successPayload().apply {
+                        getJSONObject("data")
+                            .put("orderNo", "order-after-offline")
+                            .put("state", 1)
+                            .put("result", 0)
+                            .put("online", false)
+                    },
+                ),
+            ),
+            FakeSessionStore(),
+        ).open(
+            config = completeConfig,
+            pollAttempts = 2,
+            pollDelayMs = 0L,
+        )
+
+        assertEquals(true, result.snapshot?.isDeviceOnline)
     }
 
     @Test

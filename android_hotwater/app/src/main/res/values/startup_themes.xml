@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Keep these names stable: Android persists the selected splash theme by name. -->
+    <style name="Theme.HotWater.Startup.Sky.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_sky_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sky_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Sky.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_sky_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sky_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Sky.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_sky_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sky_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Jade.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_jade_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_jade_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Jade.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_jade_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_jade_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Jade.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_jade_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_jade_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Iris.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_iris_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_iris_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Iris.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_iris_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_iris_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Iris.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_iris_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_iris_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Sand.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_sand_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sand_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Sand.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_sand_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sand_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Sand.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_sand_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sand_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

@@ -23,21 +23,26 @@ object HotWaterWidgetUi {
         }
 
         appWidgetIds.forEach { appWidgetId ->
-            appWidgetManager.updateAppWidget(
+            // One launcher instance must not prevent the remaining widgets updating.
+            runCatching { appWidgetManager.updateAppWidget(
                 appWidgetId,
                 buildRemoteViews(context, appWidgetManager, appWidgetId),
-            )
+            ) }
         }
     }
 
-    private fun buildRemoteViews(
+    internal fun buildRemoteViews(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
+        layoutSize: WidgetLayoutSize = widgetLayoutSize(appWidgetManager, appWidgetId),
     ): RemoteViews {
         val store = HotWaterConfigStore(context)
         val config = store.loadConfig()
-        val widgetState = store.loadWidgetState()
+        val savedState = store.loadWidgetState()
+        val widgetState = if (savedState.isBusy && !WidgetActionPolicy.isBusy(savedState)) {
+            savedState.copy(title = "请刷新状态", message = "上次操作未完成，请刷新确认。", isBusy = false, tone = "warning")
+        } else savedState
         val hasCachedOrder = !store.loadOrderNo().isNullOrBlank()
         val presentation = buildPresentation(
             context = context,
@@ -46,16 +51,20 @@ object HotWaterWidgetUi {
             hasCachedOrder = hasCachedOrder,
             usageSession = store.loadUsageSession(),
         )
-        val layoutSize = widgetLayoutSize(appWidgetManager, appWidgetId)
         val layoutId = when (layoutSize) {
             WidgetLayoutSize.COMPACT -> R.layout.widget_hotwater_compact
             WidgetLayoutSize.STANDARD -> R.layout.widget_hotwater
             WidgetLayoutSize.EXPANDED -> R.layout.widget_hotwater_expanded
         }
         val openAppIntent = openAppPendingIntent(context)
-        val canSendCommand = config.isComplete() && !presentation.isBusy
+        // Keep the action reachable: the provider debounces active work and recovers expired work.
+        val canSendCommand = config.isComplete()
 
         return RemoteViews(context.packageName, layoutId).apply {
+            setBoolean(R.id.widget_open_button, "setEnabled", true)
+            setBoolean(R.id.widget_close_button, "setEnabled", true)
+            setFloat(R.id.widget_open_button, "setAlpha", if (presentation.isBusy) 0.5f else 1f)
+            setFloat(R.id.widget_close_button, "setAlpha", if (presentation.isBusy) 0.5f else 1f)
             when (layoutSize) {
                 WidgetLayoutSize.COMPACT -> {
                     setTextViewText(R.id.widget_compact_state, presentation.status)
@@ -161,12 +170,13 @@ object HotWaterWidgetUi {
         hasCachedOrder: Boolean,
         usageSession: UsageSession?,
     ): WidgetPresentation {
-        val deviceBusyByOther = widgetState.message.contains("他人正在使用") ||
-            widgetState.title.contains("设备正在使用")
+        val deviceBusyByOther = !hasCachedOrder && (widgetState.message.contains("他人正在使用") ||
+            widgetState.title.contains("设备正在使用"))
         val status = when {
             !config.isComplete() -> "待配置"
             widgetState.isBusy -> "处理中"
             deviceBusyByOther -> "设备占用"
+            hasCachedOrder && widgetState.tone == "error" -> "待确认"
             hasCachedOrder -> "用水中"
             widgetState.tone == "error" -> "需重试"
             else -> "已就绪"
@@ -175,6 +185,7 @@ object HotWaterWidgetUi {
             !config.isComplete() -> "完成配置后即可控制热水"
             widgetState.isBusy -> "正在同步热水器状态"
             deviceBusyByOther -> "当前设备正在被其他用户使用"
+            hasCachedOrder && widgetState.tone == "error" -> "用水状态待确认"
             hasCachedOrder -> "热水正在使用"
             widgetState.tone == "error" -> "上次操作未完成"
             else -> widgetState.title.takeIf { it.isNotBlank() } ?: "热水已准备就绪"
@@ -316,7 +327,7 @@ object HotWaterWidgetUi {
     private const val EXPANDED_MIN_WIDTH_DP = 250
     private const val EXPANDED_MIN_HEIGHT_DP = 180
 
-    private enum class WidgetLayoutSize {
+    internal enum class WidgetLayoutSize {
         COMPACT,
         STANDARD,
         EXPANDED,

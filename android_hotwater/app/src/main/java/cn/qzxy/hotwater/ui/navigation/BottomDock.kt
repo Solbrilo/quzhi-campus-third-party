@@ -1,6 +1,7 @@
 package cn.qzxy.hotwater.ui.navigation
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -8,6 +9,9 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +20,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,10 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -51,11 +62,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
 import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
-import cn.qzxy.hotwater.designsystem.theme.DarkGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -69,6 +82,9 @@ private const val DockSpringStiffness = 400f
 private const val MomentumDampingRatio = 0.82f
 private const val MaxReleaseVelocityInDockWidths = 6f
 private const val BoundaryVelocityRetention = 0.3f
+private val DockHeight = 54.dp
+private val DockInset = 3.dp
+private val DockLensHeight = DockHeight - DockInset * 2
 
 @Composable
 internal fun BottomDock(
@@ -82,19 +98,30 @@ internal fun BottomDock(
     require(selectedIndex in labels.indices)
 
     val palette = LocalGlassTokens.current
-    // The dock retains its translucent finish independently of the page palette.
-    val tokens = if (palette.meshBase == DarkGlassTokens.meshBase) palette.copy(
-        floatingSurface = Color(0x486D91C4), embeddedControlSurface = Color(0x42203047),
-        borderHi = Color(0x85FFFFFF), borderLo = Color(0x337DA7DB), innerHighlight = Color(0x75FFFFFF),
-        fallbackSurface = Color(0xF226354D), outerShadow = Color(0x52070F1F),
-        textPrimary = Color(0xFFF7FAFF), textSecondary = Color(0xD6EAF2FF), accentPrimary = Color(0xFF9CC4FF),
-    ) else palette.copy(
-        floatingSurface = Color(0x78FFFFFF), embeddedControlSurface = Color(0x80FFFFFF),
-        borderHi = Color(0xE6FFFFFF), borderLo = Color(0x2E416B9A), innerHighlight = Color(0xC2FFFFFF),
-        fallbackSurface = Color(0xF8F8FBFF), outerShadow = Color(0x30466F9D),
-        textPrimary = Color(0xFF14243B), textSecondary = Color(0xD6334D6B), accentPrimary = Color(0xFF3B6FAE),
-    )
     val environment = LocalGlassEnvironment.current
+    // Record the dock surface and labels separately, never the lens that consumes them.
+    // Sources and consumers are both detached when liquid glass is unavailable or at zero.
+    val dockContent = rememberLayerBackdrop()
+    val dockSurface = rememberLayerBackdrop()
+    val lensBackdrop = rememberCombinedBackdrop(
+        environment.backgroundBackdrop ?: dockContent,
+        environment.contentBackdrop ?: dockContent,
+        dockSurface,
+        dockContent,
+    )
+    val darkFraction by animateFloatAsState(
+        if (environment.darkTheme) 1f else 0f, tween(if (environment.motionEnabled) 360 else 0),
+        label = "dockTheme",
+    )
+    // Retain the translucent finish, while tinting it with the selected palette.
+    val tokens = palette.copy(
+        floatingSurface = lerp(Color(0x78FFFFFF), palette.accentPrimary.copy(alpha = 0.28f), darkFraction),
+        embeddedControlSurface = lerp(Color(0x80FFFFFF), palette.controlSurface.copy(alpha = 0.26f), darkFraction),
+        borderHi = lerp(Color(0xE6FFFFFF), Color(0x85FFFFFF), darkFraction),
+        borderLo = palette.accentPrimary.copy(alpha = 0.19f),
+        innerHighlight = lerp(Color(0xC2FFFFFF), Color(0x75FFFFFF), darkFraction),
+        fallbackSurface = palette.fallbackSurface,
+    )
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -102,6 +129,15 @@ internal fun BottomDock(
     val scope = rememberCoroutineScope()
     var contentWidthPx by remember { mutableIntStateOf(0) }
     var isDragging by remember { mutableStateOf(false) }
+    var isPressed by remember { mutableStateOf(false) }
+    val lensExpansion by animateFloatAsState(
+        targetValue = if ((isPressed || isDragging) && environment.motionEnabled && environment.glassIntensity > 0f) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f), label = "dockLensExpansion",
+    )
+    val dockScale by animateFloatAsState(
+        targetValue = if ((isPressed || isDragging) && environment.motionEnabled) 1.018f else 1f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f), label = "dockPressScale",
+    )
     var settlingJob by remember { mutableStateOf<Job?>(null) }
     var settlingLogicalIndex by remember { mutableStateOf<Int?>(null) }
     var settlingRtl by remember { mutableStateOf<Boolean?>(null) }
@@ -153,25 +189,30 @@ internal fun BottomDock(
 
     Box(
         modifier = modifier
-            .widthIn(max = 520.dp)
-            .fillMaxWidth()
-            .height(60.dp)
-            .glassMaterial(
-                material = GlassMaterial.Floating,
-                cornerRadius = 28.dp,
-                tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
-            )
+            .widthIn(max = 440.dp)
+            .fillMaxWidth(0.86f)
+            .height(DockHeight)
+            .graphicsLayer { scaleX = dockScale; scaleY = dockScale }
             .testTag("bottom_dock"),
     ) {
+        // The glass background is a sibling, so its clip never cuts off the enlarged lens.
+        Box(Modifier.matchParentSize()
+            .then(if (environment.liquidAvailable) Modifier.layerBackdrop(dockSurface) else Modifier)
+            .glassMaterial(
+                material = GlassMaterial.Floating,
+                cornerRadius = DockHeight / 2,
+                tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
+            ))
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(6.dp)
+                .padding(DockInset)
                 .onSizeChanged { contentWidthPx = it.width }
                 .pointerInput(tabWidthPx, isRtl, environment.motionEnabled) {
                     if (tabWidthPx <= 0f) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        isPressed = true
                         val velocityTracker = VelocityTracker().apply {
                             addPosition(down.uptimeMillis, down.position)
                         }
@@ -277,6 +318,10 @@ internal fun BottomDock(
                                 }
 
                                 val intentDelta = change.position - down.position
+                                if (!dragStarted && kotlin.math.abs(intentDelta.y) > dragThresholdPx &&
+                                    kotlin.math.abs(intentDelta.y) > kotlin.math.abs(intentDelta.x)) {
+                                    break
+                                }
                                 if (!dragStarted && isBottomDockHorizontalDrag(
                                         deltaXPx = intentDelta.x,
                                         deltaYPx = intentDelta.y,
@@ -357,6 +402,7 @@ internal fun BottomDock(
                                 }
                             }
                         } finally {
+                            isPressed = false
                             finishDrag(cancelled = true)
                         }
                     }
@@ -365,6 +411,9 @@ internal fun BottomDock(
         ) {
             Box(
                 modifier = Modifier
+                    // On capable devices the lens draws above the captured labels.
+                    // The fallback keeps the labels in front for maximum readability.
+                    .zIndex(if (environment.liquidAvailable) 1f else -1f)
                     .absoluteOffset {
                         IntOffset(
                             x = (
@@ -375,18 +424,21 @@ internal fun BottomDock(
                         )
                     }
                     .fillMaxWidth(1f / BOTTOM_DOCK_TAB_COUNT)
-                    .height(48.dp)
-                    .padding(horizontal = 3.dp)
+                    .height(DockLensHeight)
                     .graphicsLayer {
-                        alpha = if (isDragging) 0.92f else 1f
                         val deformation = dropletPulse.value * environment.glassIntensity
-                        scaleX = 1f + 0.05f * deformation
-                        scaleY = 1f - 0.09f * deformation
+                        // Uniform scaling retains the capsule's curvature while it lifts.
+                        val scale = 1f + 0.24f * lensExpansion + 0.025f * deformation
+                        scaleX = scale
+                        scaleY = scale
                     }
                     .glassMaterial(
                         material = GlassMaterial.EmbeddedControl,
-                        cornerRadius = 22.dp,
-                        tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
+                        cornerRadius = DockLensHeight / 2,
+                        tokens = tokens, liquidRim = true, liquidTintScale = 0.30f - 0.18f * lensExpansion,
+                        sampleContent = true, lensExpansion = lensExpansion,
+                        backdrop = lensBackdrop, backdropBlurScale = 0f,
+                        refractionScale = lensExpansion,
                     )
                     .drawWithCache {
                         val sheen = Brush.radialGradient(
@@ -408,6 +460,7 @@ internal fun BottomDock(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(if (environment.liquidAvailable) Modifier.layerBackdrop(dockContent) else Modifier)
                     .selectableGroup(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -422,18 +475,36 @@ internal fun BottomDock(
                         selected = selected,
                         role = Role.Tab,
                         material = null,
-                        cornerRadius = 22.dp,
+                        cornerRadius = DockLensHeight / 2,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(DockLensHeight)
                             .testTag("bottom_dock_tab_$index"),
                     ) {
-                        Text(
-                            text = label,
-                            color = if (selected) tokens.accentPrimary else tokens.textSecondary,
-                            fontSize = 15.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(1.dp),
+                        ) {
+                            val tint = if (selected) tokens.accentPrimary else tokens.textSecondary
+                            Icon(
+                                imageVector = when (index) {
+                                    0 -> Icons.Outlined.WaterDrop
+                                    1 -> Icons.AutoMirrored.Outlined.ReceiptLong
+                                    else -> Icons.Outlined.Settings
+                                },
+                                contentDescription = null,
+                                tint = tint,
+                                modifier = Modifier.size(21.dp).testTag("bottom_dock_icon_$index"),
+                            )
+                            Text(
+                                text = label,
+                                color = tint,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                maxLines = 1,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            )
+                        }
                     }
                 }
             }

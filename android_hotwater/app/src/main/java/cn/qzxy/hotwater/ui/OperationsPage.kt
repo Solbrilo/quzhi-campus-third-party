@@ -11,7 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import cn.qzxy.hotwater.designsystem.theme.DarkGlassTokens
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -98,7 +98,7 @@ fun OperationsPage(
                 Box(Modifier.size(296.dp).background(tokens.powerOuterSurface, CircleShape))
                 Box(Modifier.size(266.dp).background(tokens.powerInnerSurface, CircleShape))
                 Canvas(Modifier.size(296.dp)) {
-                    val glow = if (snapshot?.hasCachedOrder == true) tokens.accentError else Color(0xFF6F97FF)
+                    val glow = if (snapshot?.hasCachedOrder == true) tokens.accentError else tokens.accentPrimary
                     drawCircle(Brush.radialGradient(
                         0f to Color.Transparent,
                         0.69f to Color.Transparent,
@@ -173,11 +173,11 @@ private fun BalanceCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                RechargeButton(onClick = onOpenRecharge)
                 RefreshButton(
                     onClick = onRefreshBalance,
                     enabled = !busy,
                 )
-                RechargeButton(onClick = onOpenRecharge)
             }
         }
 
@@ -412,14 +412,16 @@ private fun ToggleButton(
     onToggle: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
-    val dark = tokens.meshBase == DarkGlassTokens.meshBase
-    val buttonSurface = if (isCloseMode) {
+    val dark = cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment.current.darkTheme
+    val motionEnabled = cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment.current.motionEnabled
+    val buttonSurface by animateColorAsState(if (isCloseMode) {
         if (dark) Color(0xFF542B2D) else Color(0xFFFFE2DE)
-    } else if (dark) Color(0xFF172A44) else Color(0xFFEDF6FF)
-    val buttonInk = if (isCloseMode) {
+    } else androidx.compose.ui.graphics.lerp(tokens.meshBase, tokens.accentPrimary, 0.07f),
+        tween(if (motionEnabled) 260 else 0), label = "powerSurface")
+    val buttonInk by animateColorAsState(if (isCloseMode) {
         if (dark) Color(0xFFFFB4AB) else Color(0xFFB3261E)
-    } else if (dark) Color(0xFFE9F1FF) else Color(0xFF23457D)
-    val buttonRim = if (isCloseMode) tokens.accentError else Color(0xFF6F97FF)
+    } else tokens.softButtonText, tween(if (motionEnabled) 260 else 0), label = "powerInk")
+    val buttonRim = if (isCloseMode) tokens.accentError else tokens.accentPrimary
     val actionLabel = if (isCloseMode) "关闭热水" else "开启热水"
 
     GlassPressable(

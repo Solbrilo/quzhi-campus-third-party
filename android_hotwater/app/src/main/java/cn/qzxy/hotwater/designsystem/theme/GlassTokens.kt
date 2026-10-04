@@ -109,3 +109,37 @@ val LightGlassTokens = GlassTokens(
 )
 
 val LocalGlassTokens = staticCompositionLocalOf { DarkGlassTokens }
+
+internal fun lerpGlassTokens(start: GlassTokens, end: GlassTokens, fraction: Float): GlassTokens = GlassTokens(
+    meshBase = androidx.compose.ui.graphics.lerp(start.meshBase, end.meshBase, fraction),
+    backgroundStart = androidx.compose.ui.graphics.lerp(start.backgroundStart, end.backgroundStart, fraction),
+    backgroundMiddle = androidx.compose.ui.graphics.lerp(start.backgroundMiddle, end.backgroundMiddle, fraction),
+    backgroundEnd = androidx.compose.ui.graphics.lerp(start.backgroundEnd, end.backgroundEnd, fraction),
+    backgroundVignette = androidx.compose.ui.graphics.lerp(start.backgroundVignette, end.backgroundVignette, fraction),
+    grainColor = androidx.compose.ui.graphics.lerp(start.grainColor, end.grainColor, fraction),
+    panelSurface = androidx.compose.ui.graphics.lerp(start.panelSurface, end.panelSurface, fraction),
+    floatingSurface = androidx.compose.ui.graphics.lerp(start.floatingSurface, end.floatingSurface, fraction),
+    controlSurface = androidx.compose.ui.graphics.lerp(start.controlSurface, end.controlSurface, fraction),
+    embeddedControlSurface = androidx.compose.ui.graphics.lerp(start.embeddedControlSurface, end.embeddedControlSurface, fraction),
+    inputSurface = androidx.compose.ui.graphics.lerp(start.inputSurface, end.inputSurface, fraction),
+    overlaySurface = androidx.compose.ui.graphics.lerp(start.overlaySurface, end.overlaySurface, fraction),
+    pressedSurface = androidx.compose.ui.graphics.lerp(start.pressedSurface, end.pressedSurface, fraction),
+    fallbackSurface = androidx.compose.ui.graphics.lerp(start.fallbackSurface, end.fallbackSurface, fraction),
+    borderHi = androidx.compose.ui.graphics.lerp(start.borderHi, end.borderHi, fraction),
+    borderLo = androidx.compose.ui.graphics.lerp(start.borderLo, end.borderLo, fraction),
+    innerHighlight = androidx.compose.ui.graphics.lerp(start.innerHighlight, end.innerHighlight, fraction),
+    outerShadow = androidx.compose.ui.graphics.lerp(start.outerShadow, end.outerShadow, fraction),
+    textPrimary = androidx.compose.ui.graphics.lerp(start.textPrimary, end.textPrimary, fraction),
+    textSecondary = androidx.compose.ui.graphics.lerp(start.textSecondary, end.textSecondary, fraction),
+    textTertiary = androidx.compose.ui.graphics.lerp(start.textTertiary, end.textTertiary, fraction),
+    accentPrimary = androidx.compose.ui.graphics.lerp(start.accentPrimary, end.accentPrimary, fraction),
+    accentSuccess = androidx.compose.ui.graphics.lerp(start.accentSuccess, end.accentSuccess, fraction),
+    accentWarning = androidx.compose.ui.graphics.lerp(start.accentWarning, end.accentWarning, fraction),
+    accentError = androidx.compose.ui.graphics.lerp(start.accentError, end.accentError, fraction),
+    softButtonSurface = androidx.compose.ui.graphics.lerp(start.softButtonSurface, end.softButtonSurface, fraction),
+    softButtonText = androidx.compose.ui.graphics.lerp(start.softButtonText, end.softButtonText, fraction),
+    accentButtonText = androidx.compose.ui.graphics.lerp(start.accentButtonText, end.accentButtonText, fraction),
+    statusSurface = androidx.compose.ui.graphics.lerp(start.statusSurface, end.statusSurface, fraction),
+    powerOuterSurface = androidx.compose.ui.graphics.lerp(start.powerOuterSurface, end.powerOuterSurface, fraction),
+    powerInnerSurface = androidx.compose.ui.graphics.lerp(start.powerInnerSurface, end.powerInnerSurface, fraction),
+)

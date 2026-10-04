@@ -1,6 +1,8 @@
 package cn.qzxy.hotwater.designsystem.theme
 
 import android.app.Activity
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
 import android.database.ContentObserver
 import android.graphics.Color
 import android.os.Build
@@ -47,6 +49,7 @@ data class GlassEnvironment(
     val contentBackdrop: LayerBackdrop? = null,
     val floatingBackdrop: Backdrop? = null,
     val liquidAvailable: Boolean = false,
+    val darkTheme: Boolean = true,
 )
 
 private val PreviewGlassEnvironment = GlassEnvironment(
@@ -63,12 +66,14 @@ val LocalGlassEnvironment = staticCompositionLocalOf { PreviewGlassEnvironment }
 fun GlassTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
+    palette: ThemePalette = ThemePalette.SKY,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = themeMode.resolveDarkTheme(isSystemInDarkTheme())
     GlassThemeContent(
         darkTheme = darkTheme,
         glassIntensity = glassIntensity,
+        palette = palette,
         content = content,
     )
 }
@@ -94,9 +99,21 @@ fun GlassTheme(
 private fun GlassThemeContent(
     darkTheme: Boolean,
     glassIntensity: Float,
+    palette: ThemePalette = ThemePalette.SKY,
     content: @Composable () -> Unit,
 ) {
-    val tokens = if (darkTheme) DarkGlassTokens else LightGlassTokens
+    val motionEnabled = rememberMotionEnabled()
+    val targetTokens = palette.tokens(darkTheme)
+    var startTokens by remember { mutableStateOf(targetTokens) }
+    var endTokens by remember { mutableStateOf(targetTokens) }
+    val progress = remember { androidx.compose.animation.core.Animatable(1f) }
+    val tokens = lerpGlassTokens(startTokens, endTokens, progress.value)
+    LaunchedEffect(targetTokens, motionEnabled) {
+        startTokens = lerpGlassTokens(startTokens, endTokens, progress.value)
+        endTokens = targetTokens
+        progress.snapTo(if (motionEnabled) 0f else 1f)
+        if (motionEnabled) progress.animateTo(1f, tween(360))
+    }
     val normalizedGlassIntensity = sanitizeGlassIntensity(glassIntensity)
     val view = LocalView.current
     val preferOpaqueMaterials = rememberPreferOpaqueMaterials()
@@ -109,11 +126,11 @@ private fun GlassThemeContent(
     // An empty effect still records RenderNodes; it is not an off switch.
     val hazeAvailable = blurAvailable && !liquidAvailable
     val hazeState = rememberHazeState(blurEnabled = hazeAvailable)
-    val motionEnabled = rememberMotionEnabled()
     val backgroundBackdrop = rememberLayerBackdrop()
     val contentBackdrop = rememberLayerBackdrop()
     val floatingBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val environment = remember(
+        darkTheme,
         hazeState,
         blurAvailable,
         motionEnabled,
@@ -121,6 +138,7 @@ private fun GlassThemeContent(
         normalizedGlassIntensity, backgroundBackdrop, contentBackdrop, floatingBackdrop, liquidAvailable,
     ) {
         GlassEnvironment(
+            darkTheme = darkTheme,
             hazeState = hazeState,
             blurAvailable = blurAvailable,
             motionEnabled = motionEnabled,

@@ -18,9 +18,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
@@ -63,6 +65,11 @@ fun Modifier.glassMaterial(
     tokens: GlassTokens = LocalGlassTokens.current,
     liquidRim: Boolean = false,
     liquidTintScale: Float = 1f,
+    sampleContent: Boolean = false,
+    lensExpansion: Float = 0f,
+    backdrop: Backdrop? = null,
+    backdropBlurScale: Float = 1f,
+    refractionScale: Float = 1f,
 ): Modifier {
     val environment = LocalGlassEnvironment.current
     val resolved = resolveGlassMaterial(
@@ -82,24 +89,38 @@ fun Modifier.glassMaterial(
             0.35f,
         )
     }
-    val liquidBackdrop = if (material == GlassMaterial.Floating) environment.floatingBackdrop
+    val liquidBackdrop = backdrop ?: if (material == GlassMaterial.Floating || sampleContent) environment.floatingBackdrop
         else environment.backgroundBackdrop
     // The theme disables the entire capture graph at zero, including its sources.
     val surfaceModifier = if (environment.liquidAvailable && liquidBackdrop != null) {
         val intensity = environment.glassIntensity
+        val expansion = lensExpansion.coerceIn(0f, 1f)
         Modifier.drawBackdrop(
             backdrop = liquidBackdrop,
             shape = { shape },
             effects = {
                 if (intensity > 0f && size.isSpecified && size.width > 0f && size.height > 0f) {
-                    blur((1f + intensity * 5f).dp.toPx())
-                    lens((5f + intensity * 13f).dp.toPx(), (intensity * 24f).dp.toPx(),
-                        depthEffect = true, chromaticAberration = intensity > 0.85f)
+                    if (backdropBlurScale > 0f) {
+                        blur(((1f + intensity * 5f * (1f - expansion * 0.6f)) * backdropBlurScale).dp.toPx())
+                    }
+                    val refraction = refractionScale.coerceIn(0f, 1f)
+                    // Omit the lens entirely at rest, preserving the captured text geometry.
+                    if (refraction > 0f) {
+                        lens((5f + intensity * (13f + expansion * 5f)).dp.toPx(),
+                            (intensity * (24f + expansion * 12f) * refraction).dp.toPx(),
+                            depthEffect = true, chromaticAberration = intensity * refraction > 0.85f)
+                    }
                 }
             },
             highlight = if (liquidRim) ({ if (intensity > 0f) Highlight.Default else null }) else null,
             shadow = null,
-            onDrawBackdrop = { drawBackdrop -> if (intensity > 0f) drawBackdrop() },
+            onDrawBackdrop = { drawBackdrop ->
+                if (intensity > 0f) {
+                    withTransform({ scale(1f + expansion * 0.16f, 1f + expansion * 0.16f, center) }) {
+                        drawBackdrop()
+                    }
+                }
+            },
             onDrawSurface = {
                 drawRect(if (intensity > 0f) resolved.surface.withAlphaScale(liquidTintScale)
                     else if (resolved.canBlur) resolved.fallback else resolved.surface)

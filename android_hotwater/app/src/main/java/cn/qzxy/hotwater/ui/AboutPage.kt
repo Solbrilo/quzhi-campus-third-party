@@ -102,6 +102,7 @@ import cn.qzxy.hotwater.designsystem.component.GlassPressable
 import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
+import cn.qzxy.hotwater.designsystem.theme.ThemePalette
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import java.net.URL
@@ -136,6 +137,8 @@ internal fun MorePage(
     releaseNotes: List<AppReleaseNote>?,
     releaseNotesLoading: Boolean,
     releaseNotesError: String?,
+    themePalette: ThemePalette = ThemePalette.SKY,
+    onThemePaletteChange: (ThemePalette) -> Unit = {},
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     glassIntensity: Float,
@@ -232,6 +235,7 @@ internal fun MorePage(
                                 releaseNotesDialogSession += 1
                                 onLoadReleaseNotes()
                             },
+                            themePalette = themePalette, onThemePaletteChange = onThemePaletteChange,
                             themeMode = themeMode,
                             onThemeModeChange = onThemeModeChange,
                             glassIntensity = glassIntensity,
@@ -329,6 +333,8 @@ private fun MoreOverviewPage(
     checking: Boolean,
     installing: Boolean,
     onOpenReleaseNotes: () -> Unit,
+    themePalette: ThemePalette = ThemePalette.SKY,
+    onThemePaletteChange: (ThemePalette) -> Unit = {},
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     glassIntensity: Float,
@@ -488,6 +494,8 @@ private fun MoreOverviewPage(
                     fontWeight = FontWeight.Bold,
                 )
             }
+            ThemePaletteSelector(themePalette, onThemePaletteChange)
+            MoreDivider()
             GlassIntensityPanel(
                 glassIntensity = glassIntensity,
                 onGlassIntensityChange = onGlassIntensityChange,

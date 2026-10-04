@@ -101,6 +101,7 @@ import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
+import cn.qzxy.hotwater.designsystem.theme.ThemePalette
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
@@ -121,6 +122,9 @@ private enum class AppScreen(val tabIndex: Int) {
 fun HotWaterApp(
     viewModel: MainViewModel,
     updateManager: AppUpdateManager,
+    startupOverlayVisible: Boolean = false,
+    themePalette: ThemePalette = ThemePalette.SKY,
+    onThemePaletteChange: (ThemePalette) -> Unit = {},
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     glassIntensity: Float,
@@ -135,6 +139,7 @@ fun HotWaterApp(
     onClearAllUserData: () -> Unit,
     onOpenLogin: () -> Unit,
     onScanSnCode: () -> Unit,
+    onAddDeviceByQr: () -> Unit,
     scannedSnCode: String?,
     onScannedSnCodeConsumed: () -> Unit,
 ) {
@@ -367,6 +372,7 @@ fun HotWaterApp(
             viewModel = viewModel,
             currentSnCode = config.snCode,
             onDismiss = { showDevicePicker = false },
+            onScanQrCode = onAddDeviceByQr,
         )
     }
 
@@ -391,7 +397,7 @@ fun HotWaterApp(
         )
     }
 
-    if (showUpdateDialog && availableUpdate != null) {
+    if (showUpdateDialog && availableUpdate != null && !startupOverlayVisible) {
         AlertDialog(
             onDismissRequest = { showUpdateDialog = false },
             modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
@@ -562,6 +568,7 @@ fun HotWaterApp(
                             checkResult = updateCheckResult, checking = checkingUpdate,
                             installing = downloadingUpdate, releaseNotes = releaseNotes,
                             releaseNotesLoading = releaseNotesLoading, releaseNotesError = releaseNotesError,
+                            themePalette = themePalette, onThemePaletteChange = onThemePaletteChange,
                             themeMode = themeMode, onThemeModeChange = onThemeModeChange,
                             glassIntensity = glassIntensity, onGlassIntensityChange = onGlassIntensityChange,
                             onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
@@ -670,6 +677,7 @@ fun HotWaterApp(
                 releaseNotes = releaseNotes,
                 releaseNotesLoading = releaseNotesLoading,
                 releaseNotesError = releaseNotesError,
+                themePalette = themePalette, onThemePaletteChange = onThemePaletteChange,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
                 glassIntensity = glassIntensity,
@@ -757,7 +765,7 @@ fun HotWaterApp(
                 }, emphasized = true) },
                 dismissButton = { GlassDialogAction("取消", { showLogoutDialog = false }) })
         }
-        messages.announcement?.takeIf { !showMessages && !showLogoutDialog && !showUpdateDialog }?.let { notice ->
+        messages.announcement?.takeIf { !startupOverlayVisible && !showMessages && !showLogoutDialog && !showUpdateDialog }?.let { notice ->
             AlertDialog(onDismissRequest = viewModel::dismissMessageAnnouncement,
                 modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
                 containerColor = Color.Transparent, tonalElevation = 0.dp,

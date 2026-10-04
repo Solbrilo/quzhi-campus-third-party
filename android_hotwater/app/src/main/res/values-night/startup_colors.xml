@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="startup_light_bars">false</bool>
+    <color name="startup_sky_system">#0C1625</color>
+    <color name="startup_jade_system">#111E1C</color>
+    <color name="startup_iris_system">#1A1726</color>
+    <color name="startup_sand_system">#221C17</color>
+</resources>

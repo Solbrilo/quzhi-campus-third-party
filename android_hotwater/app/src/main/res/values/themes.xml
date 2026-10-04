@@ -3,7 +3,9 @@
     <style name="Theme.HotWater" parent="Theme.Material3.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:windowBackground">@color/startup_sky_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_sky_system</item>
+        <item name="android:windowDisablePreview">@bool/startup_disable_preview</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
         <item name="colorPrimary">@color/text_primary</item>
         <item name="colorOnPrimary">@android:color/white</item>

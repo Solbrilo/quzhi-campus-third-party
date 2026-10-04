@@ -15,7 +15,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
 import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
@@ -33,6 +37,65 @@ import kotlin.math.abs
 class BottomDockGlassInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun pressingEnlargesLensAndDraggingSelectsThenRestoresSize() {
+        val selected = androidx.compose.runtime.mutableIntStateOf(0)
+        composeRule.setContent {
+            GlassTheme(themeMode = ThemeMode.LIGHT) {
+                Box(Modifier.fillMaxSize()) {
+                    BottomDock(listOf("用水", "账单", "设置"), selected.intValue,
+                        onSelected = { index, _ -> selected.intValue = index }, onDragStateChanged = {},
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp))
+                }
+            }
+        }
+        val indicator = composeRule.onNodeWithTag("bottom_dock_indicator")
+        (0..2).forEach { composeRule.onNodeWithTag("bottom_dock_icon_$it", useUnmergedTree = true).assertIsDisplayed() }
+        val dockResting = composeRule.onNodeWithTag("bottom_dock").fetchSemanticsNode().boundsInRoot.width
+        val resting = indicator.fetchSemanticsNode().boundsInRoot.height
+        composeRule.onNodeWithTag("bottom_dock").performTouchInput { down(Offset(width / 6f, height / 2f)) }
+        composeRule.waitForIdle()
+        assertTrue(indicator.fetchSemanticsNode().boundsInRoot.height > resting * 1.15f)
+        assertTrue(composeRule.onNodeWithTag("bottom_dock").fetchSemanticsNode().boundsInRoot.width > dockResting * 1.01f)
+        saveReviewImage("dock-pressed", composeRule.onRoot().captureToImage())
+        composeRule.onNodeWithTag("bottom_dock").performTouchInput {
+            moveTo(Offset(width * 5f / 6f, height / 2f), delayMillis = 320)
+            up()
+        }
+        composeRule.onNodeWithTag("bottom_dock_tab_2").assertIsSelected()
+        composeRule.waitForIdle()
+        assertTrue(abs(indicator.fetchSemanticsNode().boundsInRoot.height - resting) < 1f)
+    }
+
+    @Test
+    @SdkSuppress(minSdkVersion = 33)
+    fun lensSamplesDockLabelsAbovePageContent() {
+        val labels = mutableStateOf(listOf("用水", "账单", "设置"))
+        composeRule.setContent {
+            GlassTheme(themeMode = ThemeMode.LIGHT) {
+                Box(Modifier.fillMaxSize()) {
+                    BottomDock(labels.value, 0, { _, _ -> }, {},
+                        Modifier.align(Alignment.BottomCenter).padding(20.dp))
+                }
+            }
+        }
+        composeRule.onNodeWithTag("bottom_dock").performTouchInput { down(Offset(width / 6f, height / 2f)) }
+        val original = composeRule.onNodeWithTag("bottom_dock_indicator").captureToImage().toPixels()
+        composeRule.runOnIdle { labels.value = listOf("测试文字", "账单", "设置") }
+        val changed = composeRule.onNodeWithTag("bottom_dock_indicator").captureToImage().toPixels()
+        assertTrue("The lens must include the dock's own text, not only the page", changedPixelRatio(original, changed) > 0.005)
+        composeRule.onNodeWithTag("bottom_dock").performTouchInput { up() }
+    }
+
+    private fun saveReviewImage(name: String, image: ImageBitmap) {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val bitmap = android.graphics.Bitmap.createBitmap(image.toPixels(), image.width, image.height, android.graphics.Bitmap.Config.ARGB_8888)
+        java.io.File(context.cacheDir, "$name.png").outputStream().use {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+        bitmap.recycle()
+    }
 
     @Test
     fun recordedPageAndDockSurviveRepeatedZeroIntensityTransitions() {

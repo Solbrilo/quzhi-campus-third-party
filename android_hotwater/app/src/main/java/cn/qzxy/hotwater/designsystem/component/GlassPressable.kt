@@ -5,6 +5,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -106,14 +110,24 @@ fun GlassPressable(
         )
     }
 
+    val selectionColor by animateColorAsState(
+        if (selected == true) tokens.accentPrimary.copy(alpha = 0.20f) else Color.Transparent,
+        tween(if (environment.motionEnabled) 180 else 0), label = "selectionTint",
+    )
+    val selectionBorder by animateColorAsState(
+        if (selected == true) tokens.accentPrimary.copy(alpha = 0.8f) else Color.Transparent,
+        tween(if (environment.motionEnabled) 180 else 0), label = "selectionBorder",
+    )
     val surfaceModifier = if (material != null) {
         Modifier.glassMaterial(
-            material = material,
+            material = if (selected != null) GlassMaterial.Control else material,
             cornerRadius = cornerRadius,
             pressed = isPressed && enabled,
             enabled = enabled,
             tokens = tokens,
-        )
+        ).then(if (selected != null) Modifier
+            .background(selectionColor, RoundedCornerShape(cornerRadius))
+            .border(1.5.dp, selectionBorder, RoundedCornerShape(cornerRadius)) else Modifier)
     } else {
         Modifier
             .clip(RoundedCornerShape(cornerRadius))

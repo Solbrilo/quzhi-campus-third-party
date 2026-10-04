@@ -42,17 +42,20 @@ class AccountDeviceBillScreensInstrumentedTest {
         val device = NearbyDevice("KLCXKJ-Water", "AA:BB:CC:DD:EE:FF", -55,
             NearbyDeviceBinding("AABBCCDDEEFF", "101 宿舍热水器", "1号楼 101"))
         var selected: NearbyDevice? = null
+        var scanRequested = false
         rule.setContent {
             GlassTheme(themeMode = ThemeMode.DARK) {
                 Box(Modifier.width(320.dp)) {
                     NearbyDeviceListCard(listOf(device), NearbyScanState(), NearbyPairState(), "AABBCCDDEEFF",
-                        true, {}, {}, { selected = it })
+                        true, {}, {}, { selected = it }, onScanQrCode = { scanRequested = true })
                 }
             }
         }
         rule.onNodeWithText("当前设备").assertExists()
         rule.onNodeWithText("101 宿舍热水器").performClick()
         rule.runOnIdle { assertEquals(device, selected) }
+        rule.onNodeWithContentDescription("扫码添加").performClick()
+        rule.runOnIdle { assertEquals(true, scanRequested) }
     }
 
     @Test fun billsRenderServerAmountsAndErrorsWithoutLocalDurationOrFakeZero() {

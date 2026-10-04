@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Disable the system icon/background preview, not the in-app welcome flow. -->
+    <bool name="startup_disable_preview">true</bool>
+</resources>

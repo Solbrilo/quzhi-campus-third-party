@@ -7,11 +7,13 @@ class OnboardingPreferences(context: Context) {
     private val markerFile = File(context.noBackupFilesDir, MARKER_FILE_NAME)
 
     fun shouldShowForCurrentVersion(): Boolean {
-        val completedVersionCode = runCatching {
-            markerFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
-        }.getOrNull()
+        val completedVersionCode = completedVersionCode()
         return OnboardingVersionGate.shouldShow(completedVersionCode, BuildConfig.VERSION_CODE)
     }
+
+    fun completedVersionCode(): Int? = runCatching {
+        markerFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
+    }.getOrNull()
 
     fun markCurrentVersionCompleted() {
         runCatching {

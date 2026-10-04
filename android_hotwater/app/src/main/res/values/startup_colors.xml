@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="startup_light_bars">true</bool>
+    <!-- Pre-Android 12 cannot persist a custom splash theme; skip the stale preview. -->
+    <bool name="startup_disable_preview">true</bool>
+    <color name="startup_sky_system">#EAF2FF</color>
+    <color name="startup_sky_light">#EAF2FF</color>
+    <color name="startup_sky_dark">#0C1625</color>
+    <color name="startup_jade_system">#ECF4EF</color>
+    <color name="startup_jade_light">#ECF4EF</color>
+    <color name="startup_jade_dark">#111E1C</color>
+    <color name="startup_iris_system">#F2EEFA</color>
+    <color name="startup_iris_light">#F2EEFA</color>
+    <color name="startup_iris_dark">#1A1726</color>
+    <color name="startup_sand_system">#F7F0E6</color>
+    <color name="startup_sand_light">#F7F0E6</color>
+    <color name="startup_sand_dark">#221C17</color>
+</resources>

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -175,7 +176,7 @@ fun NearbyDevicesPage(
 }
 
 @Composable
-fun NearbyDevicePickerDialog(viewModel: MainViewModel, currentSnCode: String, onDismiss: () -> Unit) {
+fun NearbyDevicePickerDialog(viewModel: MainViewModel, currentSnCode: String, onDismiss: () -> Unit, onScanQrCode: () -> Unit) {
     fun dismiss() { viewModel.cancelNearbyPairing(); viewModel.stopNearbyScan(); onDismiss() }
     Dialog(onDismissRequest = ::dismiss) {
         NearbyDiscovery(viewModel, active = true) { devices, scan, pair, busy, refresh, settings ->
@@ -191,7 +192,8 @@ fun NearbyDevicePickerDialog(viewModel: MainViewModel, currentSnCode: String, on
                 }
                 Spacer(Modifier.height(12.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                    NearbyDeviceListCard(devices, scan, pair, currentSnCode, !busy, refresh, settings, viewModel::pairNearbyDevice)
+                    NearbyDeviceListCard(devices, scan, pair, currentSnCode, !busy, refresh, settings, viewModel::pairNearbyDevice,
+                        onScanQrCode = { dismiss(); onScanQrCode() })
                 }
             }
         }
@@ -203,6 +205,7 @@ internal fun NearbyDeviceListCard(
     devices: List<NearbyDevice>, scanState: NearbyScanState, pairState: NearbyPairState,
     currentSnCode: String, canSelect: Boolean, onRefresh: () -> Unit, onSettings: () -> Unit,
     onPair: (NearbyDevice) -> Unit,
+    onScanQrCode: (() -> Unit)? = null,
 ) {
     val tokens = LocalGlassTokens.current
     Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(14.dp),
@@ -211,6 +214,13 @@ internal fun NearbyDeviceListCard(
             Icon(Icons.AutoMirrored.Outlined.BluetoothSearching, null, tint = tokens.accentPrimary, modifier = Modifier.size(22.dp))
             Text("附近设备", color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f).padding(start = 8.dp))
+            if (onScanQrCode != null) {
+                GlassPressable(onClick = onScanQrCode, enabled = canSelect && !pairState.loading,
+                    material = GlassMaterial.Control, cornerRadius = 20.dp, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Outlined.QrCodeScanner, "扫码添加", tint = tokens.accentPrimary, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+            }
             GlassPressable(onClick = onRefresh, enabled = !scanState.scanning && !pairState.loading,
                 material = GlassMaterial.EmbeddedControl, cornerRadius = 20.dp, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Outlined.Refresh, "重新扫描附近设备", tint = tokens.textPrimary, modifier = Modifier.size(20.dp))
@@ -231,6 +241,7 @@ internal fun NearbyDeviceListCard(
         devices.forEach { device ->
             val selected = currentSnCode == (device.binding?.snCode ?: device.normalizedMac)
             GlassPressable(onClick = { onPair(device) }, enabled = canSelect && !pairState.loading,
+                selected = selected,
                 material = GlassMaterial.EmbeddedControl, cornerRadius = 16.dp,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp),
                 contentPadding = PaddingValues(12.dp)) {

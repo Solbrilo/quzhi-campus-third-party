@@ -79,6 +79,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         val tone: String,
         val isBusy: Boolean,
         val updatedAtMillis: Long,
+        val requestId: String? = null,
     )
 
     /**
@@ -238,6 +239,12 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
             .remove(KEY_USAGE_START_BALANCE_BITS)
             .remove(KEY_USAGE_START_BALANCE_IS_BEFORE_PREAUTHORIZATION)
             .remove(KEY_PENDING_SETTLEMENTS)
+            .remove(KEY_WIDGET_TITLE)
+            .remove(KEY_WIDGET_MESSAGE)
+            .remove(KEY_WIDGET_TONE)
+            .remove(KEY_WIDGET_BUSY)
+            .remove(KEY_WIDGET_UPDATED_AT)
+            .remove(KEY_WIDGET_REQUEST_ID)
             .putLong(KEY_RUNTIME_STATE_GENERATION, nextGeneration)
             .apply()
     }
@@ -422,6 +429,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
             tone = prefs.getString(KEY_WIDGET_TONE, "idle").orEmpty(),
             isBusy = prefs.getBoolean(KEY_WIDGET_BUSY, false),
             updatedAtMillis = prefs.getLong(KEY_WIDGET_UPDATED_AT, 0L),
+            requestId = prefs.getString(KEY_WIDGET_REQUEST_ID, null),
         )
     }
 
@@ -431,16 +439,24 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         isBusy: Boolean,
         tone: String = "idle",
         expectedStateGeneration: Long? = null,
+        requestId: String? = null,
+        expectedRequestId: String? = null,
+        skipIfBusy: Boolean = false,
     ): Boolean = synchronized(PERSISTED_STATE_LOCK) {
         if (expectedStateGeneration != null && currentStateGeneration() != expectedStateGeneration) {
             return@synchronized false
         }
+        if (expectedRequestId != null && prefs.getString(KEY_WIDGET_REQUEST_ID, null) != expectedRequestId) {
+            return@synchronized false
+        }
+        if (skipIfBusy && WidgetActionPolicy.isBusy(loadWidgetState())) return@synchronized false
         prefs.edit()
             .putString(KEY_WIDGET_TITLE, title)
             .putString(KEY_WIDGET_MESSAGE, message)
             .putString(KEY_WIDGET_TONE, tone)
             .putBoolean(KEY_WIDGET_BUSY, isBusy)
             .putLong(KEY_WIDGET_UPDATED_AT, System.currentTimeMillis())
+            .putString(KEY_WIDGET_REQUEST_ID, requestId)
             .apply()
         true
     }
@@ -684,6 +700,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         private const val KEY_WIDGET_TONE = "widget_tone"
         private const val KEY_WIDGET_BUSY = "widget_busy"
         private const val KEY_WIDGET_UPDATED_AT = "widget_updated_at"
+        private const val KEY_WIDGET_REQUEST_ID = "widget_request_id"
         private const val KEY_HISTORY = "operation_history"
         private const val KEY_PENDING_SETTLEMENTS = "pending_settlements"
         private const val KEY_RUNTIME_STATE_GENERATION = "runtime_state_generation"

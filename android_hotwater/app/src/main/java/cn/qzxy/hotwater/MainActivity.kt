@@ -23,16 +23,23 @@ import androidx.compose.runtime.setValue
 import cn.qzxy.hotwater.designsystem.theme.DEFAULT_GLASS_INTENSITY
 import cn.qzxy.hotwater.designsystem.theme.GlassIntensityPreferences
 import cn.qzxy.hotwater.designsystem.theme.GlassTheme
+import cn.qzxy.hotwater.designsystem.theme.ThemePalette
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.ThemeModePreferences
+import cn.qzxy.hotwater.designsystem.theme.ThemePalettePreferences
+import cn.qzxy.hotwater.designsystem.theme.StartupTheme
 import cn.qzxy.hotwater.designsystem.theme.sanitizeGlassIntensity
 import cn.qzxy.hotwater.ui.HotWaterRoot
+import cn.qzxy.hotwater.ui.UpdateWelcomePage
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var updateManager: AppUpdateManager
     private lateinit var onboardingPreferences: OnboardingPreferences
-    private var onboardingRequired by mutableStateOf(true)
+    private lateinit var updateWelcomePreferences: UpdateWelcomePreferences
+    private var updateWelcomeRequired by mutableStateOf(false)
+    private var onboardingRequired by mutableStateOf(false)
+    private var themePalette by mutableStateOf(ThemePalette.SKY)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var glassIntensity by mutableFloatStateOf(DEFAULT_GLASS_INTENSITY)
     private var notificationPermissionRequested = false
@@ -71,15 +78,24 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        themePalette = ThemePalettePreferences.read(this)
+        themeMode = ThemeModePreferences.read(this)
+        setTheme(StartupTheme.resource(themePalette, themeMode))
         super.onCreate(savedInstanceState)
+        StartupTheme.sync(this, themePalette, themeMode)
         notificationPermissionRequested =
             savedInstanceState?.getBoolean(STATE_PERMISSION_REQUESTED) ?: false
         pendingOpenRequested = savedInstanceState?.getBoolean(STATE_PENDING_OPEN) ?: false
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
         onboardingPreferences = OnboardingPreferences(applicationContext)
-        onboardingRequired = onboardingPreferences.shouldShowForCurrentVersion()
-        themeMode = ThemeModePreferences.read(this)
+        updateWelcomePreferences = UpdateWelcomePreferences(applicationContext)
+        @Suppress("DEPRECATION")
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        updateWelcomeRequired = updateWelcomePreferences.shouldShow(
+            onboardingPreferences.completedVersionCode(), packageInfo.firstInstallTime, packageInfo.lastUpdateTime,
+        )
+        onboardingRequired = !updateWelcomeRequired && onboardingPreferences.shouldShowForCurrentVersion()
         glassIntensity = if (savedInstanceState?.containsKey(STATE_GLASS_INTENSITY) == true) {
             sanitizeGlassIntensity(savedInstanceState.getFloat(STATE_GLASS_INTENSITY))
         } else {
@@ -88,43 +104,64 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             GlassTheme(
+                palette = themePalette,
                 themeMode = themeMode,
                 glassIntensity = glassIntensity,
             ) {
-                HotWaterRoot(
-                    viewModel = viewModel,
-                    updateManager = updateManager,
-                    onboardingRequired = onboardingRequired,
-                    onOnboardingCompleted = {
-                        onboardingPreferences.markCurrentVersionCompleted()
-                        onboardingRequired = false
-                    },
-                    themeMode = themeMode,
-                    onThemeModeChange = { nextMode ->
-                        if (themeMode != nextMode) {
-                            themeMode = nextMode
-                            ThemeModePreferences.write(this, nextMode)
+                if (!updateWelcomeRequired) {
+                    HotWaterRoot(
+                        viewModel = viewModel,
+                        updateManager = updateManager,
+                        startupOverlayVisible = updateWelcomeRequired,
+                        onboardingRequired = onboardingRequired,
+                        onOnboardingCompleted = {
+                            onboardingPreferences.markCurrentVersionCompleted()
+                            onboardingRequired = false
+                        },
+                        themePalette = themePalette,
+                        onThemePaletteChange = { next ->
+                            themePalette = next
+                            ThemePalettePreferences.write(this, next)
+                            StartupTheme.sync(this, next, themeMode)
+                        },
+                        themeMode = themeMode,
+                        onThemeModeChange = { nextMode ->
+                            if (themeMode != nextMode) {
+                                themeMode = nextMode
+                                ThemeModePreferences.write(this, nextMode)
+                                StartupTheme.sync(this, themePalette, nextMode)
+                            }
+                        },
+                        glassIntensity = glassIntensity,
+                        onGlassIntensityChange = { nextIntensity ->
+                            glassIntensity = sanitizeGlassIntensity(nextIntensity)
+                        },
+                        onGlassIntensityChangeFinished = {
+                            GlassIntensityPreferences.write(this, glassIntensity)
+                        },
+                        onResetGlassIntensity = {
+                            glassIntensity = DEFAULT_GLASS_INTENSITY
+                            GlassIntensityPreferences.write(this, glassIntensity)
+                        },
+                        onExportConfig = { exportConfig() },
+                        onImportConfig = { importConfig() },
+                        onOpenAlipayRecharge = { openAlipayForRecharge() },
+                        onRequestNotificationPermission = { action ->
+                            requestNotificationPermissionThen(action)
+                        },
+                        onClearAllUserData = { clearAllUserData() },
+                    )
+                }
+                if (updateWelcomeRequired) {
+                    UpdateWelcomePage(onContinue = {
+                        if (updateWelcomePreferences.markSeen()) {
+                            onboardingPreferences.markCurrentVersionCompleted()
+                            updateWelcomeRequired = false
+                        } else {
+                            Toast.makeText(this, "未能保存确认状态，请重试。", Toast.LENGTH_SHORT).show()
                         }
-                    },
-                    glassIntensity = glassIntensity,
-                    onGlassIntensityChange = { nextIntensity ->
-                        glassIntensity = sanitizeGlassIntensity(nextIntensity)
-                    },
-                    onGlassIntensityChangeFinished = {
-                        GlassIntensityPreferences.write(this, glassIntensity)
-                    },
-                    onResetGlassIntensity = {
-                        glassIntensity = DEFAULT_GLASS_INTENSITY
-                        GlassIntensityPreferences.write(this, glassIntensity)
-                    },
-                    onExportConfig = { exportConfig() },
-                    onImportConfig = { importConfig() },
-                    onOpenAlipayRecharge = { openAlipayForRecharge() },
-                    onRequestNotificationPermission = { action ->
-                        requestNotificationPermissionThen(action)
-                    },
-                    onClearAllUserData = { clearAllUserData() },
-                )
+                    })
+                }
             }
         }
 
@@ -277,7 +314,9 @@ class MainActivity : ComponentActivity() {
         val cleared = viewModel.clearAllUserData() && activityCleared
         onboardingPreferences.clear()
         ThemeModePreferences.clear(this)
+        themePalette = ThemePalette.SKY
         themeMode = ThemeMode.SYSTEM
+        StartupTheme.sync(this, themePalette, themeMode)
         glassIntensity = DEFAULT_GLASS_INTENSITY
         onboardingRequired = true
         pendingOpenRequested = false

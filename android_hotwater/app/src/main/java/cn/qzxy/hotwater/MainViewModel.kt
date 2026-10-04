@@ -517,26 +517,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (generation != operationGeneration || saveGeneration != snCodeSaveGeneration) {
                     return@launch
                 }
-                val existing = persistRuntimeInfoIfNeeded(store.loadConfig())
-                DeviceSwitchPolicy.blockingMessage(existing, normalized, store.loadOrderNo(),
-                    store.loadUsageSession(), store.loadPendingSettlements())?.let { error(it) }
-                val changed = existing.snCode != normalized
-                if (changed) {
-                    store.clearActiveUsageState()
+                HotWaterRepository.withDeviceControl {
+                    if (generation != operationGeneration || saveGeneration != snCodeSaveGeneration) {
+                        throw CancellationException("Device binding superseded")
+                    }
+                    val existing = persistRuntimeInfoIfNeeded(store.loadConfig())
+                    DeviceSwitchPolicy.blockingMessage(existing, normalized, store.loadOrderNo(),
+                        store.loadUsageSession(), store.loadPendingSettlements())?.let { error(it) }
+                    val changed = existing.snCode != normalized
+                    if (changed) {
+                        HotWaterWidgetProvider.cancelPendingActions(getApplication())
+                        HotWaterSettlementSyncScheduler.cancel(getApplication())
+                        store.clearActiveUsageState()
+                    }
+                    val prepared = existing.copy(snCode = normalized)
+                    store.saveConfig(prepared)
+                    _config.value = prepared
+                    messagesController.bind(prepared)
+                    _snapshot.value = buildPlaceholderSnapshot(prepared)
+                    syncNotificationState()
+                    syncWidgetStatus("设备码已绑定", "设备二维码已保存。")
+                    shouldRefresh = prepared.isComplete()
                 }
-                val prepared = existing.copy(snCode = normalized)
-                store.saveConfig(prepared)
-                _config.value = prepared
-                messagesController.bind(prepared)
-                _snapshot.value = buildPlaceholderSnapshot(prepared)
-                syncNotificationState()
-                syncWidgetStatus("设备码已绑定", "设备二维码已保存。")
                 _statusMessage.value = "设备码已绑定"
                 _feedbackEvent.value = FeedbackEvent(
                     type = FeedbackEvent.FeedbackType.SUCCESS,
                     message = "设备码已绑定",
                 )
-                shouldRefresh = prepared.isComplete()
                 persisted = true
                 _snCodeSaveState.value = SnCodeSaveState(
                     success = true,
@@ -1034,6 +1041,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             title = title,
             message = HotWaterUiText.firstMeaningfulLine(summary).ifBlank { "请求已执行。" },
             isBusy = false,
+            skipIfBusy = true,
         )
         HotWaterWidgetUi.updateAllWidgets(getApplication())
         TileService.requestListeningState(

@@ -142,6 +142,7 @@ class HotWaterNotificationService : Service() {
                             isBusy = false,
                             tone = "warning",
                             expectedStateGeneration = stateGeneration,
+                            skipIfBusy = true,
                         )
                         if (store.loadPendingSettlements().isNotEmpty()) {
                             HotWaterSettlementSyncScheduler.enqueue(this@HotWaterNotificationService)

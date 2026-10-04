@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -34,7 +35,6 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         newOptions: android.os.Bundle,
     ) {
         HotWaterWidgetUi.updateAllWidgets(context)
-        requestStateRefresh(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -62,19 +62,28 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         val store = HotWaterConfigStore(context)
         val stateGeneration = store.loadStateGeneration()
         val state = store.loadWidgetState()
-        if (state.isBusy) {
-            store.saveWidgetState(
-                title = "请求进行中",
-                message = "上一个操作还没完成，请稍等。",
-                isBusy = true,
-                tone = "busy",
-                expectedStateGeneration = stateGeneration,
-            )
+        if (WidgetActionPolicy.isBusy(state)) {
             HotWaterWidgetUi.updateAllWidgets(context)
             return
         }
+        val inputData = Data.Builder()
+            .putString(HotWaterWidgetActionWorker.KEY_ACTION, action.name)
+            .putLong(HotWaterWidgetActionWorker.KEY_GENERATION, stateGeneration)
+            .putLong(HotWaterWidgetActionWorker.KEY_QUEUED_AT, System.currentTimeMillis())
+            .build()
+        // User commands must fail promptly offline, never silently run hours later.
+        val workRequest = OneTimeWorkRequest.Builder(HotWaterWidgetActionWorker::class.java)
+            .setInputData(inputData)
+            .apply {
+                // Pre-S expedited work requires a foreground service; ordinary work is safer here.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                }
+            }
+            .addTag(WORK_TAG)
+            .build()
 
-        store.saveWidgetState(
+        val saved = store.saveWidgetState(
             title = "处理中",
             message = when (action) {
                 WidgetHotWaterAction.OPEN -> "正在开启热水…"
@@ -84,50 +93,48 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
             isBusy = true,
             tone = "busy",
             expectedStateGeneration = stateGeneration,
+            requestId = workRequest.id.toString(),
+            skipIfBusy = true,
         )
+        if (!saved) return
         HotWaterWidgetUi.updateAllWidgets(context)
-
-        val inputData = Data.Builder()
-            .putString(HotWaterWidgetActionWorker.KEY_ACTION, action.name)
-            .build()
-
-        val workRequest = OneTimeWorkRequest.Builder(HotWaterWidgetActionWorker::class.java)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build(),
+        val manager = WorkManager.getInstance(context)
+        manager.cancelUniqueWork(REFRESH_WORK_NAME)
+        runCatching {
+            manager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, workRequest)
+        }.onFailure {
+            store.saveWidgetState(
+                "请重试", "暂时无法开始操作，请稍后再试。", false, "warning",
+                expectedStateGeneration = stateGeneration, expectedRequestId = workRequest.id.toString(),
             )
-            .setInputData(inputData)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .addTag(WORK_TAG)
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            UNIQUE_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
-            workRequest,
-        )
+            HotWaterWidgetUi.updateAllWidgets(context)
+        }
     }
 
     companion object {
         private const val UNIQUE_WORK_NAME = "hotwater_widget_action"
+        private const val REFRESH_WORK_NAME = "hotwater_widget_refresh"
         private const val WORK_TAG = "hotwater_widget"
 
         fun requestStateRefresh(context: Context) {
             val store = HotWaterConfigStore(context)
-            if (!store.loadConfig().isComplete() || store.loadWidgetState().isBusy) return
+            if (!store.loadConfig().isComplete() || WidgetActionPolicy.isBusy(store.loadWidgetState())) return
             val workRequest = OneTimeWorkRequest.Builder(HotWaterWidgetActionWorker::class.java)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setInputData(Data.Builder().putString(HotWaterWidgetActionWorker.KEY_ACTION, WidgetHotWaterAction.REFRESH.name).build())
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setInputData(Data.Builder()
+                    .putString(HotWaterWidgetActionWorker.KEY_ACTION, WidgetHotWaterAction.REFRESH.name)
+                    .putLong(HotWaterWidgetActionWorker.KEY_GENERATION, store.loadStateGeneration())
+                    .putBoolean(HotWaterWidgetActionWorker.KEY_BACKGROUND, true)
+                    .build())
                 .addTag(WORK_TAG)
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, workRequest,
+                REFRESH_WORK_NAME, ExistingWorkPolicy.KEEP, workRequest,
             )
         }
         fun cancelPendingActions(context: Context) {
             WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE_WORK_NAME)
+            WorkManager.getInstance(context.applicationContext).cancelUniqueWork(REFRESH_WORK_NAME)
         }
     }
 }
