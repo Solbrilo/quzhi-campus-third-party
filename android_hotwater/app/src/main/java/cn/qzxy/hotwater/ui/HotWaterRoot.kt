@@ -65,7 +65,6 @@ fun HotWaterRoot(
     updateManager: AppUpdateManager,
     onboardingRequired: Boolean,
     onOnboardingCompleted: () -> Unit,
-    startupOverlayVisible: Boolean = false,
     themePalette: ThemePalette = ThemePalette.SKY,
     onThemePaletteChange: (ThemePalette) -> Unit = {},
     themeMode: ThemeMode,
@@ -202,7 +201,6 @@ fun HotWaterRoot(
                 RootScreen.MAIN -> HotWaterApp(
                     viewModel = viewModel,
                     updateManager = updateManager,
-                    startupOverlayVisible = startupOverlayVisible,
                     themePalette = themePalette, onThemePaletteChange = onThemePaletteChange,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,

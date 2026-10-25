@@ -125,7 +125,6 @@ private enum class AppScreen(val tabIndex: Int) {
 fun HotWaterApp(
     viewModel: MainViewModel,
     updateManager: AppUpdateManager,
-    startupOverlayVisible: Boolean = false,
     themePalette: ThemePalette = ThemePalette.SKY,
     onThemePaletteChange: (ThemePalette) -> Unit = {},
     themeMode: ThemeMode,
@@ -405,7 +404,7 @@ fun HotWaterApp(
         )
     }
 
-    if (showUpdateDialog && availableUpdate != null && !startupOverlayVisible) {
+    if (showUpdateDialog && availableUpdate != null) {
         AlertDialog(
             onDismissRequest = { showUpdateDialog = false },
             modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
@@ -795,7 +794,7 @@ fun HotWaterApp(
                 }, emphasized = true) },
                 dismissButton = { GlassDialogAction("取消", { showLogoutDialog = false }) })
         }
-        messages.announcement?.takeIf { !startupOverlayVisible && !showMessages && !showLogoutDialog && !showUpdateDialog }?.let { notice ->
+        messages.announcement?.takeIf { !showMessages && !showLogoutDialog && !showUpdateDialog }?.let { notice ->
             AlertDialog(onDismissRequest = viewModel::dismissMessageAnnouncement,
                 modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
                 containerColor = Color.Transparent, tonalElevation = 0.dp,

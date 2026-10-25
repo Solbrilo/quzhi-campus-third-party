@@ -6,9 +6,13 @@ import java.io.File
 class OnboardingPreferences(context: Context) {
     private val markerFile = File(context.noBackupFilesDir, MARKER_FILE_NAME)
 
-    fun shouldShowForCurrentVersion(): Boolean {
+    fun shouldShowForCurrentVersion(skipUpgradeForRelease: Boolean = false): Boolean {
         val completedVersionCode = completedVersionCode()
-        return OnboardingVersionGate.shouldShow(completedVersionCode, BuildConfig.VERSION_CODE)
+        return OnboardingVersionGate.shouldShow(
+            completedVersionCode,
+            BuildConfig.VERSION_CODE,
+            skipUpgradeForRelease,
+        )
     }
 
     fun completedVersionCode(): Int? = runCatching {
@@ -32,7 +36,14 @@ class OnboardingPreferences(context: Context) {
 }
 
 internal object OnboardingVersionGate {
-    fun shouldShow(completedVersionCode: Int?, currentVersionCode: Int): Boolean {
+    fun shouldShow(
+        completedVersionCode: Int?,
+        currentVersionCode: Int,
+        skipUpgradeForRelease: Boolean = false,
+    ): Boolean {
+        if (skipUpgradeForRelease && completedVersionCode != null && completedVersionCode < currentVersionCode) {
+            return false
+        }
         return completedVersionCode != currentVersionCode
     }
 }

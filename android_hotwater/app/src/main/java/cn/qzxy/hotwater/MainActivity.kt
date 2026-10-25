@@ -30,14 +30,11 @@ import cn.qzxy.hotwater.designsystem.theme.ThemePalettePreferences
 import cn.qzxy.hotwater.designsystem.theme.StartupTheme
 import cn.qzxy.hotwater.designsystem.theme.sanitizeGlassIntensity
 import cn.qzxy.hotwater.ui.HotWaterRoot
-import cn.qzxy.hotwater.ui.UpdateWelcomePage
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var updateManager: AppUpdateManager
     private lateinit var onboardingPreferences: OnboardingPreferences
-    private lateinit var updateWelcomePreferences: UpdateWelcomePreferences
-    private var updateWelcomeRequired by mutableStateOf(false)
     private var onboardingRequired by mutableStateOf(false)
     private var themePalette by mutableStateOf(ThemePalette.SKY)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
@@ -89,13 +86,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
         onboardingPreferences = OnboardingPreferences(applicationContext)
-        updateWelcomePreferences = UpdateWelcomePreferences(applicationContext)
-        @Suppress("DEPRECATION")
-        val packageInfo = packageManager.getPackageInfo(packageName, 0)
-        updateWelcomeRequired = updateWelcomePreferences.shouldShow(
-            onboardingPreferences.completedVersionCode(), packageInfo.firstInstallTime, packageInfo.lastUpdateTime,
+        onboardingRequired = onboardingPreferences.shouldShowForCurrentVersion(
+            skipUpgradeForRelease = BuildConfig.VERSION_CODE == RELEASE_WITHOUT_UPGRADE_WELCOME,
         )
-        onboardingRequired = !updateWelcomeRequired && onboardingPreferences.shouldShowForCurrentVersion()
         glassIntensity = if (savedInstanceState?.containsKey(STATE_GLASS_INTENSITY) == true) {
             sanitizeGlassIntensity(savedInstanceState.getFloat(STATE_GLASS_INTENSITY))
         } else {
@@ -108,60 +101,47 @@ class MainActivity : ComponentActivity() {
                 themeMode = themeMode,
                 glassIntensity = glassIntensity,
             ) {
-                if (!updateWelcomeRequired) {
-                    HotWaterRoot(
-                        viewModel = viewModel,
-                        updateManager = updateManager,
-                        startupOverlayVisible = updateWelcomeRequired,
-                        onboardingRequired = onboardingRequired,
-                        onOnboardingCompleted = {
-                            onboardingPreferences.markCurrentVersionCompleted()
-                            onboardingRequired = false
-                        },
-                        themePalette = themePalette,
-                        onThemePaletteChange = { next ->
-                            themePalette = next
-                            ThemePalettePreferences.write(this, next)
-                            StartupTheme.sync(this, next, themeMode)
-                        },
-                        themeMode = themeMode,
-                        onThemeModeChange = { nextMode ->
-                            if (themeMode != nextMode) {
-                                themeMode = nextMode
-                                ThemeModePreferences.write(this, nextMode)
-                                StartupTheme.sync(this, themePalette, nextMode)
-                            }
-                        },
-                        glassIntensity = glassIntensity,
-                        onGlassIntensityChange = { nextIntensity ->
-                            glassIntensity = sanitizeGlassIntensity(nextIntensity)
-                        },
-                        onGlassIntensityChangeFinished = {
-                            GlassIntensityPreferences.write(this, glassIntensity)
-                        },
-                        onResetGlassIntensity = {
-                            glassIntensity = DEFAULT_GLASS_INTENSITY
-                            GlassIntensityPreferences.write(this, glassIntensity)
-                        },
-                        onExportConfig = { exportConfig() },
-                        onImportConfig = { importConfig() },
-                        onOpenAlipayRecharge = { openAlipayForRecharge() },
-                        onRequestNotificationPermission = { action ->
-                            requestNotificationPermissionThen(action)
-                        },
-                        onClearAllUserData = { clearAllUserData() },
-                    )
-                }
-                if (updateWelcomeRequired) {
-                    UpdateWelcomePage(onContinue = {
-                        if (updateWelcomePreferences.markSeen()) {
-                            onboardingPreferences.markCurrentVersionCompleted()
-                            updateWelcomeRequired = false
-                        } else {
-                            Toast.makeText(this, "未能保存确认状态，请重试。", Toast.LENGTH_SHORT).show()
+                HotWaterRoot(
+                    viewModel = viewModel,
+                    updateManager = updateManager,
+                    onboardingRequired = onboardingRequired,
+                    onOnboardingCompleted = {
+                        onboardingPreferences.markCurrentVersionCompleted()
+                        onboardingRequired = false
+                    },
+                    themePalette = themePalette,
+                    onThemePaletteChange = { next ->
+                        themePalette = next
+                        ThemePalettePreferences.write(this, next)
+                        StartupTheme.sync(this, next, themeMode)
+                    },
+                    themeMode = themeMode,
+                    onThemeModeChange = { nextMode ->
+                        if (themeMode != nextMode) {
+                            themeMode = nextMode
+                            ThemeModePreferences.write(this, nextMode)
+                            StartupTheme.sync(this, themePalette, nextMode)
                         }
-                    })
-                }
+                    },
+                    glassIntensity = glassIntensity,
+                    onGlassIntensityChange = { nextIntensity ->
+                        glassIntensity = sanitizeGlassIntensity(nextIntensity)
+                    },
+                    onGlassIntensityChangeFinished = {
+                        GlassIntensityPreferences.write(this, glassIntensity)
+                    },
+                    onResetGlassIntensity = {
+                        glassIntensity = DEFAULT_GLASS_INTENSITY
+                        GlassIntensityPreferences.write(this, glassIntensity)
+                    },
+                    onExportConfig = { exportConfig() },
+                    onImportConfig = { importConfig() },
+                    onOpenAlipayRecharge = { openAlipayForRecharge() },
+                    onRequestNotificationPermission = { action ->
+                        requestNotificationPermissionThen(action)
+                    },
+                    onClearAllUserData = { clearAllUserData() },
+                )
             }
         }
 
@@ -332,6 +312,7 @@ class MainActivity : ComponentActivity() {
         private const val STATE_PENDING_OPEN = "pending_open_after_notification_permission"
         private const val STATE_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val STATE_GLASS_INTENSITY = "glass_intensity"
+        private const val RELEASE_WITHOUT_UPGRADE_WELCOME = 30
         private const val ALIPAY_PACKAGE_NAME = "com.eg.android.AlipayGphone"
         private const val QZXY_ALIPAY_MINI_APP_ID = "2018090661238647"
         private const val QZXY_ALIPAY_RECHARGE_PAGE = "pages/index/index"
