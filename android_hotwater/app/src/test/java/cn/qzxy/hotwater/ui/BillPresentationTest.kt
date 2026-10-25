@@ -36,6 +36,28 @@ class BillPresentationTest {
         assertTrue(groupBillEntries(yearly, BillGrouping.YEAR).single().entries.all { it.year == 2026 })
     }
 
+    @Test fun estimatedWaterUsesTheConfiguredPriceAndServerVolumeWins() {
+        assertEquals(95_000L, estimateWaterMilliLiters(2_565L))
+        assertEquals(7_000L, estimateWaterMilliLiters(189L))
+        assertEquals("95 L", formatWaterVolume(95_000L))
+        assertEquals("7.5 L", formatWaterVolume(7_500L))
+
+        val apiVolume = bill("server-volume", 2026, 7, 2_565).copy(waterMilliLiters = 120_000L)
+        assertEquals(BillWaterVolume(120_000L, estimated = false), billWaterVolume(apiVolume))
+    }
+
+    @Test fun billSummaryIncludesAvailableAndEstimatedWaterVolumes() {
+        val records = buildBillEntries(listOf(
+            bill("95l", 2026, 7, 2_565),
+            bill("7l", 2026, 7, 189),
+            bill("unknown", 2026, 7, null),
+        ))
+        val summary = summarizeBillEntries(records)
+        assertEquals(102_000L, summary.totalWaterMilliLiters)
+        assertEquals(2, summary.waterRecordCount)
+        assertEquals(2, summary.estimatedWaterRecordCount)
+    }
+
     @Test fun duplicateResponsesDoNotDoubleTheTotal() {
         val record = bill("same-order", 2026, 7, 120)
         assertEquals(120L, summarizeBillEntries(buildBillEntries(listOf(record, record))).totalMilliYuan)

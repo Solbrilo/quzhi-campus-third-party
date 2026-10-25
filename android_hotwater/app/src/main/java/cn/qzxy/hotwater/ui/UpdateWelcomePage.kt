@@ -45,7 +45,7 @@ internal fun UpdateWelcomePage(onContinue: () -> Unit) {
         ) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text("焕新体验 · v3.1.1", color = tokens.accentPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text("焕新体验 · v3.1.2", color = tokens.accentPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Text("熟悉的热水，全新的质感", color = tokens.textPrimary, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                 WelcomeFeature(Icons.Outlined.AutoAwesome, "灵动液态玻璃", "按住底栏，透镜轻盈浮起；随手滑动，自由切换页面。")
                 WelcomeFeature(Icons.Outlined.Palette, "四套全新主题", "澄空、青屿、暮紫、暖砂，搭配自然过渡的深浅色模式。")

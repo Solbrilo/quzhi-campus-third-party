@@ -132,7 +132,7 @@ fun Modifier.glassMaterial(
     ) {
         Modifier.hazeEffect(state = environment.hazeState) {
             blurEnabled = environment.glassIntensity > 0f
-            blurRadius = resolved.blurRadius.coerceAtLeast(0.1.dp)
+            blurRadius = (resolved.blurRadius * backdropBlurScale).coerceAtLeast(0.1.dp)
             noiseFactor = resolved.noiseFactor
             backgroundColor = tokens.meshBase
             tints = listOf(HazeTint(resolved.surface))

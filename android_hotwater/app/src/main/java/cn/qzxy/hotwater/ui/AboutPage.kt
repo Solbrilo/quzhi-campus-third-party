@@ -1475,7 +1475,7 @@ private fun PrivacyPolicyPage() {
         )
         PrivacyPolicyHeading(text = "匿名使用统计")
         Text(
-            text = "开启匿名使用统计后，应用会发送使用日期和匿名标识，用于汇总应用使用量，不包含账号、手机号或硬件标识。你可以随时在设置的“查看配置”页面底部关闭；已完成的匿名汇总无法追溯到个人。",
+            text = "开启匿名使用统计后，应用会发送使用日期、月份和匿名标识，用于汇总日活与月活，不包含账号、手机号或硬件标识。你可以随时在设置的“查看配置”页面底部关闭；已完成的匿名汇总无法追溯到个人。",
             color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 22.sp,
         )
         PrivacyPolicyHeading(text = "反馈与用户选择")

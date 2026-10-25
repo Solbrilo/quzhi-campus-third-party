@@ -46,6 +46,22 @@ internal fun isBottomDockHorizontalDrag(
     return abs(deltaXPx) >= thresholdPx && abs(deltaXPx) > abs(deltaYPx)
 }
 
+internal fun bottomDockSwipeTarget(
+    currentIndex: Int,
+    dragDistancePx: Float,
+    thresholdPx: Float,
+    isRtl: Boolean,
+): Int? {
+    require(currentIndex in 0 until BOTTOM_DOCK_TAB_COUNT)
+    require(dragDistancePx.isFinite())
+    require(thresholdPx.isFinite() && thresholdPx >= 0f)
+    if (abs(dragDistancePx) < thresholdPx) return null
+    val physicalDirection = if (dragDistancePx < 0f) 1 else -1
+    val logicalDirection = if (isRtl) -physicalDirection else physicalDirection
+    val target = (currentIndex + logicalDirection).coerceIn(0, BOTTOM_DOCK_TAB_COUNT - 1)
+    return target.takeIf { it != currentIndex }
+}
+
 internal fun bottomDockLogicalPosition(
     physicalPositionPx: Float,
     widthPx: Float,

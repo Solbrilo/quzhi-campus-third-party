@@ -1,4 +1,4 @@
-"""Anonymous daily installation counts. No account data or HTTP request logs."""
+"""Anonymous daily and monthly installation counts. No account data or HTTP request logs."""
 import argparse
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -31,6 +31,26 @@ def validate(payload, today=None):
     return day, token
 
 
+def validate_monthly(payload, today=None):
+    today = today or datetime.now(ZONE).date()
+    if not isinstance(payload, dict) or set(payload) != {"month", "token"}:
+        raise ValueError("invalid fields")
+    month, token = payload["month"], payload["token"]
+    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise ValueError("invalid month")
+    try:
+        date.fromisoformat(month + "-01")
+    except ValueError as error:
+        raise ValueError("invalid month") from error
+    earliest = (today - timedelta(days=7)).strftime("%Y-%m")
+    latest = today.strftime("%Y-%m")
+    if month < earliest or month > latest:
+        raise ValueError("month outside retry window")
+    if not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{64}", token):
+        raise ValueError("invalid token")
+    return month, token
+
+
 class ActivityStore:
     def __init__(self, path):
         self.path = str(path)
@@ -39,6 +59,8 @@ class ActivityStore:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("CREATE TABLE IF NOT EXISTS receipts (day TEXT NOT NULL, token TEXT NOT NULL, PRIMARY KEY(day,token)) WITHOUT ROWID")
             db.execute("CREATE TABLE IF NOT EXISTS daily_counts (day TEXT PRIMARY KEY, count INTEGER NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS monthly_receipts (month TEXT NOT NULL, token TEXT NOT NULL, PRIMARY KEY(month,token)) WITHOUT ROWID")
+            db.execute("CREATE TABLE IF NOT EXISTS monthly_counts (month TEXT PRIMARY KEY, count INTEGER NOT NULL)")
         self.cleanup()
 
     @contextmanager
@@ -55,6 +77,7 @@ class ActivityStore:
         with self.lock, self.connect() as db:
             db.execute("PRAGMA secure_delete=ON")
             db.execute("DELETE FROM receipts WHERE day < ?", ((today - timedelta(days=7)).isoformat(),))
+            db.execute("DELETE FROM monthly_receipts WHERE month < ?", ((today - timedelta(days=7)).strftime("%Y-%m"),))
             db.commit()
             db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
@@ -67,9 +90,32 @@ class ActivityStore:
                 db.execute("INSERT INTO daily_counts(day,count) VALUES (?,1) ON CONFLICT(day) DO UPDATE SET count=count+1", (day,))
         return bool(added)
 
+    def record_monthly(self, payload, today=None):
+        month, token = validate_monthly(payload, today)
+        with self.lock, self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            added = db.execute(
+                "INSERT OR IGNORE INTO monthly_receipts(month,token) VALUES (?,?)",
+                (month, token),
+            ).rowcount
+            if added:
+                db.execute(
+                    "INSERT INTO monthly_counts(month,count) VALUES (?,1) "
+                    "ON CONFLICT(month) DO UPDATE SET count=count+1",
+                    (month,),
+                )
+        return bool(added)
+
     def report(self, days):
         with self.connect() as db:
             return db.execute("SELECT day,count FROM daily_counts ORDER BY day DESC LIMIT ?", (days,)).fetchall()
+
+    def report_monthly(self, months):
+        with self.connect() as db:
+            return db.execute(
+                "SELECT month,count FROM monthly_counts ORDER BY month DESC LIMIT ?",
+                (months,),
+            ).fetchall()
 
 
 class ActivityServer(ThreadingHTTPServer):
@@ -122,11 +168,14 @@ class ActivityHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self.reply(200, {"ok": True})
         else:
-            self.reply(405 if self.path == "/api/hotwater-activity" else 404, {"ok": False})
+            self.reply(405 if self.path in (
+                "/api/hotwater-activity", "/api/hotwater-activity/monthly"
+            ) else 404, {"ok": False})
 
     def do_POST(self):
-        if self.path != "/api/hotwater-activity":
+        if self.path not in ("/api/hotwater-activity", "/api/hotwater-activity/monthly"):
             return self.reply(404, {"ok": False})
+        monthly = self.path.endswith("/monthly")
         if not self.server.allow_request():
             return self.reply(429, {"ok": False})
         if self.headers.get("Content-Type", "").split(";", 1)[0].lower() != "application/json":
@@ -144,7 +193,10 @@ class ActivityHandler(BaseHTTPRequestHandler):
             if len(raw) != length:
                 return self.reply(400, {"ok": False})
             payload = json.loads(raw)
-            self.server.store.record(payload)
+            if monthly:
+                self.server.store.record_monthly(payload)
+            else:
+                self.server.store.record(payload)
         except (ValueError, UnicodeDecodeError):
             return self.reply(400, {"ok": False})
         except sqlite3.Error:
@@ -157,13 +209,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", default="/var/lib/hotwater-activity/activity.sqlite3")
     parser.add_argument("--port", type=int, default=8101)
-    parser.add_argument("--report", type=int, metavar="DAYS")
+    reports = parser.add_mutually_exclusive_group()
+    reports.add_argument("--report", type=int, metavar="DAYS")
+    reports.add_argument("--report-monthly", type=int, metavar="MONTHS")
     args = parser.parse_args()
     os.umask(0o077)
     store = ActivityStore(args.database)
     if args.report is not None:
         print(json.dumps([{"day": day, "active_installations": count} for day, count in
                           store.report(max(1, min(args.report, 3660)))], ensure_ascii=False))
+        return
+    if args.report_monthly is not None:
+        print(json.dumps([{"month": month, "active_installations": count} for month, count in
+                          store.report_monthly(max(1, min(args.report_monthly, 120)))], ensure_ascii=False))
         return
     def cleanup():
         while True:

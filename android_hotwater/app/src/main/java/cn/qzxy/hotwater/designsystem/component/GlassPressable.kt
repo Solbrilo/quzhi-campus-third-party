@@ -54,6 +54,7 @@ fun GlassPressable(
     contentPadding: PaddingValues = PaddingValues(0.dp),
     contentAlignment: Alignment = Alignment.Center,
     disabledAlpha: Float = 0.52f,
+    pressedScale: Float = PressedScale,
     hapticFeedback: (() -> HapticFeedbackType?)? = {
         HapticFeedbackType.SegmentTick
     },
@@ -68,12 +69,19 @@ fun GlassPressable(
     LaunchedEffect(isPressed, enabled, environment.motionEnabled) {
         when {
             !enabled || !environment.motionEnabled -> scale.snapTo(1f)
-            isPressed -> scale.snapTo(PressedScale)
+            isPressed && pressedScale <= 1f -> scale.snapTo(pressedScale)
+            isPressed -> scale.animateTo(
+                targetValue = pressedScale,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = 520f,
+                ),
+            )
             else -> scale.animateTo(
                 targetValue = 1f,
                 animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = 400f,
+                    dampingRatio = if (pressedScale > 1f) 0.62f else Spring.DampingRatioNoBouncy,
+                    stiffness = if (pressedScale > 1f) 460f else 400f,
                 ),
             )
         }
@@ -81,7 +89,7 @@ fun GlassPressable(
 
     val presentationScale = when {
         !enabled || !environment.motionEnabled -> 1f
-        isPressed -> PressedScale
+        isPressed && pressedScale <= 1f -> pressedScale
         else -> scale.value
     }
     val commitClick = {

@@ -132,11 +132,11 @@ internal fun BottomDock(
     var isPressed by remember { mutableStateOf(false) }
     val lensExpansion by animateFloatAsState(
         targetValue = if ((isPressed || isDragging) && environment.motionEnabled && environment.glassIntensity > 0f) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f), label = "dockLensExpansion",
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = 460f), label = "dockLensExpansion",
     )
     val dockScale by animateFloatAsState(
         targetValue = if ((isPressed || isDragging) && environment.motionEnabled) 1.018f else 1f,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f), label = "dockPressScale",
+        animationSpec = spring(dampingRatio = 0.66f, stiffness = 480f), label = "dockPressScale",
     )
     var settlingJob by remember { mutableStateOf<Job?>(null) }
     var settlingLogicalIndex by remember { mutableStateOf<Int?>(null) }
@@ -202,6 +202,7 @@ internal fun BottomDock(
                 material = GlassMaterial.Floating,
                 cornerRadius = DockHeight / 2,
                 tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
+                backdropBlurScale = 0.72f,
             ))
         Box(
             modifier = Modifier
@@ -428,7 +429,7 @@ internal fun BottomDock(
                     .graphicsLayer {
                         val deformation = dropletPulse.value * environment.glassIntensity
                         // Uniform scaling retains the capsule's curvature while it lifts.
-                        val scale = 1f + 0.24f * lensExpansion + 0.025f * deformation
+                        val scale = 1f + 0.31f * lensExpansion + 0.04f * deformation
                         scaleX = scale
                         scaleY = scale
                     }
@@ -480,6 +481,7 @@ internal fun BottomDock(
                             .weight(1f)
                             .height(DockLensHeight)
                             .testTag("bottom_dock_tab_$index"),
+                        pressedScale = 1.10f,
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,

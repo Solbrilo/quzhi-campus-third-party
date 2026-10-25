@@ -32,6 +32,16 @@ class ServerBillsTest {
         assertEquals(month, bill.period)
     }
 
+    @Test fun parsesServerWaterVolumeWhenPresent() {
+        val payload = response()
+        val dto = payload.getJSONArray("data").getJSONObject(0).getJSONObject("consumeBillDTO")
+        dto.put("consumeWaterStr", "95L")
+        assertEquals(95_000L, ServerBillParser.parse(payload, month).single().waterMilliLiters)
+
+        dto.put("consumeWaterStr", "7000mL")
+        assertEquals(7_000L, ServerBillParser.parse(payload, month).single().waterMilliLiters)
+    }
+
     @Test fun serviceFailuresAndMalformedDataAreNotEmptySuccessfulBills() {
         assertTrue(runCatching { ServerBillParser.parse(JSONObject("""{"success":false,"data":[]}"""), month) }.isFailure)
         assertTrue(runCatching { ServerBillParser.parse(JSONObject("""{"success":true,"data":"invalid"}"""), month) }.isFailure)

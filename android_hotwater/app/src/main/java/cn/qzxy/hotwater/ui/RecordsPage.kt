@@ -368,11 +368,34 @@ private fun BillSummaryCard(
                 modifier = Modifier.weight(1f),
             )
         }
+        BillMetric(
+            label = "用水量合计",
+            value = when {
+                summary.waterRecordCount == 0 -> "待同步"
+                summary.waterRecordCount < summary.recordCount -> "≥ ${formatWaterVolume(summary.totalWaterMilliLiters)}"
+                else -> formatWaterVolume(summary.totalWaterMilliLiters)
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
         Text(
             text = "${summary.settledCount} 笔已获取金额 · 以服务器账单为准",
             color = tokens.textSecondary,
             fontSize = 12.sp,
         )
+        if (summary.estimatedWaterRecordCount > 0) {
+            Text(
+                text = "${summary.estimatedWaterRecordCount} 笔水量按费用估算（¥0.027/L）",
+                color = tokens.textSecondary,
+                fontSize = 12.sp,
+            )
+        }
+        if (summary.waterRecordCount < summary.recordCount) {
+            Text(
+                text = "${summary.recordCount - summary.waterRecordCount} 笔暂时没有可用水量",
+                color = tokens.accentWarning,
+                fontSize = 12.sp,
+            )
+        }
         if (summary.pendingCount > 0) {
             Text(
                 text = "${summary.pendingCount} 笔未返回有效金额，未计入合计",
@@ -505,7 +528,13 @@ private fun BillGroupHeader(
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    text = "${group.summary.recordCount} 笔 · ${formatBillAmount(group.summary.totalMilliYuan)}",
+                    text = buildString {
+                        append("${group.summary.recordCount} 笔 · ${formatBillAmount(group.summary.totalMilliYuan)}")
+                        if (group.summary.waterRecordCount > 0) {
+                            append(" · ${if (group.summary.waterRecordCount < group.summary.recordCount) "≥ " else ""}")
+                            append(formatWaterVolume(group.summary.totalWaterMilliLiters))
+                        }
+                    },
                     color = tokens.textSecondary,
                     fontSize = 12.sp,
                 )
@@ -548,6 +577,7 @@ private fun EmptyFilteredBillState() {
 private fun ConsumptionRecordRow(entry: BillEntry) {
     val tokens = LocalGlassTokens.current
     val bill = entry.bill
+    val waterVolume = billWaterVolume(bill)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -559,6 +589,14 @@ private fun ConsumptionRecordRow(entry: BillEntry) {
                 color = if (bill.amountMilliYuan == null) tokens.accentWarning else tokens.accentError,
                 fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
+        Text(
+            text = waterVolume?.let {
+                "用水量：${formatWaterVolume(it.milliLiters)}${if (it.estimated) "（估算）" else ""}"
+            } ?: "用水量：待同步",
+            color = if (waterVolume?.estimated == true) tokens.textSecondary else if (waterVolume == null) tokens.accentWarning else tokens.accentPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
         if (bill.orderNo != null || bill.orderId.isNotBlank()) {
             Text("订单：${bill.orderNo ?: bill.orderId}", color = tokens.textTertiary, fontSize = 11.sp)
         }

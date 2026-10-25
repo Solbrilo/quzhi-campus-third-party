@@ -26,6 +26,14 @@ internal data class BillSummary(
     val settledCount: Int,
     val pendingCount: Int,
     val totalMilliYuan: Long,
+    val totalWaterMilliLiters: Long,
+    val waterRecordCount: Int,
+    val estimatedWaterRecordCount: Int,
+)
+
+internal data class BillWaterVolume(
+    val milliLiters: Long,
+    val estimated: Boolean,
 )
 
 internal data class BillGroup(
@@ -83,6 +91,9 @@ internal fun summarizeBillEntries(entries: List<BillEntry>): BillSummary {
     var settledCount = 0
     var pendingCount = 0
     var totalMilliYuan = 0L
+    var totalWaterMilliLiters = 0L
+    var waterRecordCount = 0
+    var estimatedWaterRecordCount = 0
 
     entries.forEach { entry ->
         val milliYuan = entry.bill.amountMilliYuan
@@ -93,6 +104,11 @@ internal fun summarizeBillEntries(entries: List<BillEntry>): BillSummary {
             settledCount += 1
             totalMilliYuan = saturatingAdd(totalMilliYuan, milliYuan)
         }
+        billWaterVolume(entry.bill)?.let { volume ->
+            waterRecordCount++
+            totalWaterMilliLiters = saturatingAdd(totalWaterMilliLiters, volume.milliLiters)
+            if (volume.estimated) estimatedWaterRecordCount++
+        }
     }
 
     return BillSummary(
@@ -100,8 +116,31 @@ internal fun summarizeBillEntries(entries: List<BillEntry>): BillSummary {
         settledCount = settledCount,
         pendingCount = pendingCount,
         totalMilliYuan = totalMilliYuan,
+        totalWaterMilliLiters = totalWaterMilliLiters,
+        waterRecordCount = waterRecordCount,
+        estimatedWaterRecordCount = estimatedWaterRecordCount,
     )
 }
+
+/** 2.565 yuan / 95 L and 0.189 yuan / 7 L both resolve to 27 milli-yuan per liter. */
+internal fun estimateWaterMilliLiters(amountMilliYuan: Long): Long? {
+    if (amountMilliYuan < 0L) return null
+    return runCatching {
+        BigDecimal.valueOf(amountMilliYuan)
+            .multiply(BigDecimal.valueOf(1_000L))
+            .divide(BigDecimal.valueOf(27L), 0, RoundingMode.HALF_UP)
+            .longValueExact()
+    }.getOrNull()
+}
+
+internal fun billWaterVolume(bill: ServerBill): BillWaterVolume? =
+    bill.waterMilliLiters?.takeIf { it >= 0L }?.let { BillWaterVolume(it, estimated = false) }
+        ?: bill.amountMilliYuan?.let(::estimateWaterMilliLiters)?.let {
+            BillWaterVolume(it, estimated = true)
+        }
+
+internal fun formatWaterVolume(milliLiters: Long): String =
+    BigDecimal.valueOf(milliLiters, 3).stripTrailingZeros().toPlainString() + " L"
 
 internal fun formatBillAmount(totalMilliYuan: Long): String {
     return if (totalMilliYuan in 1L..9L) {

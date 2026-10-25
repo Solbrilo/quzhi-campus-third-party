@@ -1,12 +1,15 @@
-# Anonymous daily activity
+# Anonymous daily and monthly activity
 
-Android sends only 'day' (Asia/Shanghai date) and 'token' (64 lowercase hex
-characters) to POST https://nebularive.top/api/hotwater-activity.
+Android sends the existing daily payload ('day' and 'token') to
+POST https://nebularive.top/api/hotwater-activity. New clients also send a
+separate monthly payload ('month' and 'token') to
+POST https://nebularive.top/api/hotwater-activity/monthly.
 
-The token is HMAC-SHA256 of the date and a domain separator, keyed by a random
-32-byte installation seed in Android's no-backup directory. The seed never
-leaves the device. Tokens change daily and contain no account, telephone,
-hardware identifier, heater code, app version, bill or message data.
+The daily token is HMAC-SHA256 of the date and a domain separator; the monthly
+token uses a separate domain separator and the YYYY-MM value. Both are keyed
+by a random 32-byte installation seed in Android's no-backup directory. The
+seed never leaves the device. Tokens contain no account, telephone, hardware
+identifier, heater code, app version, bill or message data.
 
 ## Counting and retention
 
@@ -17,6 +20,8 @@ hardware identifier, heater code, app version, bill or message data.
   retries through WorkManager, and drops reports older than seven days.
 - Receipts remain for the retry window (up to approximately eight calendar
   days) and expire hourly. Aggregate day/count rows remain available.
+- Monthly unique installation rows are stored separately and can be read with
+  `--report-monthly`; the existing daily report and table are unchanged.
 - The switch at the bottom of Settings > View configuration cancels pending reports. Clearing app data deletes the
   local seed and disables reporting until re-enabled.
 - No request bodies or remote addresses are logged. The exact Nginx location
@@ -33,6 +38,7 @@ There is no public read/report API.
 Read date/count totals over the authorized SSH connection:
 
     ssh nebularive "python3 /opt/hotwater-activity/activity_server.py --report 30"
+    ssh nebularive "python3 /opt/hotwater-activity/activity_server.py --report-monthly 12"
 
 Check health:
 

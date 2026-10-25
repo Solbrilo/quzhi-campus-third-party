@@ -74,7 +74,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val serverBills = billsController.state
 
     fun loadServerBills(query: BillQuery, force: Boolean = false) {
-        if (store.requiresReauthentication()) { showCredentialExpiryPrompt(); return }
+        if (store.requiresReauthentication()) {
+            // Bills are a read-only surface. If the user already chose to skip the
+            // expiry prompt to replace configuration, keep the bills page stable and
+            // let its state explain why no request was made.
+            showCredentialExpiryPrompt()
+            return
+        }
         billsController.load(store.loadConfig(), query, force)
     }
 
@@ -124,6 +130,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _config.value = HotWaterConfig()
                 _snapshot.value = buildPlaceholderSnapshot(_config.value)
                 _credentialExpired.value = false
+                credentialExpiryPrompted = false
+                credentialExpirySkipped = false
                 _qzxyLoginState.value = QzxyLoginState()
                 _nearbyDevices.value = emptyList()
                 _nearbyPairState.value = NearbyPairState()
@@ -172,6 +180,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val credentialExpired: StateFlow<Boolean> = _credentialExpired.asStateFlow()
 
     private var initialized = false
+    // Prevents the same stale credential from repeatedly reopening login after a user
+    // chooses to skip and replace the saved configuration manually.
+    private var credentialExpiryPrompted = false
+    private var credentialExpirySkipped = false
     private var qzxyLoginJob: Job? = null
     private var qzxyLoginGeneration: Long = 0L
     private var smsCodeJob: Job? = null
@@ -203,7 +215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncNotificationState()
 
         if (store.requiresReauthentication()) {
-            showCredentialExpiryPrompt()
+            showCredentialExpiryPrompt(force = true)
         } else if (preparedConfig.isComplete()) {
             refreshBalance(announce = false)
         } else {
@@ -270,6 +282,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // credential. Keep the user in the app and let the next request validate it normally.
             store.clearCredentialsExpired()
             _credentialExpired.value = false
+            credentialExpiryPrompted = false
+            credentialExpirySkipped = false
         }
         _config.value = prepared
         messagesController.bind(prepared)
@@ -297,7 +311,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (store.requiresReauthentication()) {
             activeStateSyncJob?.cancel()
             activeStateSyncJob = null
-            showCredentialExpiryPrompt()
+            if (!credentialExpirySkipped) showCredentialExpiryPrompt()
             return
         }
         refreshBalance(announce = false)
@@ -473,7 +487,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: CredentialExpiredException) {
-                if (generation == nearbyPairGeneration) { _nearbyPairState.value = NearbyPairState(); showCredentialExpiryPrompt() }
+                if (generation == nearbyPairGeneration) {
+                    _nearbyPairState.value = NearbyPairState()
+                    showCredentialExpiryPrompt(force = true)
+                }
             } catch (error: Exception) {
                 if (generation == nearbyPairGeneration) _nearbyPairState.value = NearbyPairState(message = HotWaterUiText.summarizeError(error))
             } finally {
@@ -622,6 +639,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         qzxyLoginJob = null
         releaseBusy(BusyOwner.QZXY_LOGIN)
         _credentialExpired.value = false
+        credentialExpiryPrompted = false
+        credentialExpirySkipped = true
+        // Keep the prompt gate closed until login or a complete replacement config succeeds.
         _qzxyLoginState.value = QzxyLoginState()
         _statusMessage.value = "已跳过登录，可在配置页导入配置。"
     }
@@ -680,6 +700,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _config.value = emptyConfig
         _snapshot.value = buildPlaceholderSnapshot(emptyConfig)
         _credentialExpired.value = false
+        credentialExpiryPrompted = false
+        credentialExpirySkipped = false
         _qzxyLoginState.value = QzxyLoginState()
         _snCodeSaveState.value = SnCodeSaveState()
         _feedbackEvent.value = null
@@ -766,6 +788,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 store.clearCredentialsExpired()
                 loadMessages(announce = true)
                 _credentialExpired.value = false
+                credentialExpiryPrompted = false
+                credentialExpirySkipped = false
                 _config.value = prepared
                 messagesController.bind(prepared)
                 _snapshot.value = buildPlaceholderSnapshot(prepared)
@@ -838,7 +862,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         block: suspend (HotWaterConfig) -> OperationResult,
     ) {
         if (store.requiresReauthentication()) {
-            showCredentialExpiryPrompt()
+            showCredentialExpiryPrompt(force = true)
             return
         }
         if (_busy.value) return
@@ -908,7 +932,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 if (generation != operationGeneration) return@launch
                 if (error is CredentialExpiredException) {
-                    showCredentialExpiryPrompt()
+                    showCredentialExpiryPrompt(force = true)
                     return@launch
                 }
                 if (recordHistory) {
@@ -958,7 +982,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: CredentialExpiredException) {
-                    showCredentialExpiryPrompt()
+                    showCredentialExpiryPrompt(force = true)
                     return@launch
                 } catch (_: Exception) {
                     continue
@@ -975,7 +999,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun showCredentialExpiryPrompt() {
+    private fun showCredentialExpiryPrompt(force: Boolean = false) {
+        // Once the observable expiry state is already published, every controller sees the
+        // same event. Do not restart root navigation for each bill/message retry. A forced
+        // request is only allowed to override the user's explicit "skip" choice.
+        if (_credentialExpired.value && credentialExpiryPrompted) return
+        if (credentialExpirySkipped && !force) return
+        credentialExpiryPrompted = true
+        credentialExpirySkipped = false
         messagesController.clear()
         billsController.clear()
         cancelNearbyPairing()

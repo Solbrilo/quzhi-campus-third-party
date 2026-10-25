@@ -20,6 +20,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
@@ -75,6 +76,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -107,6 +109,7 @@ import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import cn.qzxy.hotwater.ui.navigation.BottomDock
 import cn.qzxy.hotwater.ui.navigation.DockSelectionSource
+import cn.qzxy.hotwater.ui.navigation.bottomDockSwipeTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -157,6 +160,9 @@ fun HotWaterApp(
         mutableStateOf(MorePageDestination.OVERVIEW)
     }
     var showConfig by rememberSaveable { mutableStateOf(false) }
+    var configRequestPending by remember(openConfigRequest) {
+        mutableStateOf(openConfigRequest > 0)
+    }
     var showMessages by rememberSaveable { mutableStateOf(false) }
     var selectedMessageRevision by rememberSaveable { mutableStateOf<String?>(null) }
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -185,8 +191,10 @@ fun HotWaterApp(
 
     LaunchedEffect(openConfigRequest) {
         if (openConfigRequest > 0) {
+            configRequestPending = true
             currentScreen = AppScreen.SETTINGS
             showConfig = true
+            configRequestPending = false
         }
     }
 
@@ -489,8 +497,29 @@ fun HotWaterApp(
             AnimatedContent(
                 targetState = currentScreen,
                 modifier = Modifier
-                    .weight(1f)
-                    .windowInsetsPadding(
+                .weight(1f)
+                .pointerInput(currentScreen, layoutDirection, showConfig, showMessages, moreDestination) {
+                    if (showConfig || showMessages || moreDestination != null) return@pointerInput
+                    var horizontalDistance = 0f
+                    val thresholdPx = 64.dp.toPx()
+                    detectHorizontalDragGestures(
+                        onDragStart = { horizontalDistance = 0f },
+                        onHorizontalDrag = { _, amount -> horizontalDistance += amount },
+                        onDragEnd = {
+                            bottomDockSwipeTarget(
+                                currentIndex = currentScreen.tabIndex,
+                                dragDistancePx = horizontalDistance,
+                                thresholdPx = thresholdPx,
+                                isRtl = layoutDirection == LayoutDirection.Rtl,
+                            )?.let { targetIndex ->
+                                currentScreen = AppScreen.entries[targetIndex]
+                                haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
+                            }
+                        },
+                        onDragCancel = { horizontalDistance = 0f },
+                    )
+                }
+                .windowInsetsPadding(
                         WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
                     )
                     .padding(start = 20.dp, top = 18.dp, end = 20.dp),
@@ -559,7 +588,8 @@ fun HotWaterApp(
                         AppScreen.RECORDS -> RecordsPage(
                             state = billsState,
                             accountKey = config.accountRequestKey(),
-                            active = currentScreen == AppScreen.RECORDS,
+                            active = currentScreen == AppScreen.RECORDS &&
+                                !credentialsExpired && !configRequestPending,
                             onLoad = viewModel::loadServerBills,
                         )
                         AppScreen.SETTINGS -> MorePage(

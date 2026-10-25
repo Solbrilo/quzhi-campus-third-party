@@ -37,6 +37,7 @@ data class ServerBill(
     val description: String,
     val timestamp: Long?,
     val period: YearMonth,
+    val waterMilliLiters: Long? = null,
 )
 
 data class BillQuery(val year: Int, val month: Int? = null) {
@@ -169,6 +170,8 @@ internal object ServerBillParser {
             val id = text(bill, "orderId")
             val orderNo = text(bill, "orderNo").takeIf(String::isNotBlank)
             val description = text(bill, "description").ifBlank { "热水消费" }
+            val waterMilliLiters = parseWaterMilliLiters(bill)
+                ?: if (bill !== item) parseWaterMilliLiters(item) else null
             ServerBill(
                 id = if (id.isNotBlank() || orderNo != null) "${orderNo ?: id}|$date" else "$requestedMonth|$date|$description|$index",
                 orderId = id,
@@ -178,9 +181,49 @@ internal object ServerBillParser {
                 description = description,
                 timestamp = dateTime?.atZone(zoneId)?.toInstant()?.toEpochMilli(),
                 period = dateTime?.let { YearMonth.from(it) } ?: requestedMonth,
+                waterMilliLiters = waterMilliLiters,
             )
         }.distinctBy { it.id }
     }
+
+    private val waterFields = listOf(
+        "consumeWaterStr", "waterConsumptionStr", "waterVolumeStr", "waterStr",
+        "consumeWater", "consumeWaterNum", "consumeWaterCount", "waterConsumption",
+        "waterVolume", "consumeVolumeStr", "consumeVolume", "waterAmount", "waterNum",
+        "waterUsed", "water", "useWater",
+    )
+
+    private fun parseWaterMilliLiters(json: JSONObject): Long? = waterFields
+        .firstNotNullOfOrNull { key ->
+            if (!json.has(key) || json.isNull(key)) null
+            else parseWaterValue(json.optString(key).trim())
+        }
+
+    private fun parseWaterValue(raw: String): Long? = runCatching {
+        val normalized = raw.replace(" ", "").replace("升", "L")
+        val unit = when {
+            normalized.endsWith("mL", ignoreCase = true) -> "ml"
+            normalized.endsWith("L", ignoreCase = true) -> "l"
+            normalized.endsWith("m³", ignoreCase = true) || normalized.endsWith("m3", ignoreCase = true) -> "m3"
+            else -> "l"
+        }
+        val numeric = when (unit) {
+            "ml" -> normalized.dropLast(2)
+            "m3" -> normalized.dropLast(if (normalized.endsWith("m³", true)) 2 else 2)
+            else -> normalized.removeSuffix("L").removeSuffix("l")
+        }
+        val liters = BigDecimal(numeric).let {
+            when (unit) {
+                "ml" -> it.movePointLeft(3)
+                "m3" -> it.movePointRight(3)
+                else -> it
+            }
+        }
+        liters.takeIf { it.signum() >= 0 }
+            ?.movePointRight(3)
+            ?.setScale(0, RoundingMode.HALF_UP)
+            ?.longValueExact()
+    }.getOrNull()
 
     private fun text(json: JSONObject, key: String): String =
         if (json.isNull(key)) "" else json.optString(key).trim()

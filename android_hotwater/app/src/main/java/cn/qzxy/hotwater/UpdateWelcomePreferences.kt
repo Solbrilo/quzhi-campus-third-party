@@ -6,7 +6,7 @@ import java.io.File
 
 /** Local installation marker, excluded from backups and independent of account sign-in. */
 internal class UpdateWelcomePreferences(context: Context) {
-    private val marker = AtomicFile(File(context.noBackupFilesDir, "welcome_3_1_1"))
+    private val marker = AtomicFile(File(context.noBackupFilesDir, "welcome_3_1_2"))
 
     fun shouldShow(previousCompletedVersion: Int?, firstInstallTime: Long, lastUpdateTime: Long): Boolean {
         if (BuildConfig.VERSION_NAME != UpdateWelcomeGate.VERSION) return false
@@ -36,7 +36,7 @@ internal class UpdateWelcomePreferences(context: Context) {
 }
 
 internal object UpdateWelcomeGate {
-    const val VERSION = "3.1.1"
+    const val VERSION = "3.1.2"
     fun isUpgrade(version: String, currentCode: Int, previousCode: Int?, firstInstallTime: Long, lastUpdateTime: Long): Boolean {
         if (version != VERSION) return false
         if (previousCode != null) return previousCode in 1 until currentCode

@@ -453,7 +453,7 @@ fun ConfigPage(
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("匿名使用统计", color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("仅统计每日使用量，不上传账号或设备信息", color = tokens.textSecondary, fontSize = 12.sp)
+                Text("统计日活与月活，不上传账号或设备信息", color = tokens.textSecondary, fontSize = 12.sp)
             }
             Switch(checked = activityEnabled, onCheckedChange = {
                 activityEnabled = it

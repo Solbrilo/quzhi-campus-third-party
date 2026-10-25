@@ -56,6 +56,16 @@ class BottomDockPhysicsTest {
     }
 
     @Test
+    fun horizontalPageSwipesMoveOneTabRespectingRtlAndEdges() {
+        assertEquals(1, bottomDockSwipeTarget(0, -80f, 64f, isRtl = false))
+        assertEquals(0, bottomDockSwipeTarget(1, 80f, 64f, isRtl = false))
+        assertEquals(null, bottomDockSwipeTarget(0, -80f, 64f, isRtl = true))
+        assertEquals(2, bottomDockSwipeTarget(1, 80f, 64f, isRtl = true))
+        assertEquals(null, bottomDockSwipeTarget(1, 40f, 64f, isRtl = false))
+        assertEquals(null, bottomDockSwipeTarget(0, 80f, 64f, isRtl = false))
+    }
+
+    @Test
     fun rubberBandUsesAppleProgressiveResistanceFormula() {
         val expected = (100f * 300f * 0.55f) / (300f + 0.55f * 100f)
 
