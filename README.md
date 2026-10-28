@@ -44,13 +44,13 @@ type=0
 学校热水器二维码的内容类似：
 
 ```text
-KLCXKJ-Water,M,C47F0EDA85D8
+KLCXKJ-Water,M,C47FFFFFFFFF
 ```
 
 应用校验 `KLCXKJ-Water` 前缀，并将最后一个字段规范化为 12 位大写十六进制设备码：
 
 ```text
-C47F0EDA85D8
+C47FFFFFFFFF
 ```
 
 扫码需要相机权限。拒绝权限或设备没有可用相机时，可以返回配置页手动填写 `snCode`。
@@ -128,3 +128,6 @@ harmony_hotwater/entry/build/default/outputs/default/entry-default-signed.hap
 - 桌面脚本仍可直接读取 `.chls`，并优先提取最后一次登录会话中的账号字段。
 - `.chls`、登录凭据、签名材料和本地配置都可能包含敏感信息，不应提交或公开分享。
 - 仓库通过 `.gitignore` 忽略 `*.chls`、本地订单缓存、移动端构建缓存，以及 Android 的 `local.properties` 和 `.jks` 文件；HarmonyOS 签名配置也应在提交前单独检查。
+
+此项目用于解决趣智校园的广告多、操作繁杂的问题，通过应用直接构造网络数据包，还能大大提升使用便捷性，项目仓库中同时提供了windows脚本，安卓端应用以及鸿蒙版应用，旨在为各位同学提供一个更智慧、更现代的生活方式。
+本项目仅用于学习和参考，禁止用于非法用途。
