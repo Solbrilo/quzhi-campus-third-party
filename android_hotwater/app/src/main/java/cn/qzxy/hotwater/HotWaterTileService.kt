@@ -103,6 +103,8 @@ class HotWaterTileService : TileService() {
                     expectedStateGeneration = stateGeneration,
                 )
                 if (store.loadStateGeneration() != stateGeneration) return@launch
+                NotificationHelper.notifyOperation(applicationContext,
+                    if (shouldClose) OperationHistory.OperationType.CLOSE else OperationHistory.OperationType.OPEN, result)
                 if (shouldClose && result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(applicationContext)
                 }

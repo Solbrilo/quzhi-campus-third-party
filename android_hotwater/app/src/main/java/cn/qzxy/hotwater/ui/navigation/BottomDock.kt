@@ -97,6 +97,9 @@ internal fun BottomDock(
     require(labels.size == BOTTOM_DOCK_TAB_COUNT)
     require(selectedIndex in labels.indices)
 
+    val geometry = cn.qzxy.hotwater.designsystem.theme.LocalThemeGeometry.current
+    val outerShape = androidx.compose.foundation.shape.RoundedCornerShape(geometry.corner(DockHeight / 2))
+    val innerShape = androidx.compose.foundation.shape.RoundedCornerShape(geometry.insetCorner(DockHeight / 2, DockInset))
     val palette = LocalGlassTokens.current
     val environment = LocalGlassEnvironment.current
     // Record the dock surface and labels separately, never the lens that consumes them.
@@ -201,6 +204,7 @@ internal fun BottomDock(
             .glassMaterial(
                 material = GlassMaterial.Floating,
                 cornerRadius = DockHeight / 2,
+                shape = outerShape,
                 tokens = tokens, liquidRim = true, liquidTintScale = 0.65f,
                 backdropBlurScale = 0.72f,
             ))
@@ -436,6 +440,7 @@ internal fun BottomDock(
                     .glassMaterial(
                         material = GlassMaterial.EmbeddedControl,
                         cornerRadius = DockLensHeight / 2,
+                        shape = innerShape,
                         tokens = tokens, liquidRim = true, liquidTintScale = 0.30f - 0.18f * lensExpansion,
                         sampleContent = true, lensExpansion = lensExpansion,
                         backdrop = lensBackdrop, backdropBlurScale = 0f,
@@ -477,6 +482,7 @@ internal fun BottomDock(
                         role = Role.Tab,
                         material = null,
                         cornerRadius = DockLensHeight / 2,
+                        shape = innerShape,
                         modifier = Modifier
                             .weight(1f)
                             .height(DockLensHeight)
@@ -488,12 +494,9 @@ internal fun BottomDock(
                             verticalArrangement = Arrangement.spacedBy(1.dp),
                         ) {
                             val tint = if (selected) tokens.accentPrimary else tokens.textSecondary
-                            Icon(
-                                imageVector = when (index) {
-                                    0 -> Icons.Outlined.WaterDrop
-                                    1 -> Icons.AutoMirrored.Outlined.ReceiptLong
-                                    else -> Icons.Outlined.Settings
-                                },
+                            cn.qzxy.hotwater.ui.ThemedIcon(
+                                imageVector = cn.qzxy.hotwater.ui.themeNavigationIcon(
+                                    cn.qzxy.hotwater.designsystem.theme.LocalThemePalette.current, index),
                                 contentDescription = null,
                                 tint = tint,
                                 modifier = Modifier.size(21.dp).testTag("bottom_dock_icon_$index"),

@@ -28,6 +28,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MenuDefaults
+import cn.qzxy.hotwater.designsystem.component.GlassButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,6 +66,9 @@ fun RecordsPage(
     state: ServerBillsState,
     accountKey: String,
     active: Boolean = true,
+    loggedIn: Boolean = true,
+    credentialsExpired: Boolean = false,
+    onLogin: () -> Unit = {},
     onLoad: (BillQuery, Boolean) -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
@@ -72,7 +76,7 @@ fun RecordsPage(
     var scope by rememberSaveable { mutableStateOf(BillScope.MONTH) }
     var selectedYear by rememberSaveable { mutableIntStateOf(now.year) }
     var selectedMonth by rememberSaveable { mutableIntStateOf(now.monthValue) }
-    var grouping by rememberSaveable { mutableStateOf(BillGrouping.MONTH) }
+    val grouping = BillGrouping.MONTH
     var collapsedGroupKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val query = BillQuery(selectedYear, if (scope == BillScope.MONTH) selectedMonth else null)
     val matchingState = state.query == query
@@ -86,7 +90,7 @@ fun RecordsPage(
     }
     val summary = remember(entries) { summarizeBillEntries(entries) }
     val groups = remember(entries, grouping) { groupBillEntries(entries, grouping) }
-    LaunchedEffect(query, accountKey, active) { if (active) onLoad(query, true) }
+    LaunchedEffect(query, accountKey, active, loggedIn, credentialsExpired) { if (active && loggedIn && !credentialsExpired) onLoad(query, false) }
     LaunchedEffect(query, grouping, accountKey) { collapsedGroupKeys = emptyList() }
 
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -95,53 +99,69 @@ fun RecordsPage(
                 Column(Modifier.weight(1f)) {
                     Text("账单", color = tokens.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
-                GlassPressable(onClick = { onLoad(query, true) }, enabled = !state.loading,
+                if (loggedIn && !credentialsExpired) GlassPressable(onClick = { onLoad(query, true) }, enabled = !state.loading,
                     material = GlassMaterial.Control, cornerRadius = 16.dp,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
                     Text("刷新", color = tokens.accentPrimary, fontSize = 14.sp)
                 }
             }
         }
-        item {
-            BillFilters(scope, { scope = it }, (now.year downTo 2010).toList(), selectedYear,
-                { selectedYear = it }, selectedMonth, { selectedMonth = it }, grouping, { grouping = it })
-        }
-        if (state.loading || !matchingState) {
+        if (credentialsExpired || !loggedIn) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(color = tokens.accentPrimary, strokeWidth = 2.dp,
-                        modifier = Modifier.size(22.dp))
-                    Text("正在同步服务器账单…", color = tokens.textSecondary, fontSize = 13.sp)
+                Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (credentialsExpired) "登录已失效" else "登录后查看账单",
+                        color = tokens.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(if (credentialsExpired) "请重新登录趣智校园，继续查看和同步账单。" else "登录趣智校园后，你的用水账单将在这里显示。",
+                        color = tokens.textSecondary, fontSize = 14.sp)
+                    GlassButton(text = if (credentialsExpired) "重新登录" else "去登录", onClick = onLogin,
+                        modifier = Modifier.fillMaxWidth())
                 }
             }
-        }
-        if (matchingState && state.message.isNotBlank()) {
+        } else {
             item {
-                Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 18.dp).padding(16.dp)) {
-                    Text(state.message, color = tokens.accentWarning, fontSize = 13.sp)
-                    if (state.failedMonths.isNotEmpty()) Text(
-                        "未同步月份：" + state.failedMonths.joinToString { it.toString() },
-                        color = tokens.textSecondary, fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 6.dp))
+                BillFilters(scope, { scope = it }, selectedYear, selectedMonth, now) { period ->
+                    selectedYear = period.year
+                    selectedMonth = period.monthValue
                 }
             }
-        }
-        if (entries.isNotEmpty()) {
-            item {
-                BillSummaryCard(
-                    title = if (scope == BillScope.YEAR) "${selectedYear}年度汇总" else "${selectedYear}年${selectedMonth}月汇总",
-                    summary = summary,
-                )
-            }
-            groups.forEach { group ->
-                item(key = group.key) {
-                    BillGroupSection(group, group.key in collapsedGroupKeys) {
-                        collapsedGroupKeys = if (group.key in collapsedGroupKeys) collapsedGroupKeys - group.key else collapsedGroupKeys + group.key
+            if (state.loading || !matchingState) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(color = tokens.accentPrimary, strokeWidth = 2.dp,
+                            modifier = Modifier.size(22.dp))
+                        Text("正在同步服务器账单…", color = tokens.textSecondary, fontSize = 13.sp)
                     }
                 }
             }
-        } else if (matchingState && state.loaded && !state.loading) {
-            item { EmptyFilteredBillState() }
+            if (matchingState && state.message.isNotBlank()) {
+                item {
+                    Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 18.dp).padding(16.dp)) {
+                        Text(state.message, color = tokens.accentWarning, fontSize = 13.sp)
+                        if (state.failedMonths.isNotEmpty()) Text(
+                            "未同步月份：" + state.failedMonths.joinToString { it.toString() },
+                            color = tokens.textSecondary, fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 6.dp))
+                    }
+                }
+            }
+            if (entries.isNotEmpty()) {
+                item {
+                    BillSummaryCard(
+                        title = if (scope == BillScope.YEAR) "${selectedYear}年度汇总" else "${selectedYear}年${selectedMonth}月汇总",
+                        summary = summary,
+                    )
+                }
+                groups.forEach { group ->
+                    item(key = group.key) {
+                        BillGroupSection(group, group.key in collapsedGroupKeys) {
+                            collapsedGroupKeys = if (group.key in collapsedGroupKeys) collapsedGroupKeys - group.key else collapsedGroupKeys + group.key
+                        }
+                    }
+                }
+            } else if (matchingState && state.loaded && !state.loading) {
+                item { EmptyFilteredBillState() }
+            }
         }
         item { Spacer(Modifier.height(bottomDockClearance())) }
     }
@@ -151,75 +171,27 @@ fun RecordsPage(
 private fun BillFilters(
     scope: BillScope,
     onScopeChange: (BillScope) -> Unit,
-    availableYears: List<Int>,
-    activeYear: Int?,
-    onYearChange: (Int) -> Unit,
+    selectedYear: Int,
     selectedMonth: Int,
-    onMonthChange: (Int) -> Unit,
-    grouping: BillGrouping,
-    onGroupingChange: (BillGrouping) -> Unit,
+    now: YearMonth,
+    onPeriodChange: (YearMonth) -> Unit,
 ) {
-    val tokens = LocalGlassTokens.current
-    val yearOptions = availableYears.map { year ->
-        BillPickerOption(key = year.toString(), label = "${year}年")
-    }
-    val monthOptions = (1..12).map { month ->
-        BillPickerOption(key = month.toString(), label = "${month}月")
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 18.dp)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            text = "账期筛选",
-            color = tokens.textPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-        )
+    Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 22.dp).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
         BillSegmentedControl(
-            selectedIndex = if (scope == BillScope.YEAR) 0 else 1,
-            labels = listOf("年度", "月度"),
-            onSelected = { index ->
-                onScopeChange(if (index == 0) BillScope.YEAR else BillScope.MONTH)
-            },
+            selectedIndex = if (scope == BillScope.MONTH) 0 else 1,
+            labels = listOf("月账单", "年汇总"),
+            onSelected = { onScopeChange(if (it == 0) BillScope.MONTH else BillScope.YEAR) },
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            BillPicker(
-                label = "年份",
-                selectedLabel = activeYear?.let { "${it}年" } ?: "暂无数据",
-                options = yearOptions,
-                onSelected = { onYearChange(it.key.toInt()) },
-                modifier = Modifier.weight(1f),
-            )
-            if (scope == BillScope.MONTH) {
-                BillPicker(
-                    label = "月份",
-                    selectedLabel = "${selectedMonth}月",
-                    options = monthOptions,
-                    onSelected = { onMonthChange(it.key.toInt()) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BillPicker("年份", "${selectedYear}年",
+                (now.year downTo 2010).map { BillPickerOption("$it", "${it}年") },
+                { onPeriodChange(clampBillPeriod(YearMonth.of(it.key.toInt(), selectedMonth), now)) },
+                Modifier.weight(1f))
+            if (scope == BillScope.MONTH) BillPicker("月份", "${selectedMonth}月",
+                (1..if (selectedYear == now.year) now.monthValue else 12).map { BillPickerOption("$it", "${it}月") },
+                { onPeriodChange(YearMonth.of(selectedYear, it.key.toInt())) }, Modifier.weight(1f))
         }
-        Text(
-            text = "折叠方式",
-            color = tokens.textSecondary,
-            fontSize = 12.sp,
-        )
-        BillSegmentedControl(
-            selectedIndex = if (grouping == BillGrouping.YEAR) 0 else 1,
-            labels = listOf("按年", "按月"),
-            onSelected = { index ->
-                onGroupingChange(if (index == 0) BillGrouping.YEAR else BillGrouping.MONTH)
-            },
-        )
     }
 }
 
@@ -377,18 +349,6 @@ private fun BillSummaryCard(
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        Text(
-            text = "${summary.settledCount} 笔已获取金额 · 以服务器账单为准",
-            color = tokens.textSecondary,
-            fontSize = 12.sp,
-        )
-        if (summary.estimatedWaterRecordCount > 0) {
-            Text(
-                text = "${summary.estimatedWaterRecordCount} 笔水量按费用估算（¥0.027/L）",
-                color = tokens.textSecondary,
-                fontSize = 12.sp,
-            )
-        }
         if (summary.waterRecordCount < summary.recordCount) {
             Text(
                 text = "${summary.recordCount - summary.waterRecordCount} 笔暂时没有可用水量",

@@ -50,4 +50,33 @@ class ThemePaletteInstrumentedTest {
         }
         rule.mainClock.autoAdvance = true
     }
+    @Test fun themeGeometryInterpolatesAndRetargetsWithoutRemountingPages() {
+        val selected = mutableStateOf(ThemePalette.SKY)
+        var visibleGeometry = ThemePalette.SKY.geometry
+        var mounts = 0
+        rule.setContent {
+            GlassTheme(ThemeMode.LIGHT, 0f, selected.value) {
+                val geometry = LocalThemeGeometry.current
+                SideEffect { visibleGeometry = geometry }
+                DisposableEffect(Unit) { mounts++; onDispose {} }
+                Text("保留当前页面")
+            }
+        }
+        rule.waitForIdle()
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { selected.value = ThemePalette.MONO }
+        rule.mainClock.advanceTimeBy(160)
+        rule.runOnUiThread {
+            assertTrue(visibleGeometry.cornerScale > ThemePalette.MONO.geometry.cornerScale)
+            assertTrue(visibleGeometry.cornerScale < ThemePalette.SKY.geometry.cornerScale)
+            selected.value = ThemePalette.EMBER
+        }
+        rule.mainClock.advanceTimeBy(500)
+        rule.runOnUiThread {
+            assertEquals(ThemePalette.EMBER.geometry, visibleGeometry)
+            assertEquals(1, mounts)
+        }
+        rule.mainClock.autoAdvance = true
+    }
+
 }

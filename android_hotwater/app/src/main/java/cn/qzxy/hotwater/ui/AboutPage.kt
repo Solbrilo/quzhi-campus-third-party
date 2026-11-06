@@ -10,9 +10,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -205,17 +202,7 @@ internal fun MorePage(
         AnimatedContent(
             targetState = destination,
             modifier = Modifier.weight(1f),
-            transitionSpec = {
-                if (motionEnabled) {
-                    val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                    slideInHorizontally(tween(240)) { fullWidth -> fullWidth * direction / 7 } +
-                        fadeIn(tween(180)) togetherWith
-                        slideOutHorizontally(tween(190)) { fullWidth -> -fullWidth * direction / 9 } +
-                        fadeOut(tween(140))
-                } else {
-                    fadeIn(tween(90)) togetherWith fadeOut(tween(70))
-                }
-            },
+            transitionSpec = { subpageTransition(targetState != MorePageDestination.OVERVIEW, motionEnabled) },
             label = "more_page_content",
         ) { page ->
             pageStateHolder.SaveableStateProvider(page.name) {
@@ -523,6 +510,8 @@ private fun MoreOverviewPage(
             }
         }
 
+        FeedbackSettingsPanel()
+
         MoreActionGroup(
             actions = listOf(
                 MoreAction(
@@ -560,6 +549,13 @@ private fun MoreOverviewPage(
                     icon = Icons.AutoMirrored.Outlined.OpenInNew,
                     external = true,
                     onClick = { onOpenExternal(ProjectRepositoryUrl) },
+                ),
+                MoreAction(
+                    title = "项目网站",
+                    summary = "了解趣智校园热水项目",
+                    icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                    external = true,
+                    onClick = { onOpenExternal("https://nebularive.top/project-qzxy-hotwater.php") },
                 ),
             ),
         )
@@ -1468,19 +1464,19 @@ private fun PrivacyPolicyPage() {
         )
         PrivacyPolicyHeading(text = "网络与权限")
         Text(
-            text = "网络用于热水服务、账单、消息、版本检查、主动反馈及已开启的匿名统计。相机仅用于扫描设备二维码；附近设备权限仅用于发现热水器。Android 11 及以下的蓝牙扫描需要位置权限和系统定位开启，应用不会获取或上传地理坐标。通知权限用于用水状态提醒；消息弹窗与未读红点在应用内展示。",
+            text = "网络用于热水服务、账单、消息、版本检查、主动反馈及匿名统计。相机仅用于扫描设备二维码；附近设备权限仅用于发现热水器。Android 11 及以下的蓝牙扫描需要位置权限和系统定位开启，应用不会获取或上传地理坐标。通知权限用于用水状态提醒；消息弹窗与未读红点在应用内展示。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,
         )
         PrivacyPolicyHeading(text = "匿名使用统计")
         Text(
-            text = "开启匿名使用统计后，应用会发送使用日期、月份和匿名标识，用于汇总日活与月活，不包含账号、手机号或硬件标识。你可以随时在设置的“查看配置”页面底部关闭；已完成的匿名汇总无法追溯到个人。",
+            text = "应用会发送使用日期、月份和匿名标识，用于汇总日活与月活。匿名统计始终开启，不包含账号、手机号或硬件标识；匿名标识按日或月变化，本机随机种子不会上传，统计不用于广告或用户画像。",
             color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 22.sp,
         )
         PrivacyPolicyHeading(text = "反馈与用户选择")
         Text(
-            text = "提交问题反馈时，仅发送你填写的邮箱、反馈内容、类型和应用版本。请勿在反馈中填写密码、Token、学号或其他不必要的敏感信息。你可以在设置页的“清空所有信息”入口移除应用在本机保存的配置、记录、消息已读状态、反馈、显示设置和引导状态；匿名统计标识会一并删除并关闭后续统计，也可以通过 Android 系统设置清除应用数据。政策内容会在处理方式发生重要变化时更新。",
+            text = "提交问题反馈时，仅发送你填写的邮箱、反馈内容、类型和应用版本。请勿在反馈中填写密码、Token、学号或其他不必要的敏感信息。你可以在设置页的“清空所有信息”入口移除应用在本机保存的配置、记录、消息已读状态、反馈、显示设置和引导状态；匿名统计标识会一并删除，再次打开应用时会重新生成匿名标识并继续统计，也可以通过 Android 系统设置清除应用数据。政策内容会在处理方式发生重要变化时更新。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,
@@ -1523,11 +1519,6 @@ private val Creators = listOf(
 private fun CreatorsPage(onOpenExternal: (String) -> Unit) {
     val tokens = LocalGlassTokens.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            text = "感谢每一位让这个项目继续向前的人。",
-            color = tokens.textSecondary,
-            fontSize = 13.sp,
-        )
         Creators.forEach { creator ->
             GlassPressable(
                 onClick = { onOpenExternal(creator.profileUrl) },

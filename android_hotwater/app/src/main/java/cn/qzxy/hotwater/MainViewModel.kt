@@ -909,6 +909,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         operationType
                     }
                     store.saveOperationResultHistory(historyType, result)
+                    NotificationHelper.notifyOperation(getApplication(), historyType, result)
                 }
                 if ((operationType == OperationHistory.OperationType.CLOSE || result.automaticClose) && serverBills.value.loaded) {
                     loadServerBills(serverBills.value.query, force = true)
@@ -1094,7 +1095,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!appInForeground || store.requiresReauthentication()) {
             return
         }
-        if (store.loadOrderNo().isNullOrBlank()) {
+        if (!store.loadConfig().isComplete()) {
             activeStateSyncJob?.cancel()
             activeStateSyncJob = null
             return
@@ -1104,9 +1105,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         activeStateSyncJob = viewModelScope.launch {
             try {
-                while (appInForeground && !store.loadOrderNo().isNullOrBlank()) {
+                while (appInForeground && store.loadConfig().isComplete()) {
                     delay(ACTIVE_STATE_SYNC_INTERVAL_MS)
-                    if (!appInForeground || store.loadOrderNo().isNullOrBlank()) {
+                    if (!appInForeground || store.requiresReauthentication() || !store.loadConfig().isComplete()) {
                         break
                     }
                     refreshBalance(announce = false, recordHistory = false)

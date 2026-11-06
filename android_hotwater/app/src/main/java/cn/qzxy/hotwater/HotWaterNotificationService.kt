@@ -66,7 +66,7 @@ class HotWaterNotificationService : Service() {
     private fun syncNotificationState() {
         val store = HotWaterConfigStore(this)
         val stateGeneration = store.loadStateGeneration()
-        if (store.loadOrderNo().isNullOrBlank()) {
+        if (!FeedbackPreferences.enabled(this, FeedbackOption.LIVE_NOTIFICATION) || store.loadOrderNo().isNullOrBlank()) {
             stopActiveStateSync()
             stopSelf()
             return
@@ -84,7 +84,7 @@ class HotWaterNotificationService : Service() {
     }
 
     private fun ensureActiveStateSync() {
-        if (activeStateSyncJob?.isActive == true ||
+        if (!FeedbackPreferences.enabled(this, FeedbackOption.LIVE_NOTIFICATION) || activeStateSyncJob?.isActive == true ||
             HotWaterConfigStore(this).loadOrderNo().isNullOrBlank()) {
             return
         }
@@ -131,6 +131,7 @@ class HotWaterNotificationService : Service() {
                         break
                     }
                     if (result.automaticClose && result.historyId != null) {
+                        NotificationHelper.notifyOperation(this@HotWaterNotificationService, OperationHistory.OperationType.CLOSE, result)
                         store.saveOperationResultHistory(
                             type = OperationHistory.OperationType.CLOSE,
                             result = result,
@@ -215,6 +216,7 @@ class HotWaterNotificationService : Service() {
                     stopSelf()
                     return@launch
                 }
+                NotificationHelper.notifyOperation(this@HotWaterNotificationService, OperationHistory.OperationType.CLOSE, result)
                 if (result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(this@HotWaterNotificationService)
                 }
@@ -257,6 +259,10 @@ class HotWaterNotificationService : Service() {
         private const val ACTIVE_STATE_SYNC_INTERVAL_MS = 30_000L
 
         fun show(context: Context) {
+            if (!FeedbackPreferences.enabled(context, FeedbackOption.LIVE_NOTIFICATION)) {
+                dismiss(context)
+                return
+            }
             val intent = Intent(context, HotWaterNotificationService::class.java).apply {
                 action = ACTION_SHOW
             }
@@ -264,10 +270,7 @@ class HotWaterNotificationService : Service() {
         }
 
         fun dismiss(context: Context) {
-            val intent = Intent(context, HotWaterNotificationService::class.java).apply {
-                action = ACTION_DISMISS
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, HotWaterNotificationService::class.java))
         }
     }
 }

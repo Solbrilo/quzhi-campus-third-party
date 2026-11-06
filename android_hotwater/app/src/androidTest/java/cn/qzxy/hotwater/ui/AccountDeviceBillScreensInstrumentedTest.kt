@@ -74,4 +74,18 @@ class AccountDeviceBillScreensInstrumentedTest {
         rule.onAllNodesWithText("¥0.08").assertCountEquals(2)
         rule.onNodeWithText("用水时长").assertDoesNotExist()
     }
+    @Test fun expiredBillPageOffersLoginAndNeverStartsBillRequest() {
+        var requests = 0
+        var logins = 0
+        rule.setContent {
+            GlassTheme(themeMode = ThemeMode.LIGHT) {
+                RecordsPage(ServerBillsState(), "expired", credentialsExpired = true,
+                    onLogin = { logins++ }, onLoad = { _, _ -> requests++ })
+            }
+        }
+        rule.onNodeWithText("登录已失效").assertIsDisplayed()
+        rule.onNodeWithText("重新登录").performClick()
+        rule.runOnIdle { assertEquals(0, requests); assertEquals(1, logins) }
+    }
+
 }

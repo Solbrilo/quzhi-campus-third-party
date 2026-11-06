@@ -6,4 +6,6 @@
     <string name="widget_name">热水一键开关</string>
     <string name="widget_description">桌面小组件，可一键开热水或关热水。</string>
     <string name="tile_name">热水开关</string>
+    <string name="widget_switch_name">热水滑动开关 · 2×1</string>
+    <string name="widget_switch_description">点击绿色区域开水，点击红色区域关水</string>
 </resources>

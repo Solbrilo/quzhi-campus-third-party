@@ -168,6 +168,18 @@ class AppUpdateManager(context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    fun ignoreVersion(version: String) {
+        appContext.getSharedPreferences("hotwater_update_preferences", Context.MODE_PRIVATE)
+            .edit().putString("ignored_version", version).apply()
+    }
+
+    fun shouldPrompt(update: AppUpdateInfo, manual: Boolean): Boolean = shouldPromptForUpdate(
+        update.versionName,
+        appContext.getSharedPreferences("hotwater_update_preferences", Context.MODE_PRIVATE)
+            .getString("ignored_version", null),
+        manual,
+    )
+
     @OptIn(InternalCoroutinesApi::class)
     suspend fun checkForUpdate(): AppUpdateCheckResult = withContext(Dispatchers.IO) {
         try {
@@ -596,3 +608,6 @@ class AppUpdateManager(context: Context) {
         val updateInstallMutex = Mutex()
     }
 }
+
+internal fun shouldPromptForUpdate(version: String, ignoredVersion: String?, manual: Boolean): Boolean =
+    manual || ignoredVersion == null || compareReleaseVersions(version, ignoredVersion) > 0

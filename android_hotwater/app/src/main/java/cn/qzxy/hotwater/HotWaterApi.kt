@@ -166,11 +166,13 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
 
     private suspend fun execute(request: Request): JSONObject {
         return suspendCancellableCoroutine { continuation ->
+            val connectionRequest = QzxyConnectionState.beginRequest()
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     if (!continuation.isCancelled) {
+                        QzxyConnectionState.complete(connectionRequest, false)
                         continuation.resumeWithException(e)
                     }
                 }
@@ -186,10 +188,12 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
                                         body,
                                     )
                                 ) {
+                                    QzxyConnectionState.complete(connectionRequest, true)
                                     continuation.resumeWithException(CredentialExpiredException())
                                     return
                                 }
                                 if (!response.isSuccessful) {
+                                    QzxyConnectionState.complete(connectionRequest, false)
                                     continuation.resumeWithException(
                                         IOException("HTTP ${response.code}: $body")
                                     )
@@ -201,18 +205,22 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
                                     try {
                                         JSONObject(body)
                                     } catch (e: JSONException) {
+                                        QzxyConnectionState.complete(connectionRequest, false)
                                         continuation.resumeWithException(
                                             IOException("服务器返回了非 JSON 数据: ${body.take(200)}", e)
                                         )
                                         return
                                     }
                                 }
+                                QzxyConnectionState.complete(connectionRequest, body.isNotBlank())
                                 if (CredentialExpiryDetector.isExpiredServiceResponse(json)) {
+                                    QzxyConnectionState.complete(connectionRequest, true)
                                     continuation.resumeWithException(CredentialExpiredException())
                                     return
                                 }
                                 continuation.resume(json)
                             } catch (e: Exception) {
+                                QzxyConnectionState.complete(connectionRequest, false)
                                 continuation.resumeWithException(e)
                             }
                         }

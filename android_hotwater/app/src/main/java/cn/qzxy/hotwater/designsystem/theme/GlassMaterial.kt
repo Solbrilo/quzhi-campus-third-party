@@ -3,6 +3,7 @@ package cn.qzxy.hotwater.designsystem.theme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -70,6 +71,7 @@ fun Modifier.glassMaterial(
     backdrop: Backdrop? = null,
     backdropBlurScale: Float = 1f,
     refractionScale: Float = 1f,
+    shape: RoundedCornerShape = RoundedCornerShape(LocalThemeGeometry.current.corner(cornerRadius)),
 ): Modifier {
     val environment = LocalGlassEnvironment.current
     val resolved = resolveGlassMaterial(
@@ -79,7 +81,9 @@ fun Modifier.glassMaterial(
         enabled = enabled,
         glassIntensity = environment.glassIntensity,
     )
-    val shape = RoundedCornerShape(cornerRadius)
+    // Backdrop retains a shape provider inside its graphics layer. Read snapshot state in
+    // that provider so a theme change also invalidates the retained clip, not just our rim.
+    val currentShape = rememberUpdatedState(shape)
     val opaqueSurface = if (resolved.canBlur) {
         tokens.fallbackSurface.copy(alpha = 1f)
     } else {
@@ -97,7 +101,7 @@ fun Modifier.glassMaterial(
         val expansion = lensExpansion.coerceIn(0f, 1f)
         Modifier.drawBackdrop(
             backdrop = liquidBackdrop,
-            shape = { shape },
+            shape = { currentShape.value },
             effects = {
                 if (intensity > 0f && size.isSpecified && size.width > 0f && size.height > 0f) {
                     if (backdropBlurScale > 0f) {
@@ -225,8 +229,9 @@ fun Modifier.glassMaterial(
             val inset = strokeWidth / 2f
             val edgeSize = Size((size.width - strokeWidth).coerceAtLeast(0f),
                 (size.height - strokeWidth).coerceAtLeast(0f))
-            val curve = (cornerRadius.toPx() - inset).coerceIn(0f,
-                minOf(edgeSize.width, edgeSize.height) / 2f)
+            val outline = shape.createOutline(size, layoutDirection, this)
+            val outerRadius = (outline as? androidx.compose.ui.graphics.Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: 0f
+            val curve = (outerRadius - inset).coerceAtLeast(0f)
             val radius = CornerRadius(curve, curve)
             val right = size.width - inset
             val bottom = size.height - inset
@@ -267,11 +272,11 @@ fun Modifier.glassMaterial(
                 if (environment.preferOpaqueMaterials) drawLine(
                     color = highlight,
                     start = Offset(
-                        cornerRadius.toPx() * 0.55f,
+                        outerRadius * 0.55f,
                         if (pressed) size.height - highlightStrokeWidth else highlightStrokeWidth,
                     ),
                     end = Offset(
-                        size.width - cornerRadius.toPx() * 0.55f,
+                        size.width - outerRadius * 0.55f,
                         if (pressed) size.height - highlightStrokeWidth else highlightStrokeWidth,
                     ),
                     strokeWidth = highlightStrokeWidth,

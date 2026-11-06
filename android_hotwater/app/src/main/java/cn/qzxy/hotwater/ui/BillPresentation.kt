@@ -156,3 +156,7 @@ internal fun formatBillAmount(totalMilliYuan: Long): String {
 private fun saturatingAdd(left: Long, right: Long): Long {
     return if (right > 0L && left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 }
+
+/** Keep a year change from selecting a future month with no possible records. */
+internal fun clampBillPeriod(period: java.time.YearMonth, today: java.time.YearMonth): java.time.YearMonth =
+    period.coerceIn(java.time.YearMonth.of(2010, 1), today)

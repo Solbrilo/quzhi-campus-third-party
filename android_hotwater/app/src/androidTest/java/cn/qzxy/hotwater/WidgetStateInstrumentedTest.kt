@@ -58,4 +58,30 @@ class WidgetStateInstrumentedTest {
             }
         } finally { store.clearAll() }
     }
+    @Test fun sliderAppliesBothDirectionsAndBusyStateWithoutChangingConfirmedPosition() {
+        val store = HotWaterConfigStore(context)
+        store.clearAll()
+        try {
+            store.saveConfig(HotWaterConfig(projectId = 1, userId = 2, accountId = 3,
+                telephone = "13800138000", loginCode = "fixture-only", snCode = "AABBCCDDEEFF",
+                phoneSystem = "android", version = "1.1.11"))
+            instrumentation.runOnMainSync {
+                val parent = FrameLayout(context)
+                val off = HotWaterWidgetUi.buildSwitchRemoteViews(context, 0).apply(context, parent)
+                assertEquals("开", off.findViewById<TextView>(R.id.widget_switch_right).text.toString())
+                assertEquals("已关", off.findViewById<TextView>(R.id.widget_switch_thumb).text.toString())
+                store.saveWidgetState("处理中", "正在开启", true, "busy", requestId = "fixture")
+                HotWaterWidgetUi.buildSwitchRemoteViews(context, 0).reapply(context, off)
+                assertEquals("处理中", off.findViewById<TextView>(R.id.widget_switch_right).text.toString())
+                assertEquals("已关", off.findViewById<TextView>(R.id.widget_switch_thumb).text.toString())
+                store.saveOrderNo("fixture-order")
+                store.saveWidgetState("已开启", "", false, "success")
+                val on = HotWaterWidgetUi.buildSwitchRemoteViews(context, 0, animate = true).apply(context, parent)
+                assertEquals("关", on.findViewById<TextView>(R.id.widget_switch_left).text.toString())
+                assertEquals("已开", on.findViewById<TextView>(R.id.widget_switch_thumb).text.toString())
+                assertEquals(0, on.findViewById<android.widget.ViewFlipper>(R.id.widget_switch_slider).displayedChild)
+            }
+        } finally { store.clearAll() }
+    }
+
 }

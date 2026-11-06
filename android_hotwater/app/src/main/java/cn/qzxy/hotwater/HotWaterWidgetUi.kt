@@ -14,20 +14,90 @@ object HotWaterWidgetUi {
     const val ACTION_CLOSE = "cn.qzxy.hotwater.widget.CLOSE"
     const val ACTION_REFRESH = "cn.qzxy.hotwater.widget.REFRESH"
 
-    fun updateAllWidgets(context: Context) {
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val componentName = ComponentName(context, HotWaterWidgetProvider::class.java)
-        val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
-        if (appWidgetIds.isEmpty()) {
-            return
-        }
+    private val lastSwitchContent = mutableMapOf<Int, List<Any>>()
 
+    @Synchronized
+    fun updateAllWidgets(context: Context, force: Boolean = false) {
+        val appWidgetManager = AppWidgetManager.getInstance(context)
+        val sliderIds = appWidgetManager.getAppWidgetIds(ComponentName(context, HotWaterSwitchWidgetProvider::class.java)).toSet()
+        val appWidgetIds = appWidgetManager.getAppWidgetIds(ComponentName(context, HotWaterWidgetProvider::class.java)).toSet() + sliderIds
+        val statePreferences = context.getSharedPreferences("hotwater_widget_presentation", Context.MODE_PRIVATE)
+        val store = HotWaterConfigStore(context)
+        val opened = !store.loadOrderNo().isNullOrBlank()
+        val state = store.loadWidgetState()
+        val renderKey = listOf(store.loadStateGeneration(), opened, state,
+            WidgetActionPolicy.isBusy(state), store.loadConfig().isComplete(), store.requiresReauthentication())
         appWidgetIds.forEach { appWidgetId ->
-            // One launcher instance must not prevent the remaining widgets updating.
-            runCatching { appWidgetManager.updateAppWidget(
-                appWidgetId,
-                buildRemoteViews(context, appWidgetManager, appWidgetId),
-            ) }
+            // Workers publish once on completion and again in finally. Preserve the in-flight
+            // launcher animation when those updates contain exactly the same state.
+            if (appWidgetId in sliderIds && !force && lastSwitchContent[appWidgetId] == renderKey) return@forEach
+            val key = "switch_$appWidgetId"
+            val animate = statePreferences.contains(key) && statePreferences.getBoolean(key, opened) != opened &&
+                android.provider.Settings.Global.getFloat(context.contentResolver,
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+            runCatching {
+                appWidgetManager.updateAppWidget(appWidgetId,
+                    if (appWidgetId in sliderIds) buildSwitchRemoteViews(context, appWidgetId, animate)
+                    else buildRemoteViews(context, appWidgetManager, appWidgetId))
+            }.onSuccess {
+                statePreferences.edit().putBoolean(key, opened).apply()
+                if (appWidgetId in sliderIds) lastSwitchContent[appWidgetId] = renderKey
+            }
+        }
+    }
+
+    internal fun buildSwitchRemoteViews(context: Context, appWidgetId: Int, animate: Boolean = false): RemoteViews {
+        val store = HotWaterConfigStore(context)
+        val opened = !store.loadOrderNo().isNullOrBlank()
+        val state = store.loadWidgetState()
+        val busy = WidgetActionPolicy.isBusy(state)
+        val ready = store.loadConfig().isComplete() && !store.requiresReauthentication()
+        val layout = when {
+            opened && animate -> R.layout.widget_hotwater_switch_on_animated
+            opened -> R.layout.widget_hotwater_switch_on
+            animate -> R.layout.widget_hotwater_switch_off_animated
+            else -> R.layout.widget_hotwater_switch_off
+        }
+        val targetId = if (opened) R.id.widget_switch_left else R.id.widget_switch_right
+        val hiddenId = if (opened) R.id.widget_switch_right else R.id.widget_switch_left
+        val action = if (opened) ACTION_CLOSE else ACTION_OPEN
+        return RemoteViews(context.packageName, layout).apply {
+            setDisplayedChild(R.id.widget_switch_slider, 0)
+            setTextViewText(R.id.widget_switch_thumb, when {
+                !ready -> "待登录"
+                !busy && (state.isBusy || state.tone == "error" || state.tone == "warning") -> "待确认"
+                opened -> "已开"
+                else -> "已关"
+            })
+            setTextViewText(hiddenId, "")
+            setTextViewText(targetId, when {
+                !ready -> "登录"
+                busy -> "处理中"
+                else -> if (opened) "关" else "开"
+            })
+            setTextViewTextSize(targetId, android.util.TypedValue.COMPLEX_UNIT_SP,
+                if (busy || !ready) 14f else 22f)
+            setTextViewTextSize(R.id.widget_switch_thumb, android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            setContentDescription(targetId, when {
+                !ready -> "打开应用登录并绑定设备"
+                busy -> "操作处理中，请稍候"
+                else -> if (opened) "关闭热水" else "开启热水"
+            })
+            setContentDescription(R.id.widget_switch_thumb, when {
+                !ready -> "打开应用登录并绑定设备"
+                state.isBusy || state.tone == "error" || state.tone == "warning" -> "状态待确认，打开应用查看"
+                opened -> "热水已开启"
+                else -> "热水已关闭"
+            })
+            setFloat(R.id.widget_switch_track, "setAlpha", if (busy) 0.65f else 1f)
+            setInt(R.id.widget_switch_track, "setBackgroundResource", when {
+                !ready -> R.drawable.widget_switch_idle
+                opened -> R.drawable.widget_switch_close
+                else -> R.drawable.widget_switch_open
+            })
+            setOnClickPendingIntent(R.id.widget_switch_thumb, openAppPendingIntent(context))
+            setOnClickPendingIntent(targetId, if (ready) actionPendingIntent(context, appWidgetId, action,
+                widgetRequestCode(appWidgetId, action)) else openAppPendingIntent(context))
         }
     }
 

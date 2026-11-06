@@ -1,5 +1,9 @@
 package cn.qzxy.hotwater.ui
 
+import cn.qzxy.hotwater.designsystem.theme.LocalThemePalette
+import cn.qzxy.hotwater.designsystem.theme.ThemePalette
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.scale
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -95,8 +99,9 @@ fun OperationsPage(
             ) {
                 val buttonColor = if (snapshot?.hasCachedOrder == true) tokens.accentError else tokens.accentPrimary
 
-                Box(Modifier.size(296.dp).background(tokens.powerOuterSurface, CircleShape))
-                Box(Modifier.size(266.dp).background(tokens.powerInnerSurface, CircleShape))
+                val powerShape = RoundedCornerShape(cn.qzxy.hotwater.designsystem.theme.LocalThemeGeometry.current.powerCorner * 1.3f)
+                Box(Modifier.size(296.dp).background(tokens.powerOuterSurface, powerShape))
+                Box(Modifier.size(266.dp).background(tokens.powerInnerSurface, powerShape))
                 Canvas(Modifier.size(296.dp)) {
                     val glow = if (snapshot?.hasCachedOrder == true) tokens.accentError else tokens.accentPrimary
                     drawCircle(Brush.radialGradient(
@@ -327,6 +332,11 @@ private fun RechargeButton(onClick: () -> Unit) {
 @Composable
 private fun LoadingRing(color: androidx.compose.ui.graphics.Color) {
     val motionEnabled = rememberMotionEnabled()
+    val palette = LocalThemePalette.current
+    if (palette in listOf(ThemePalette.TIDE, ThemePalette.EMBER, ThemePalette.MONO)) {
+        ThemedActivityRing(palette, color, motionEnabled)
+        return
+    }
 
     if (!motionEnabled) {
         LoadingRingCanvas(color = color, rotation = 0f, alpha = 0.24f)
@@ -423,6 +433,10 @@ private fun ToggleButton(
     } else tokens.softButtonText, tween(if (motionEnabled) 260 else 0), label = "powerInk")
     val buttonRim = if (isCloseMode) tokens.accentError else tokens.accentPrimary
     val actionLabel = if (isCloseMode) "关闭热水" else "开启热水"
+    val palette = LocalThemePalette.current
+    val powerShape = RoundedCornerShape(cn.qzxy.hotwater.designsystem.theme.LocalThemeGeometry.current.powerCorner)
+    val powerScale by animateFloatAsState(if (isCloseMode) 0.96f else 1f,
+        tween(if (motionEnabled) 380 else 0), label = "power_state_scale")
 
     GlassPressable(
         onClick = onToggle,
@@ -430,13 +444,15 @@ private fun ToggleButton(
         role = Role.Switch,
         onClickLabel = actionLabel,
         material = null,
-        cornerRadius = 114.dp,
+        cornerRadius = palette.powerCorner,
+        shape = powerShape,
         hapticFeedback = { null },
         modifier = Modifier
             .size(228.dp)
-            .shadow(18.dp, CircleShape, ambientColor = buttonRim.copy(alpha = 0.25f), spotColor = buttonRim.copy(alpha = 0.25f))
-            .background(buttonSurface, CircleShape)
-            .border(2.dp, buttonRim.copy(alpha = if (dark) 0.28f else 0.16f), CircleShape)
+            .scale(powerScale)
+            .shadow(18.dp, powerShape, ambientColor = buttonRim.copy(alpha = 0.25f), spotColor = buttonRim.copy(alpha = 0.25f))
+            .background(buttonSurface, powerShape)
+            .border(2.dp, buttonRim.copy(alpha = if (dark) 0.28f else 0.16f), powerShape)
             .semantics {
                 contentDescription = actionLabel
                 toggleableState = ToggleableState(isCloseMode)
@@ -448,11 +464,13 @@ private fun ToggleButton(
                 }
             },
     ) {
-        Text(
-            text = if (isCloseMode) "关" else "开",
-            color = buttonInk,
-            fontSize = 60.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (palette in listOf(ThemePalette.TIDE, ThemePalette.EMBER, ThemePalette.MONO)) {
+                ThemedIcon(themeWaterIcon(palette), null, tint = buttonInk, modifier = Modifier.size(28.dp))
+            }
+            Text(text = if (isCloseMode) "关" else "开", color = buttonInk,
+                fontSize = if (palette == ThemePalette.MONO) 52.sp else 60.sp,
+                fontWeight = if (palette == ThemePalette.MONO) FontWeight.Light else FontWeight.Bold)
+        }
     }
 }

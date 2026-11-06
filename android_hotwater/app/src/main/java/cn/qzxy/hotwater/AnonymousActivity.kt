@@ -57,20 +57,12 @@ internal object AnonymousActivity {
     const val WORK_TAG = "anonymous_daily_activity"
     private val lock = Any()
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    fun isEnabled(context: Context): Boolean = prefs(context).getBoolean("enabled", true)
-    fun setEnabled(context: Context, enabled: Boolean) {
-        synchronized(lock) {
-            prefs(context).edit().putBoolean("enabled", enabled).commit()
-            if (!enabled) WorkManager.getInstance(context).cancelAllWorkByTag(WORK_TAG)
-        }
-        if (enabled) recordOpen(context)
-    }
-
     fun recordOpen(context: Context) = synchronized(lock) {
-        if (!isEnabled(context)) return@synchronized
         val day = LocalDate.now(ActivityToken.zone).toString()
         val month = day.substring(0, 7)
         val storedPrefs = prefs(context)
+        // Retire the old opt-out for every existing installation, including previously disabled ones.
+        if (storedPrefs.contains("enabled")) storedPrefs.edit().remove("enabled").apply()
         if (storedPrefs.getString("ack_day", null) == day &&
             storedPrefs.getString("ack_month", null) == month
         ) return@synchronized
@@ -95,7 +87,7 @@ internal object AnonymousActivity {
     }
 
     fun acknowledgeDay(context: Context, day: String) = synchronized(lock) {
-        if (!isEnabled(context) || !File(context.noBackupFilesDir, SEED_FILE).exists()) return@synchronized
+        if (!File(context.noBackupFilesDir, SEED_FILE).exists()) return@synchronized
         val previous = prefs(context).getString("ack_day", "").orEmpty()
         if (day > previous) prefs(context).edit().putString("ack_day", day).apply()
     }
@@ -104,7 +96,7 @@ internal object AnonymousActivity {
         prefs(context).getString("ack_day", null) == day
 
     fun acknowledgeMonth(context: Context, month: String) = synchronized(lock) {
-        if (!isEnabled(context) || !File(context.noBackupFilesDir, SEED_FILE).exists()) return@synchronized
+        if (!File(context.noBackupFilesDir, SEED_FILE).exists()) return@synchronized
         val previous = prefs(context).getString("ack_month", "").orEmpty()
         if (month > previous) prefs(context).edit().putString("ack_month", month).apply()
     }
@@ -116,8 +108,8 @@ internal object AnonymousActivity {
 
     fun clear(context: Context): Boolean = synchronized(lock) {
         WorkManager.getInstance(context).cancelAllWorkByTag(WORK_TAG)
-        // Keep an explicit opt-out after clearing until the user chooses to enable again.
-        val cleared = prefs(context).edit().clear().putBoolean("enabled", false).commit()
+        // Forget this installation's old seed and acknowledgements; the next open starts fresh.
+        val cleared = prefs(context).edit().clear().commit()
         AtomicFile(File(context.noBackupFilesDir, SEED_FILE)).delete()
         cleared
     }
@@ -125,7 +117,6 @@ internal object AnonymousActivity {
 
 class DailyActivityWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        if (!AnonymousActivity.isEnabled(applicationContext)) return@withContext Result.success()
         val day = inputData.getString("day") ?: return@withContext Result.failure()
         val token = inputData.getString("token") ?: return@withContext Result.failure()
         val date = runCatching { LocalDate.parse(day) }.getOrNull() ?: return@withContext Result.failure()

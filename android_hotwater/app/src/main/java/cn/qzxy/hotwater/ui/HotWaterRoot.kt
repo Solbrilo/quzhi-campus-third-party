@@ -3,12 +3,6 @@ package cn.qzxy.hotwater.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,16 +20,16 @@ import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.ThemePalette
 import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 
-private enum class RootScreen {
-    MAIN,
-    LOGIN,
-    CONFIG_SCANNER,
-    DEVICE_SCANNER,
-    ONBOARDING_QUOTE,
-    ONBOARDING_LOGIN,
-    ONBOARDING_SCANNER,
-    ONBOARDING_NEARBY,
-    ONBOARDING_COMPLETE,
+private enum class RootScreen(val depth: Int) {
+    MAIN(0),
+    LOGIN(1),
+    CONFIG_SCANNER(1),
+    DEVICE_SCANNER(1),
+    ONBOARDING_QUOTE(0),
+    ONBOARDING_LOGIN(1),
+    ONBOARDING_SCANNER(3),
+    ONBOARDING_NEARBY(2),
+    ONBOARDING_COMPLETE(4),
 }
 
 internal enum class OnboardingResumeDestination {
@@ -86,21 +80,15 @@ fun HotWaterRoot(
     }
     var pendingConfigSnCode by rememberSaveable { mutableStateOf<String?>(null) }
     var onboardingScanResetKey by rememberSaveable { mutableStateOf(0) }
-    var openConfigRequest by rememberSaveable { mutableStateOf(0) }
     val saveableStateHolder = rememberSaveableStateHolder()
     val motionEnabled = LocalGlassEnvironment.current.motionEnabled
     val config by viewModel.config.collectAsStateWithLifecycle()
     val loginState by viewModel.qzxyLoginState.collectAsStateWithLifecycle()
     val snCodeSaveState by viewModel.snCodeSaveState.collectAsStateWithLifecycle()
     val smsCodeState by viewModel.smsCodeState.collectAsStateWithLifecycle()
-    val credentialExpired by viewModel.credentialExpired.collectAsStateWithLifecycle()
     val onboardingScanSaving = snCodeSaveState.loading
 
-    LaunchedEffect(onboardingRequired, credentialExpired) {
-        if (credentialExpired) {
-            rootScreen = RootScreen.LOGIN
-            return@LaunchedEffect
-        }
+    LaunchedEffect(onboardingRequired) {
         val onOnboardingScreen = rootScreen == RootScreen.ONBOARDING_QUOTE ||
             rootScreen == RootScreen.ONBOARDING_LOGIN ||
             rootScreen == RootScreen.ONBOARDING_SCANNER ||
@@ -109,7 +97,6 @@ fun HotWaterRoot(
         when {
             onboardingRequired && !onOnboardingScreen -> {
                 pendingConfigSnCode = null
-                openConfigRequest = 0
                 onboardingScanResetKey = 0
                 rootScreen = RootScreen.ONBOARDING_QUOTE
             }
@@ -152,9 +139,6 @@ fun HotWaterRoot(
     BackHandler(
         enabled = rootScreen != RootScreen.MAIN && rootScreen != RootScreen.ONBOARDING_QUOTE,
     ) {
-        if (rootScreen == RootScreen.LOGIN && credentialExpired) {
-            return@BackHandler
-        }
         if (rootScreen in listOf(RootScreen.ONBOARDING_SCANNER, RootScreen.DEVICE_SCANNER) && onboardingScanSaving) {
             return@BackHandler
         }
@@ -178,21 +162,11 @@ fun HotWaterRoot(
         targetState = rootScreen,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            when {
-                !motionEnabled -> fadeIn(tween(90)) togetherWith fadeOut(tween(70))
-                initialState == RootScreen.LOGIN && targetState == RootScreen.MAIN -> {
-                    // Keep the parent stationary underneath the departing login page.
-                    (fadeIn(tween(180)) togetherWith
-                        (slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220))))
-                        .apply { targetContentZIndex = -1f }
-                }
-                initialState == RootScreen.MAIN && targetState == RootScreen.LOGIN -> {
-                    ((slideInHorizontally(tween(280)) { it } + fadeIn(tween(220))) togetherWith
-                        fadeOut(tween(180))).apply { targetContentZIndex = 1f }
-                }
-                else -> slideInHorizontally(tween(360)) { it / 10 } + fadeIn(tween(280)) togetherWith
-                    slideOutHorizontally(tween(260)) { -it / 12 } + fadeOut(tween(220))
-            }
+            subpageTransition(
+                forward = targetState != RootScreen.MAIN &&
+                    (initialState == RootScreen.MAIN || targetState.depth > initialState.depth),
+                motionEnabled = motionEnabled,
+            )
         },
         label = "root_flow_transition",
     ) { screen ->
@@ -210,7 +184,6 @@ fun HotWaterRoot(
                     onResetGlassIntensity = onResetGlassIntensity,
                     onExportConfig = onExportConfig,
                     onImportConfig = onImportConfig,
-                    openConfigRequest = openConfigRequest,
                     onOpenAlipayRecharge = onOpenAlipayRecharge,
                     onRequestNotificationPermission = onRequestNotificationPermission,
                     onClearAllUserData = onClearAllUserData,
@@ -234,17 +207,7 @@ fun HotWaterRoot(
                     onLogin = viewModel::loginToQzxy,
                     onSendVerificationCode = viewModel::sendVerificationCode,
                     onCredentialsChanged = viewModel::invalidateLoginRequest,
-                    showBackButton = !credentialExpired,
-                    onSkip = if (credentialExpired) {
-                        {
-                            viewModel.skipCredentialExpiry()
-                            onOnboardingCompleted()
-                            openConfigRequest++
-                            rootScreen = RootScreen.MAIN
-                        }
-                    } else {
-                        null
-                    },
+                    showBackButton = true,
                     onBack = {
                         viewModel.cancelQzxyLogin()
                         rootScreen = RootScreen.MAIN

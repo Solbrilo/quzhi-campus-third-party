@@ -105,6 +105,12 @@ class HotWaterWidgetActionWorker(
                     runCatching { HotWaterSettlementSyncScheduler.enqueue(applicationContext) }
                 }
                 if (store.loadStateGeneration() != stateGeneration) return@also
+                val notificationType = when {
+                    action == WidgetHotWaterAction.CLOSE || result.automaticClose -> OperationHistory.OperationType.CLOSE
+                    action == WidgetHotWaterAction.OPEN -> OperationHistory.OperationType.OPEN
+                    else -> OperationHistory.OperationType.REFRESH
+                }
+                NotificationHelper.notifyOperation(applicationContext, notificationType, result)
                 val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
                     title = if (deviceBusyByOther) {

@@ -55,6 +55,7 @@ fun GlassInput(
     trailingContentWidth: Dp = 48.dp,
 ) {
     val tokens = LocalGlassTokens.current
+    val inputCorner = cn.qzxy.hotwater.designsystem.theme.LocalThemeGeometry.current.corner(16.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val outlineColor = when {
@@ -88,7 +89,7 @@ fun GlassInput(
                             brush = Brush.linearGradient(
                                 listOf(outlineColor, outlineColor.copy(alpha = 0.38f))
                             ),
-                            cornerRadius = CornerRadius(16.dp.toPx()),
+                            cornerRadius = CornerRadius(inputCorner.toPx()),
                             style = Stroke(width = 1.5.dp.toPx())
                         )
                     } else Modifier

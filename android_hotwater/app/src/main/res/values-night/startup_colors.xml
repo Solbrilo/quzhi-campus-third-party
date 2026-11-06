@@ -5,4 +5,7 @@
     <color name="startup_jade_system">#111E1C</color>
     <color name="startup_iris_system">#1A1726</color>
     <color name="startup_sand_system">#221C17</color>
+    <color name="startup_tide_system">#0D2029</color>
+    <color name="startup_ember_system">#281A17</color>
+    <color name="startup_mono_system">#191D1B</color>
 </resources>

@@ -15,6 +15,39 @@ object NotificationHelper {
     private const val CHANNEL_ID = "hotwater_live"
     private const val CHANNEL_NAME = "热水实况"
     private const val REQUEST_CODE_CLOSE = 1002
+    private const val OPEN_CHANNEL = "hotwater_open_result"
+    private const val CLOSE_CHANNEL = "hotwater_close_result"
+    private const val OPEN_ID = 1101
+    private const val CLOSE_ID = 1102
+
+    fun cancelDisabledNotifications(context: Context) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        if (!FeedbackPreferences.enabled(context, FeedbackOption.OPEN_NOTIFICATION)) manager.cancel(OPEN_ID)
+        if (!FeedbackPreferences.enabled(context, FeedbackOption.CLOSE_NOTIFICATION)) manager.cancel(CLOSE_ID)
+    }
+
+    fun notifyOperation(context: Context, type: OperationHistory.OperationType, result: OperationResult) {
+        if (type == OperationHistory.OperationType.REFRESH) return
+        val closing = type == OperationHistory.OperationType.CLOSE
+        val option = if (closing) FeedbackOption.CLOSE_NOTIFICATION else FeedbackOption.OPEN_NOTIFICATION
+        if (!FeedbackPreferences.enabled(context, option)) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        if (!manager.areNotificationsEnabled()) return
+        val channelId = if (closing) CLOSE_CHANNEL else OPEN_CHANNEL
+        manager.createNotificationChannel(NotificationChannel(channelId,
+            if (closing) "关水结果" else "开水结果", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            enableVibration(false)
+        })
+        val pending = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_qs_tile).setContentTitle(result.title)
+            .setContentText(HotWaterUiText.firstMeaningfulLine(result.summary))
+            .setContentIntent(pending).setAutoCancel(true).build()
+        // A notification permission change cannot turn a completed water operation into a failure.
+        runCatching { manager.notify(if (closing) CLOSE_ID else OPEN_ID, notification) }
+    }
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -79,7 +112,7 @@ object NotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText("热水已开启"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setRequestPromotedOngoing(true)
+            .setRequestPromotedOngoing(FeedbackPreferences.enabled(context, FeedbackOption.PROMOTED_NOTIFICATION))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()

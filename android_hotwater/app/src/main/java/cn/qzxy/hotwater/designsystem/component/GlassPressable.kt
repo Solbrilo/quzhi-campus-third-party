@@ -55,6 +55,8 @@ fun GlassPressable(
     contentAlignment: Alignment = Alignment.Center,
     disabledAlpha: Float = 0.52f,
     pressedScale: Float = PressedScale,
+    shape: RoundedCornerShape = RoundedCornerShape(
+        cn.qzxy.hotwater.designsystem.theme.LocalThemeGeometry.current.corner(cornerRadius)),
     hapticFeedback: (() -> HapticFeedbackType?)? = {
         HapticFeedbackType.SegmentTick
     },
@@ -130,15 +132,16 @@ fun GlassPressable(
         Modifier.glassMaterial(
             material = if (selected != null) GlassMaterial.Control else material,
             cornerRadius = cornerRadius,
+            shape = shape,
             pressed = isPressed && enabled,
             enabled = enabled,
             tokens = tokens,
         ).then(if (selected != null) Modifier
-            .background(selectionColor, RoundedCornerShape(cornerRadius))
-            .border(1.5.dp, selectionBorder, RoundedCornerShape(cornerRadius)) else Modifier)
+            .background(selectionColor, shape)
+            .border(1.5.dp, selectionBorder, shape) else Modifier)
     } else {
         Modifier
-            .clip(RoundedCornerShape(cornerRadius))
+            .clip(shape)
             .background(
                 color = if (isPressed && enabled) {
                     tokens.pressedSurface.copy(alpha = 0.18f)

@@ -73,4 +73,58 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
     </style>
+    <style name="Theme.HotWater.Startup.Tide.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_tide_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_tide_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Tide.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_tide_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_tide_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Tide.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_tide_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_tide_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Ember.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_ember_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_ember_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Ember.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_ember_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_ember_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Ember.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_ember_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_ember_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Mono.System" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_mono_system</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_mono_system</item>
+        <item name="android:windowLightStatusBar">@bool/startup_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/startup_light_bars</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Mono.Light" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_mono_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_mono_light</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Theme.HotWater.Startup.Mono.Dark" parent="Theme.HotWater">
+        <item name="android:windowBackground">@color/startup_mono_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/startup_mono_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
 </resources>

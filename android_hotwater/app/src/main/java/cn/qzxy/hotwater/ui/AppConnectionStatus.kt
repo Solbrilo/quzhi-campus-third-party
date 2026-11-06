@@ -1,35 +1,17 @@
 package cn.qzxy.hotwater.ui
 
-internal enum class AppConnectionStatus(
-    val label: String?,
-    val accessibilityDescription: String?,
-) {
-    USER_OFFLINE(
-        label = "用户未联网",
-        accessibilityDescription = "当前设备没有可用的互联网连接",
-    ),
-    DEVICE_OFFLINE(
-        label = "热水器不在线",
-        accessibilityDescription = "热水器状态已确认不在线",
-    ),
-    DEVICE_ONLINE(
-        label = "热水器在线",
-        accessibilityDescription = "热水器状态已确认在线",
-    ),
-    UNKNOWN(
-        label = null,
-        accessibilityDescription = null,
-    ),
+internal enum class AppConnectionStatus(val label: String, val accessibilityDescription: String) {
+    OFFLINE("离线", "未联网或无法连接趣智校园服务器"),
+    CONNECTED("已连接", "已连接趣智校园服务器"),
+    DEVICE_BUSY("设备使用中", "热水器正在被其他用户使用"),
 }
 
 internal fun resolveAppConnectionStatus(
     networkValidated: Boolean,
-    deviceOnline: Boolean?,
-): AppConnectionStatus {
-    return when {
-        !networkValidated -> AppConnectionStatus.USER_OFFLINE
-        deviceOnline == false -> AppConnectionStatus.DEVICE_OFFLINE
-        deviceOnline == true -> AppConnectionStatus.DEVICE_ONLINE
-        else -> AppConnectionStatus.UNKNOWN
-    }
+    serverReachable: Boolean,
+    deviceBusyByOther: Boolean = false,
+): AppConnectionStatus = when {
+    !networkValidated || !serverReachable -> AppConnectionStatus.OFFLINE
+    deviceBusyByOther -> AppConnectionStatus.DEVICE_BUSY
+    else -> AppConnectionStatus.CONNECTED
 }

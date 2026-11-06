@@ -1,6 +1,9 @@
 package cn.qzxy.hotwater.designsystem.theme
 
 import android.content.Context
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -11,7 +14,35 @@ enum class ThemePalette(val storageValue: String, val label: String) {
     SKY("sky", "澄空"),
     JADE("jade", "青屿"),
     IRIS("iris", "暮紫"),
-    SAND("sand", "暖砂");
+    SAND("sand", "暖砂"),
+    TIDE("tide", "潮汐"),
+    EMBER("ember", "余晖"),
+    MONO("mono", "墨序");
+
+    val description: String get() = when (this) {
+        TIDE -> "海蓝 · 柔润轮廓 · 涟漪"
+        EMBER -> "陶橙 · 温暖弧面 · 日晕"
+        MONO -> "石墨 · 利落线条 · 刻度"
+        else -> "通透玻璃 · 轻盈流转"
+    }
+
+    val geometry: ThemeGeometry get() = ThemeGeometry(
+        cornerScale = when (this) {
+            TIDE -> 1.15f
+            EMBER -> 0.85f
+            MONO -> 0.5f
+            else -> 1f
+        },
+        powerCorner = powerCorner,
+    )
+
+    val powerCorner: Dp get() = when (this) {
+        TIDE -> 80.dp
+        EMBER -> 104.dp
+        MONO -> 46.dp
+        else -> 114.dp
+    }
+
 
     fun tokens(dark: Boolean): GlassTokens {
         val base = if (dark) DarkGlassTokens else LightGlassTokens
@@ -20,12 +51,18 @@ enum class ThemePalette(val storageValue: String, val label: String) {
             JADE -> if (dark) Color(0xFF8DD9C2) else Color(0xFF246C5C)
             IRIS -> if (dark) Color(0xFFCBB9F8) else Color(0xFF70529D)
             SAND -> if (dark) Color(0xFFE8C199) else Color(0xFF845B32)
+            TIDE -> if (dark) Color(0xFF8BD6EA) else Color(0xFF176C89)
+            EMBER -> if (dark) Color(0xFFFFBA91) else Color(0xFF9B4729)
+            MONO -> if (dark) Color(0xFFD6DDD8) else Color(0xFF3C4B45)
             SKY -> base.accentPrimary
         }
         val background = when (this) {
             JADE -> if (dark) Color(0xFF111E1C) else Color(0xFFECF4EF)
             IRIS -> if (dark) Color(0xFF1A1726) else Color(0xFFF2EEFA)
             SAND -> if (dark) Color(0xFF221C17) else Color(0xFFF7F0E6)
+            TIDE -> if (dark) Color(0xFF0D2029) else Color(0xFFEDF6F8)
+            EMBER -> if (dark) Color(0xFF281A17) else Color(0xFFFFF3E9)
+            MONO -> if (dark) Color(0xFF191D1B) else Color(0xFFF1F3EF)
             SKY -> base.meshBase
         }
         val panel = lerp(background, if (dark) Color.White else accent, if (dark) 0.085f else 0.035f)
@@ -34,7 +71,7 @@ enum class ThemePalette(val storageValue: String, val label: String) {
         val secondary = lerp(ink, background, if (dark) 0.32f else 0.35f)
         return base.copy(
             meshBase = background, backgroundStart = background, backgroundMiddle = background,
-            backgroundEnd = background, panelSurface = panel.copy(alpha = if (dark) 0.90f else 0.74f),
+            backgroundEnd = if (this == TIDE || this == EMBER) lerp(background, accent, 0.09f) else background, panelSurface = panel.copy(alpha = if (dark) 0.90f else 0.74f),
             floatingSurface = panel.copy(alpha = 0.8f), controlSurface = panel.copy(alpha = 0.8f),
             embeddedControlSurface = soft.copy(alpha = 0.9f), inputSurface = soft.copy(alpha = 0.55f),
             overlaySurface = panel.copy(alpha = 0.94f), pressedSurface = soft, fallbackSurface = panel,
@@ -61,3 +98,5 @@ object ThemePalettePreferences {
         ThemeModePreferences.preferences(context).edit { putString(KEY_PALETTE, palette.storageValue) }
     }
 }
+
+val LocalThemePalette = staticCompositionLocalOf { ThemePalette.SKY }

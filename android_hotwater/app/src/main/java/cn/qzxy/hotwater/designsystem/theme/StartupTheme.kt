@@ -32,6 +32,21 @@ internal object StartupTheme {
             ThemeMode.LIGHT -> R.style.Theme_HotWater_Startup_Sand_Light
             ThemeMode.DARK -> R.style.Theme_HotWater_Startup_Sand_Dark
         }
+        ThemePalette.TIDE -> when (mode) {
+            ThemeMode.SYSTEM -> R.style.Theme_HotWater_Startup_Tide_System
+            ThemeMode.LIGHT -> R.style.Theme_HotWater_Startup_Tide_Light
+            ThemeMode.DARK -> R.style.Theme_HotWater_Startup_Tide_Dark
+        }
+        ThemePalette.EMBER -> when (mode) {
+            ThemeMode.SYSTEM -> R.style.Theme_HotWater_Startup_Ember_System
+            ThemeMode.LIGHT -> R.style.Theme_HotWater_Startup_Ember_Light
+            ThemeMode.DARK -> R.style.Theme_HotWater_Startup_Ember_Dark
+        }
+        ThemePalette.MONO -> when (mode) {
+            ThemeMode.SYSTEM -> R.style.Theme_HotWater_Startup_Mono_System
+            ThemeMode.LIGHT -> R.style.Theme_HotWater_Startup_Mono_Light
+            ThemeMode.DARK -> R.style.Theme_HotWater_Startup_Mono_Dark
+        }
     }
 
     fun sync(activity: Activity, palette: ThemePalette, mode: ThemeMode) {

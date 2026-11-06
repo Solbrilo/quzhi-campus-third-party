@@ -1,5 +1,10 @@
 package cn.qzxy.hotwater.designsystem.theme
 
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import cn.qzxy.hotwater.FeedbackPreferences
+import cn.qzxy.hotwater.FeedbackOption
 import android.app.Activity
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
@@ -104,15 +109,21 @@ private fun GlassThemeContent(
 ) {
     val motionEnabled = rememberMotionEnabled()
     val targetTokens = palette.tokens(darkTheme)
+    val targetGeometry = palette.geometry
+    var startGeometry by remember { mutableStateOf(targetGeometry) }
+    var endGeometry by remember { mutableStateOf(targetGeometry) }
     var startTokens by remember { mutableStateOf(targetTokens) }
     var endTokens by remember { mutableStateOf(targetTokens) }
     val progress = remember { androidx.compose.animation.core.Animatable(1f) }
-    val tokens = lerpGlassTokens(startTokens, endTokens, progress.value)
-    LaunchedEffect(targetTokens, motionEnabled) {
+    val tokens = if (motionEnabled) lerpGlassTokens(startTokens, endTokens, progress.value) else targetTokens
+    val geometry = if (motionEnabled) lerpThemeGeometry(startGeometry, endGeometry, progress.value) else targetGeometry
+    LaunchedEffect(targetTokens, targetGeometry, motionEnabled) {
         startTokens = lerpGlassTokens(startTokens, endTokens, progress.value)
+        startGeometry = lerpThemeGeometry(startGeometry, endGeometry, progress.value)
         endTokens = targetTokens
+        endGeometry = targetGeometry
         progress.snapTo(if (motionEnabled) 0f else 1f)
-        if (motionEnabled) progress.animateTo(1f, tween(360))
+        if (motionEnabled) progress.animateTo(1f, tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing))
     }
     val normalizedGlassIntensity = sanitizeGlassIntensity(glassIntensity)
     val view = LocalView.current
@@ -164,7 +175,21 @@ private fun GlassThemeContent(
         }
     }
 
+    val context = LocalContext.current
+    val systemHaptic = LocalHapticFeedback.current
+    val optionalHaptic = remember(context, systemHaptic) {
+        object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                if (FeedbackPreferences.enabled(context, FeedbackOption.HAPTICS)) {
+                    systemHaptic.performHapticFeedback(hapticFeedbackType)
+                }
+            }
+        }
+    }
     CompositionLocalProvider(
+        LocalHapticFeedback provides optionalHaptic,
+        LocalThemePalette provides palette,
+        LocalThemeGeometry provides geometry,
         LocalGlassTokens provides tokens,
         LocalGlassEnvironment provides environment,
     ) {

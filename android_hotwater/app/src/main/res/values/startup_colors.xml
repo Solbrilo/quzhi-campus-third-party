@@ -15,4 +15,13 @@
     <color name="startup_sand_system">#F7F0E6</color>
     <color name="startup_sand_light">#F7F0E6</color>
     <color name="startup_sand_dark">#221C17</color>
+    <color name="startup_tide_system">#EDF6F8</color>
+    <color name="startup_tide_light">#EDF6F8</color>
+    <color name="startup_tide_dark">#0D2029</color>
+    <color name="startup_ember_system">#FFF3E9</color>
+    <color name="startup_ember_light">#FFF3E9</color>
+    <color name="startup_ember_dark">#281A17</color>
+    <color name="startup_mono_system">#F1F3EF</color>
+    <color name="startup_mono_light">#F1F3EF</color>
+    <color name="startup_mono_dark">#191D1B</color>
 </resources>

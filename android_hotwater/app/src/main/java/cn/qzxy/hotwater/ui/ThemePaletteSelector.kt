@@ -35,8 +35,12 @@ internal fun ThemePaletteSelector(selected: ThemePalette, onSelected: (ThemePale
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("主题配色", color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Text(selected.label, color = tokens.textSecondary, fontSize = 13.sp)
+                    Text("主题风格", color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    androidx.compose.animation.Crossfade(selected,
+                        animationSpec = androidx.compose.animation.core.tween(if (LocalGlassEnvironment.current.motionEnabled) 240 else 0),
+                        label = "theme_description") { palette ->
+                        Text("${palette.label} · ${palette.description}", color = tokens.textSecondary, fontSize = 13.sp)
+                    }
                 }
                 Box(Modifier.size(18.dp).background(tokens.accentPrimary, CircleShape))
                 Spacer(Modifier.width(12.dp))
@@ -55,8 +59,11 @@ internal fun ThemePaletteSelector(selected: ThemePalette, onSelected: (ThemePale
                     modifier = Modifier.widthIn(min = 220.dp)
                         .background(if (active) tokens.accentPrimary.copy(alpha = 0.14f) else androidx.compose.ui.graphics.Color.Transparent)
                         .testTag("theme_palette_${palette.storageValue}"),
-                    text = { Text(palette.label, color = if (active) tokens.accentPrimary else tokens.textPrimary,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal) },
+                    text = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(palette.label, color = if (active) tokens.accentPrimary else tokens.textPrimary,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
+                        Text(palette.description, color = tokens.textSecondary, fontSize = 11.sp)
+                    } },
                     leadingIcon = { Box(Modifier.size(18.dp).background(palette.tokens(dark).accentPrimary, CircleShape)) },
                     trailingIcon = { if (active) Icon(Icons.Outlined.Check, "已选中", tint = tokens.accentPrimary) },
                     onClick = { expanded = false; onSelected(palette) },

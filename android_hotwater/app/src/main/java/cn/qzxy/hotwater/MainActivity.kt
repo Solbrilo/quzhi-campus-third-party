@@ -167,6 +167,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNotificationPermissionThen(action: () -> Unit) {
+        if (listOf(FeedbackOption.OPEN_NOTIFICATION, FeedbackOption.CLOSE_NOTIFICATION, FeedbackOption.LIVE_NOTIFICATION)
+                .none { FeedbackPreferences.enabled(this, it) }) {
+            action()
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
                 pendingOpenRequested = false
@@ -197,6 +202,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun notifyLiveUpdateFallbackIfNeeded() {
+        if (!FeedbackPreferences.enabled(this, FeedbackOption.LIVE_NOTIFICATION) ||
+            !FeedbackPreferences.enabled(this, FeedbackOption.PROMOTED_NOTIFICATION)) return
         val message = when {
             Build.VERSION.SDK_INT < 36 -> "当前 Android 版本不支持实况窗，已使用常驻计时通知。"
             !NotificationHelper.canPostPromotedNotifications(this) ->
@@ -294,6 +301,8 @@ class MainActivity : ComponentActivity() {
         val cleared = viewModel.clearAllUserData() && activityCleared
         onboardingPreferences.clear()
         ThemeModePreferences.clear(this)
+        FeedbackPreferences.clear(this)
+        getSharedPreferences("hotwater_update_preferences", MODE_PRIVATE).edit().clear().apply()
         themePalette = ThemePalette.SKY
         themeMode = ThemeMode.SYSTEM
         StartupTheme.sync(this, themePalette, themeMode)

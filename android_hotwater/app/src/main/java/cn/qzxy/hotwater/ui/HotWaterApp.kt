@@ -209,9 +209,15 @@ fun HotWaterApp(
     LaunchedEffect(messageAccountKey(config)) { selectedMessageRevision = null }
     val feedbackEvent by viewModel.feedbackEvent.collectAsStateWithLifecycle()
     val networkValidated = rememberValidatedNetworkState()
+    val serverReachable by cn.qzxy.hotwater.QzxyConnectionState.reachable.collectAsStateWithLifecycle()
+    LaunchedEffect(networkValidated) {
+        if (!networkValidated) cn.qzxy.hotwater.QzxyConnectionState.disconnected()
+        else if (config.isComplete() && !credentialsExpired) viewModel.refreshBalance(announce = false, recordHistory = false)
+    }
     val connectionStatus = resolveAppConnectionStatus(
         networkValidated = networkValidated,
-        deviceOnline = snapshot?.isDeviceOnline,
+        serverReachable = serverReachable,
+        deviceBusyByOther = snapshot?.isDeviceBusyByOther == true,
     )
     val performToggleHaptic: (Boolean) -> Unit = { turningOn ->
         haptic.performGlassHapticFeedback(
@@ -254,12 +260,12 @@ fun HotWaterApp(
         viewModel.clearFeedbackEvent()
     }
 
-    val checkForUpdate: (Boolean) -> Unit = { notifyWhenAvailable ->
+    val checkForUpdate: (Boolean) -> Unit = { manual ->
         updateScope.launch {
             checkingUpdate = true
             val result = updateManager.checkForUpdate()
             updateCheckResult = result
-            if (notifyWhenAvailable && result is AppUpdateCheckResult.UpdateAvailable) {
+            if (result is AppUpdateCheckResult.UpdateAvailable && updateManager.shouldPrompt(result.update, manual)) {
                 showUpdateDialog = true
             }
             checkingUpdate = false
@@ -335,7 +341,7 @@ fun HotWaterApp(
     }
 
     LaunchedEffect(updateManager) {
-        checkForUpdate(true)
+        checkForUpdate(false)
     }
 
     if (showLowBalanceDialog) {
@@ -427,20 +433,17 @@ fun HotWaterApp(
                 )
             },
             confirmButton = {
-                GlassDialogAction(
-                    text = "立即更新",
-                    onClick = {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    GlassDialogAction(text = "忽略此版本", onClick = {
+                        updateManager.ignoreVersion(availableUpdate.update.versionName)
+                        showUpdateDialog = false
+                    })
+                    GlassDialogAction(text = "立即更新", onClick = {
                         showUpdateDialog = false
                         installUpdate(availableUpdate.update)
-                    },
-                    emphasized = true,
-                )
-            },
-            dismissButton = {
-                GlassDialogAction(
-                    text = "稍后",
-                    onClick = { showUpdateDialog = false },
-                )
+                    }, emphasized = true)
+                }
             },
         )
     }
@@ -563,7 +566,9 @@ fun HotWaterApp(
                             snapshot = snapshot,
                             busy = busy,
                             onToggle = {
-                                if (viewModel.shouldShowLowBalanceOpenWarning()) {
+                                if (credentialsExpired || !config.hasAccount()) {
+                                    onOpenLogin()
+                                } else if (viewModel.shouldShowLowBalanceOpenWarning()) {
                                     showLowBalanceDialog = true
                                 } else if (snapshot?.hasCachedOrder == true) {
                                     performToggleHaptic(false)
@@ -587,6 +592,9 @@ fun HotWaterApp(
                         AppScreen.RECORDS -> RecordsPage(
                             state = billsState,
                             accountKey = config.accountRequestKey(),
+                            loggedIn = config.hasAccount(),
+                            credentialsExpired = credentialsExpired,
+                            onLogin = onOpenLogin,
                             active = currentScreen == AppScreen.RECORDS &&
                                 !credentialsExpired && !configRequestPending,
                             onLoad = viewModel::loadServerBills,
@@ -684,16 +692,8 @@ fun HotWaterApp(
 
         AnimatedVisibility(
             visible = moreDestination != null,
-            enter = if (motionEnabled) {
-                slideInHorizontally(tween(280)) { width -> width / 6 } + fadeIn(tween(190))
-            } else {
-                fadeIn(tween(90))
-            },
-            exit = if (motionEnabled) {
-                slideOutHorizontally(tween(220)) { width -> width / 8 } + fadeOut(tween(160))
-            } else {
-                fadeOut(tween(70))
-            },
+            enter = subpageEnter(motionEnabled),
+            exit = subpageExit(motionEnabled),
             label = "more_page_visibility",
         ) {
             val destination = moreDestination ?: renderedMoreDestination
@@ -747,7 +747,8 @@ fun HotWaterApp(
                     .padding(horizontal = 20.dp, vertical = 18.dp),
             )
         }
-        if (showConfig) {
+        AnimatedVisibility(visible = showConfig, enter = subpageEnter(motionEnabled),
+            exit = subpageExit(motionEnabled), label = "config_page_visibility") {
             Column(Modifier.fillMaxSize().background(tokens.meshBase)
                 .windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -762,12 +763,8 @@ fun HotWaterApp(
         }
         AnimatedVisibility(
             visible = showMessages,
-            enter = if (motionEnabled) {
-                slideInHorizontally(tween(280)) { it } + fadeIn(tween(220))
-            } else fadeIn(tween(90)),
-            exit = if (motionEnabled) {
-                slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220))
-            } else fadeOut(tween(70)),
+            enter = subpageEnter(motionEnabled),
+            exit = subpageExit(motionEnabled),
             label = "messages_page_visibility",
         ) {
             MessagesPage(state = messages, selectedRevision = selectedMessageRevision,
@@ -947,17 +944,16 @@ private fun FeedbackBanner(
 
 @Composable
 internal fun AppHeader(
-    connectionStatus: AppConnectionStatus = AppConnectionStatus.UNKNOWN,
+    connectionStatus: AppConnectionStatus = AppConnectionStatus.OFFLINE,
     onOpenMessages: () -> Unit,
     hasUnreadMessages: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGlassTokens.current
     val connectionStatusColor = when (connectionStatus) {
-        AppConnectionStatus.USER_OFFLINE -> tokens.accentError
-        AppConnectionStatus.DEVICE_OFFLINE -> tokens.accentWarning
-        AppConnectionStatus.DEVICE_ONLINE -> tokens.accentSuccess
-        AppConnectionStatus.UNKNOWN -> Color.Transparent
+        AppConnectionStatus.OFFLINE -> tokens.accentError
+        AppConnectionStatus.CONNECTED -> tokens.accentSuccess
+        AppConnectionStatus.DEVICE_BUSY -> tokens.accentWarning
     }
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -971,30 +967,28 @@ internal fun AppHeader(
                 fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(6.dp))
-            if (connectionStatus != AppConnectionStatus.UNKNOWN) {
-                Row(
-                    modifier = Modifier.semantics(mergeDescendants = true) {
-                        contentDescription = connectionStatus.label.orEmpty()
-                        stateDescription = connectionStatus.accessibilityDescription.orEmpty()
-                    },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(connectionStatusColor),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = connectionStatus.label.orEmpty(),
-                        color = connectionStatusColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = connectionStatus.label
+                    stateDescription = connectionStatus.accessibilityDescription
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(connectionStatusColor),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = connectionStatus.label,
+                    color = connectionStatusColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
             }
+            Spacer(modifier = Modifier.height(4.dp))
         }
         Box {
         GlassPressable(

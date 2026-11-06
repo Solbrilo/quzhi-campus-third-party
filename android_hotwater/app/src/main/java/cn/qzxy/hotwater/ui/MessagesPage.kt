@@ -1,12 +1,6 @@
 package cn.qzxy.hotwater.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -81,20 +75,7 @@ internal fun MessagesPage(
         targetState = selected,
         contentKey = { it?.revision },
         modifier = modifier,
-        transitionSpec = {
-            when {
-                !motionEnabled -> fadeIn(tween(90)) togetherWith fadeOut(tween(70))
-                targetState == null -> {
-                    (fadeIn(tween(180)) togetherWith
-                        (slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220))))
-                        .apply { targetContentZIndex = -1f }
-                }
-                else -> {
-                    ((slideInHorizontally(tween(280)) { it } + fadeIn(tween(220))) togetherWith
-                        fadeOut(tween(180))).apply { targetContentZIndex = 1f }
-                }
-            }
-        },
+        transitionSpec = { subpageTransition(targetState != null, motionEnabled) },
         label = "message_detail_transition",
     ) { selected ->
         Column(Modifier.fillMaxSize().background(tokens.meshBase),

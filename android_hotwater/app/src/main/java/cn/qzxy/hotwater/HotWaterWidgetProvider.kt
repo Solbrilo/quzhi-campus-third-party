@@ -13,18 +13,18 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 
-class HotWaterWidgetProvider : AppWidgetProvider() {
+open class HotWaterWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        HotWaterWidgetUi.updateAllWidgets(context)
+        HotWaterWidgetUi.updateAllWidgets(context, force = true)
         requestStateRefresh(context)
     }
 
     override fun onEnabled(context: Context) {
-        HotWaterWidgetUi.updateAllWidgets(context)
+        HotWaterWidgetUi.updateAllWidgets(context, force = true)
         requestStateRefresh(context)
     }
 
@@ -34,7 +34,7 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: android.os.Bundle,
     ) {
-        HotWaterWidgetUi.updateAllWidgets(context)
+        HotWaterWidgetUi.updateAllWidgets(context, force = true)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -138,3 +138,6 @@ class HotWaterWidgetProvider : AppWidgetProvider() {
         }
     }
 }
+
+/** Shares the same guarded action queue and persisted water state. */
+class HotWaterSwitchWidgetProvider : HotWaterWidgetProvider()

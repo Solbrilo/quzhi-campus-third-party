@@ -22,9 +22,6 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.ui.platform.LocalContext
-import cn.qzxy.hotwater.AnonymousActivity
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,8 +71,6 @@ fun ConfigPage(
     onScannedSnCodeConsumed: () -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
-    val context = LocalContext.current
-    var activityEnabled by remember { mutableStateOf(AnonymousActivity.isEnabled(context)) }
     val scrollState = rememberScrollState()
     val focusManager = LocalFocusManager.current
     val haptic = LocalHapticFeedback.current
@@ -447,18 +442,6 @@ fun ConfigPage(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
-        }
-
-        Row(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("匿名使用统计", color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("统计日活与月活，不上传账号或设备信息", color = tokens.textSecondary, fontSize = 12.sp)
-            }
-            Switch(checked = activityEnabled, onCheckedChange = {
-                activityEnabled = it
-                AnonymousActivity.setEnabled(context, it)
-            }, modifier = Modifier.semantics { contentDescription = "匿名使用统计" })
         }
 
         // 底部间距

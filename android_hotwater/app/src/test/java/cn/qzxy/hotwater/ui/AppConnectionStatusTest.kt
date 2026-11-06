@@ -1,42 +1,13 @@
 package cn.qzxy.hotwater.ui
-
 import org.junit.Assert.assertEquals
 import org.junit.Test
-
 class AppConnectionStatusTest {
-    @Test
-    fun userOfflineTakesPriorityOverTheLastKnownDeviceState() {
-        assertEquals(
-            AppConnectionStatus.USER_OFFLINE,
-            resolveAppConnectionStatus(networkValidated = false, deviceOnline = true),
-        )
-        assertEquals(
-            AppConnectionStatus.USER_OFFLINE,
-            resolveAppConnectionStatus(networkValidated = false, deviceOnline = false),
-        )
+    @Test fun noNetworkOrUnreachableServerOverridesCachedBusyState() {
+        assertEquals(AppConnectionStatus.OFFLINE, resolveAppConnectionStatus(false, true, true))
+        assertEquals(AppConnectionStatus.OFFLINE, resolveAppConnectionStatus(true, false, true))
     }
-
-    @Test
-    fun reportsExplicitOfflineDeviceAfterNetworkIsValidated() {
-        assertEquals(
-            AppConnectionStatus.DEVICE_OFFLINE,
-            resolveAppConnectionStatus(networkValidated = true, deviceOnline = false),
-        )
-    }
-
-    @Test
-    fun reportsExplicitOnlineDeviceAfterNetworkIsValidated() {
-        assertEquals(
-            AppConnectionStatus.DEVICE_ONLINE,
-            resolveAppConnectionStatus(networkValidated = true, deviceOnline = true),
-        )
-    }
-
-    @Test
-    fun hidesTheIndicatorUntilTheDeviceStateIsKnown() {
-        assertEquals(
-            AppConnectionStatus.UNKNOWN,
-            resolveAppConnectionStatus(networkValidated = true, deviceOnline = null),
-        )
+    @Test fun connectedServerShowsBusyOnlyForAnotherUsersSession() {
+        assertEquals(AppConnectionStatus.DEVICE_BUSY, resolveAppConnectionStatus(true, true, true))
+        assertEquals(AppConnectionStatus.CONNECTED, resolveAppConnectionStatus(true, true, false))
     }
 }
