@@ -30,7 +30,7 @@ interface HotWaterRemoteDataSource {
     suspend fun consumeResult(config: HotWaterConfig, orderNo: String): JSONObject
 }
 
-class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, ServerMessageRemoteDataSource {
+class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, ServerMessageRemoteDataSource, RechargeRemoteDataSource {
     companion object {
         private const val BASE_URL = "https://v3-api.china-qzxy.cn"
 
@@ -46,6 +46,18 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
     }
 
     private val client = sharedClient
+    private val paymentClient by lazy { sharedClient.newBuilder().retryOnConnectionFailure(false).build() }
+
+    override suspend fun rechargeOptions(config: HotWaterConfig): JSONObject =
+        get("/settlement/recharge/pay/mode", RechargeProtocol.auth(config))
+
+    override suspend fun rechargePackages(config: HotWaterConfig): JSONObject =
+        get("/settlement/recharge/package/list", RechargeProtocol.auth(config))
+
+    override suspend fun createRecharge(config: HotWaterConfig, amount: String): JSONObject =
+        postForm("/settlement/alipay/recharge/balance", RechargeProtocol.orderForm(config, amount), paymentClient)
+
+    override suspend fun rechargeBalance(config: HotWaterConfig): JSONObject = balance(config)
 
     override suspend fun userInfo(config: HotWaterConfig): JSONObject {
         return get(
@@ -57,6 +69,30 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
             ),
         )
     }
+
+    suspend fun projectInfo(config: HotWaterConfig): JSONObject = get("/project/info/triple", accountFields(config) + ("telephone" to config.telephone))
+    suspend fun accountInfo(config: HotWaterConfig): JSONObject = get("/account/info", accountFields(config) + ("telephone" to config.telephone))
+
+    suspend fun accountCode(config: HotWaterConfig, telephone: String, type: Int): JSONObject {
+        require(type == 2 || type == 5)
+        require(QzxyLoginProtocol.isValidTelephone(telephone)) { "请输入有效手机号" }
+        return get("/user/verification/code/get", accountFields(config) + mapOf(
+            "telephone" to telephone, "secret" to QzxyLoginProtocol.smsSecret(telephone),
+            "typeId" to type.toString(), "platform" to "1"))
+    }
+
+    suspend fun changePhone(config: HotWaterConfig, phone: String, code: String): JSONObject =
+        postForm("/user/phone/update", accountFields(config) + mapOf("newTelephone" to phone, "code" to code), paymentClient)
+
+    suspend fun changePassword(config: HotWaterConfig, old: String, password: String, code: String?): JSONObject =
+        postForm(if (code == null) "/user/password/update" else "/user/password/forget", accountFields(config) +
+            buildMap { put("password", QzxyLoginProtocol.encodePassword(password))
+                if (code == null) put("oldPassword", QzxyLoginProtocol.encodePassword(old)) else put("code", code) }, paymentClient)
+
+    private fun accountFields(c: HotWaterConfig): Map<String, String> = mapOf(
+        "projectId" to requireInt(c.projectId, "projectId").toString(), "userId" to requireInt(c.userId, "userId").toString(),
+        "accountId" to requireInt(c.accountId, "accountId").toString(), "loginCode" to c.loginCode,
+        "telPhone" to c.telephone, "phoneSystem" to "android", "version" to "6.5.28")
 
     override suspend fun deviceInfo(config: HotWaterConfig): JSONObject =
         deviceInfoForMac(config, config.snCode)
@@ -146,12 +182,13 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
             .url(urlBuilder.build())
             .get()
             .headers(commonHeaders())
+            .apply { if (endpoint in listOf("/project/info/triple", "/account/info", "/user/verification/code/get")) accountHeaders(query["projectId"]?.toString()) }
             .build()
 
         return execute(request)
     }
 
-    private suspend fun postForm(endpoint: String, formValues: Map<String, String>): JSONObject {
+    private suspend fun postForm(endpoint: String, formValues: Map<String, String>, httpClient: OkHttpClient = client): JSONObject {
         val formBodyBuilder = FormBody.Builder()
         formValues.forEach { (key, value) -> formBodyBuilder.add(key, value) }
 
@@ -159,15 +196,16 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
             .url(BASE_URL + endpoint)
             .post(formBodyBuilder.build())
             .headers(commonHeaders())
+            .apply { if (endpoint.startsWith("/user/password/") || endpoint == "/user/phone/update") accountHeaders(formValues["projectId"]) }
             .build()
 
-        return execute(request)
+        return execute(request, httpClient)
     }
 
-    private suspend fun execute(request: Request): JSONObject {
+    private suspend fun execute(request: Request, httpClient: OkHttpClient = client): JSONObject {
         return suspendCancellableCoroutine { continuation ->
             val connectionRequest = QzxyConnectionState.beginRequest()
-            val call = client.newCall(request)
+            val call = httpClient.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -267,4 +305,9 @@ class HotWaterApi : HotWaterRemoteDataSource, ServerBillRemoteDataSource, Server
             "Mozilla/5.0 (Linux; Android 14; AppleWebKit/537.36 Mobile Safari/537.36)",
         )
         .build()
+
+    private fun Request.Builder.accountHeaders(project: String?): Request.Builder = apply {
+        if (!project.isNullOrBlank()) header("Config-Project", project)
+        header("Config-Keys", "module_list,advertise_type,question_list,service_phone_list,banner_list_app,activity_list_app,aliCard_popup_config")
+    }
 }

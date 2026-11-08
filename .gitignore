@@ -22,6 +22,8 @@ esp32_hotwater/main/hotwater_secrets.h
 harmony_hotwater/signing.local.json
 
 # Python
+server/hotwater-activity/admin-auth.json
+server/hotwater-activity/*.sqlite*
 __pycache__/
 *.pyc
 *.pyo

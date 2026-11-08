@@ -1,8 +1,6 @@
 package cn.qzxy.hotwater
 
 import android.Manifest
-import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -16,6 +14,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.alipay.sdk.app.PayTask
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onExportConfig = { exportConfig() },
                     onImportConfig = { importConfig() },
-                    onOpenAlipayRecharge = { openAlipayForRecharge() },
+                    onPayWithAlipay = ::payWithAlipay,
                     onRequestNotificationPermission = { action ->
                         requestNotificationPermissionThen(action)
                     },
@@ -213,37 +213,21 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
-    private fun openAlipayForRecharge() {
-        val intent = Intent(
-            Intent.ACTION_VIEW,
-            buildAlipayRechargeUri(),
-        ).apply {
-            setPackage(ALIPAY_PACKAGE_NAME)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    private fun payWithAlipay(requestId: Long) {
+        val orderInfo = viewModel.claimRechargePayment(requestId) ?: return
+        // Activity lifetime, not sheet recomposition or ON_STOP, owns the blocking SDK call.
+        lifecycleScope.launch {
+            var result = AlipayResult.UNKNOWN
+            try {
+                result = withContext(Dispatchers.IO) {
+                    AlipayResult.fromCode(PayTask(this@MainActivity).payV2(orderInfo, true)?.get("resultStatus"))
+                }
+            } catch (_: Exception) {
+                // A cancelled host or uncertain SDK outcome must never be reported as a failed payment.
+            } finally {
+                viewModel.completeRechargePayment(requestId, result)
+            }
         }
-        try {
-            startActivity(intent)
-        } catch (_: ActivityNotFoundException) {
-            showAlipayUnavailableMessage()
-        } catch (_: SecurityException) {
-            showAlipayUnavailableMessage()
-        }
-    }
-
-    private fun buildAlipayRechargeUri(): Uri = Uri.Builder()
-        .scheme("alipays")
-        .authority("platformapi")
-        .appendPath("startapp")
-        .appendQueryParameter("appId", QZXY_ALIPAY_MINI_APP_ID)
-        .appendQueryParameter("page", QZXY_ALIPAY_RECHARGE_PAGE)
-        .build()
-
-    private fun showAlipayUnavailableMessage() {
-        Toast.makeText(
-            this,
-            "未能打开支付宝，请确认已安装支付宝后重试。",
-            Toast.LENGTH_SHORT,
-        ).show()
     }
 
     private fun exportConfig() {
@@ -301,6 +285,7 @@ class MainActivity : ComponentActivity() {
         val cleared = viewModel.clearAllUserData() && activityCleared
         onboardingPreferences.clear()
         ThemeModePreferences.clear(this)
+        cn.qzxy.hotwater.designsystem.theme.CustomThemePreferences.imageFile(this).delete()
         FeedbackPreferences.clear(this)
         getSharedPreferences("hotwater_update_preferences", MODE_PRIVATE).edit().clear().apply()
         themePalette = ThemePalette.SKY
@@ -322,8 +307,5 @@ class MainActivity : ComponentActivity() {
         private const val STATE_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val STATE_GLASS_INTENSITY = "glass_intensity"
         private const val RELEASE_WITHOUT_UPGRADE_WELCOME = 30
-        private const val ALIPAY_PACKAGE_NAME = "com.eg.android.AlipayGphone"
-        private const val QZXY_ALIPAY_MINI_APP_ID = "2018090661238647"
-        private const val QZXY_ALIPAY_RECHARGE_PAGE = "pages/index/index"
     }
 }

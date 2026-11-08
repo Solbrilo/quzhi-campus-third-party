@@ -64,7 +64,8 @@ internal object AnonymousActivity {
         // Retire the old opt-out for every existing installation, including previously disabled ones.
         if (storedPrefs.contains("enabled")) storedPrefs.edit().remove("enabled").apply()
         if (storedPrefs.getString("ack_day", null) == day &&
-            storedPrefs.getString("ack_month", null) == month
+            storedPrefs.getString("ack_month", null) == month &&
+            storedPrefs.getString("ack_version", null) == BuildConfig.VERSION_NAME
         ) return@synchronized
         // A no-backup random seed avoids both hardware identifiers and cloud-backup cloning.
         val tokens = runCatching {
@@ -83,22 +84,22 @@ internal object AnonymousActivity {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
             .addTag(WORK_TAG).build()
-        WorkManager.getInstance(context).enqueueUniqueWork("$WORK_TAG:$day", ExistingWorkPolicy.KEEP, request)
+        WorkManager.getInstance(context).enqueueUniqueWork("$WORK_TAG:$day:${BuildConfig.VERSION_NAME}", ExistingWorkPolicy.KEEP, request)
     }
 
     fun acknowledgeDay(context: Context, day: String) = synchronized(lock) {
         if (!File(context.noBackupFilesDir, SEED_FILE).exists()) return@synchronized
         val previous = prefs(context).getString("ack_day", "").orEmpty()
-        if (day > previous) prefs(context).edit().putString("ack_day", day).apply()
+        if (day >= previous) prefs(context).edit().putString("ack_day", day).putString("ack_day_version", BuildConfig.VERSION_NAME).apply()
     }
 
     fun isDayAcknowledged(context: Context, day: String): Boolean =
-        prefs(context).getString("ack_day", null) == day
+        prefs(context).getString("ack_day", null) == day && prefs(context).getString("ack_day_version", null) == BuildConfig.VERSION_NAME
 
     fun acknowledgeMonth(context: Context, month: String) = synchronized(lock) {
         if (!File(context.noBackupFilesDir, SEED_FILE).exists()) return@synchronized
         val previous = prefs(context).getString("ack_month", "").orEmpty()
-        if (month > previous) prefs(context).edit().putString("ack_month", month).apply()
+        if (month >= previous) prefs(context).edit().putString("ack_month", month).putString("ack_version", BuildConfig.VERSION_NAME).apply()
     }
 
     fun monthlyToken(context: Context, month: String): String? = runCatching {
@@ -134,7 +135,7 @@ class DailyActivityWorker(context: Context, params: WorkerParameters) : Coroutin
         }.getOrDefault(false)
         try {
             if (dailyEligible && !AnonymousActivity.isDayAcknowledged(applicationContext, day)) {
-                val json = JSONObject().put("day", day).put("token", token).toString()
+                val json = JSONObject().put("day", day).put("token", token).put("version", BuildConfig.VERSION_NAME).toString()
                 val request = Request.Builder().url("https://nebularive.top/api/hotwater-activity")
                     .header("User-Agent", "HotWater-AnonymousActivity/1")
                     .post(json.toRequestBody("application/json".toMediaType())).build()
@@ -151,6 +152,7 @@ class DailyActivityWorker(context: Context, params: WorkerParameters) : Coroutin
                 .url("https://nebularive.top/api/hotwater-activity/monthly")
                 .header("User-Agent", "HotWater-AnonymousActivity/1")
                 .post(JSONObject().put("month", month).put("token", monthToken)
+                    .put("version", BuildConfig.VERSION_NAME)
                     .toString().toRequestBody("application/json".toMediaType()))
                 .build()
             CLIENT.newCall(monthlyRequest).execute().use { response ->

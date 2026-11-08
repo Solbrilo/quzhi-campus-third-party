@@ -22,12 +22,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MenuDefaults
 import cn.qzxy.hotwater.designsystem.component.GlassButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -269,40 +266,7 @@ private fun BillPicker(
                 )
             }
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-            containerColor = tokens.fallbackSurface,
-            tonalElevation = 0.dp,
-            shadowElevation = 8.dp,
-            border = androidx.compose.foundation.BorderStroke(1.dp, tokens.borderHi.copy(alpha = 0.55f)),
-        ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = option.label,
-                            color = tokens.textPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        onSelected(option)
-                    },
-                    colors = MenuDefaults.itemColors(
-                        textColor = tokens.textPrimary,
-                        leadingIconColor = tokens.textSecondary,
-                        trailingIconColor = tokens.textSecondary,
-                        disabledTextColor = tokens.textTertiary,
-                        disabledLeadingIconColor = tokens.textTertiary,
-                        disabledTrailingIconColor = tokens.textTertiary,
-                    ),
-                )
-            }
-        }
+        FilterMenu(expanded, { expanded = false }, options, { it.label }, onSelected)
     }
 }
 

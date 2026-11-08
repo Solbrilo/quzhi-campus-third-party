@@ -12,7 +12,7 @@ import cn.qzxy.hotwater.R
 internal object StartupTheme {
     @StyleRes
     fun resource(palette: ThemePalette, mode: ThemeMode): Int = when (palette) {
-        ThemePalette.SKY -> when (mode) {
+        ThemePalette.SKY, ThemePalette.CUSTOM -> when (mode) {
             ThemeMode.SYSTEM -> R.style.Theme_HotWater_Startup_Sky_System
             ThemeMode.LIGHT -> R.style.Theme_HotWater_Startup_Sky_Light
             ThemeMode.DARK -> R.style.Theme_HotWater_Startup_Sky_Dark

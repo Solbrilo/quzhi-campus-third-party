@@ -136,7 +136,7 @@ fun HotWaterApp(
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
     openConfigRequest: Int = 0,
-    onOpenAlipayRecharge: () -> Unit,
+    onPayWithAlipay: (Long) -> Unit,
     onRequestNotificationPermission: ((() -> Unit) -> Unit),
     onClearAllUserData: () -> Unit,
     onOpenLogin: () -> Unit,
@@ -165,6 +165,7 @@ fun HotWaterApp(
     var showMessages by rememberSaveable { mutableStateOf(false) }
     var selectedMessageRevision by rememberSaveable { mutableStateOf<String?>(null) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var accountEditor by remember { mutableStateOf<Boolean?>(null) }
     var showLowBalanceDialog by remember { mutableStateOf(false) }
     var showDevicePicker by rememberSaveable { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -201,8 +202,42 @@ fun HotWaterApp(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
     val billsState by viewModel.serverBills.collectAsStateWithLifecycle()
-    val messages by viewModel.serverMessages.collectAsStateWithLifecycle()
+    val campusMessages by viewModel.serverMessages.collectAsStateWithLifecycle()
+    val systemMessages by viewModel.systemAnnouncements.collectAsStateWithLifecycle()
+    val announcementResponse by viewModel.announcementResponse.collectAsStateWithLifecycle()
+    val messages = campusMessages.copy(
+        messages = (campusMessages.messages + systemMessages.messages).sortedByDescending { it.publishedAt },
+        read = campusMessages.read + systemMessages.read,
+        loading = campusMessages.loading || systemMessages.loading,
+        error = listOfNotNull(campusMessages.error, systemMessages.error).joinToString(" · ").ifBlank { null },
+        announcement = systemMessages.announcement ?: campusMessages.announcement,
+    )
     val credentialsExpired by viewModel.credentialExpired.collectAsStateWithLifecycle()
+    val recharge by viewModel.rechargeState.collectAsStateWithLifecycle()
+    val profile by viewModel.accountProfile.collectAsStateWithLifecycle()
+    val accountActionState by viewModel.accountAction.collectAsStateWithLifecycle()
+    LaunchedEffect(config.accountRequestKey(), currentScreen) {
+        if (currentScreen == AppScreen.SETTINGS) viewModel.loadAccountProfile()
+    }
+    LaunchedEffect(config.accountRequestKey()) { accountEditor = null }
+    accountEditor?.let { changingPhone ->
+        AccountSheet(changingPhone, config.telephone, accountActionState,
+            onDismiss = { accountEditor = null }, onSendCode = viewModel::sendAccountCode,
+            onSubmit = viewModel::updateAccount)
+    }
+    LaunchedEffect(recharge.paymentRequestId) {
+        recharge.paymentRequestId?.let(onPayWithAlipay)
+    }
+    if (recharge.visible) {
+        RechargeSheet(
+            state = recharge, balance = recharge.balanceYuan ?: snapshot?.balanceYuan,
+            refreshingBalance = recharge.refreshingBalance,
+            onDismiss = viewModel::closeRecharge, onRetry = viewModel::reloadRecharge,
+            onSelect = viewModel::selectRechargePackage, onSubmit = viewModel::submitRecharge,
+            onRefreshBalance = viewModel::refreshRechargeBalance,
+            onLogin = { viewModel.closeRecharge(); onOpenLogin() },
+        )
+    }
     val onAccountAction: () -> Unit = {
         if (config.hasAccount() && !credentialsExpired) showLogoutDialog = true else onOpenLogin()
     }
@@ -218,6 +253,7 @@ fun HotWaterApp(
         networkValidated = networkValidated,
         serverReachable = serverReachable,
         deviceBusyByOther = snapshot?.isDeviceBusyByOther == true,
+        usingHotWater = snapshot?.hasCachedOrder == true && snapshot?.usageStartedAtMillis != null,
     )
     val performToggleHaptic: (Boolean) -> Unit = { turningOn ->
         haptic.performGlassHapticFeedback(
@@ -356,10 +392,10 @@ fun HotWaterApp(
             text = { Text(text = "余额不足5元，建议通过支付宝进行充值。", color = tokens.textSecondary) },
             confirmButton = {
                 GlassDialogAction(
-                    text = "前往支付宝充值",
+                    text = "去充值",
                     onClick = {
                         showLowBalanceDialog = false
-                        onOpenAlipayRecharge()
+                        viewModel.openRecharge()
                     },
                     emphasized = true,
                 )
@@ -583,7 +619,7 @@ fun HotWaterApp(
                                 }
                             },
                             onRefreshBalance = { viewModel.refreshBalance() },
-                            onOpenRecharge = onOpenAlipayRecharge,
+                            onOpenRecharge = viewModel::openRecharge,
                             onOpenNearbyDevices = {
                                 viewModel.clearNearbyPairState()
                                 showDevicePicker = true
@@ -625,6 +661,9 @@ fun HotWaterApp(
                             accountBusy = busy,
                             onAccountAction = onAccountAction,
                             onOpenConfig = { showConfig = true },
+                            accountName = profile.name.ifBlank { cn.qzxy.hotwater.HotWaterConfig.maskMiddle(config.telephone, 3, 4) },
+                            schoolName = profile.school,
+                            onAccountSettings = { viewModel.resetAccountAction(); accountEditor = it },
                         )
                     }
                 }
@@ -768,6 +807,7 @@ fun HotWaterApp(
             label = "messages_page_visibility",
         ) {
             MessagesPage(state = messages, selectedRevision = selectedMessageRevision,
+                responseState = announcementResponse, onRespond = viewModel::respondToAnnouncement,
                 onMarkAllRead = viewModel::markAllMessagesRead,
                 onSelect = { viewModel.markMessageRead(it); selectedMessageRevision = it.revision },
                 onRefresh = { viewModel.loadMessages() }, onLogin = onOpenLogin,
@@ -791,7 +831,13 @@ fun HotWaterApp(
                 }, emphasized = true) },
                 dismissButton = { GlassDialogAction("取消", { showLogoutDialog = false }) })
         }
-        messages.announcement?.takeIf { !showMessages && !showLogoutDialog && !showUpdateDialog }?.let { notice ->
+        messages.announcement?.takeIf { !showMessages && !showLogoutDialog && !showUpdateDialog && !recharge.visible && accountEditor == null }?.let { notice ->
+            if (notice.systemNotice != null) {
+                SystemAnnouncementDialog(notice, announcementResponse, viewModel::respondToAnnouncement,
+                    onDismiss = viewModel::dismissMessageAnnouncement, onDetails = {
+                        viewModel.markMessageRead(notice); selectedMessageRevision = notice.revision; showMessages = true
+                    })
+            } else {
             AlertDialog(onDismissRequest = viewModel::dismissMessageAnnouncement,
                 modifier = Modifier.glassMaterial(GlassMaterial.Overlay, 28.dp),
                 containerColor = Color.Transparent, tonalElevation = 0.dp,
@@ -806,6 +852,7 @@ fun HotWaterApp(
                     showMessages = true
                 }, emphasized = true) },
                 dismissButton = { GlassDialogAction("稍后查看", viewModel::dismissMessageAnnouncement) })
+            }
         }
     }
 }
@@ -952,7 +999,7 @@ internal fun AppHeader(
     val tokens = LocalGlassTokens.current
     val connectionStatusColor = when (connectionStatus) {
         AppConnectionStatus.OFFLINE -> tokens.accentError
-        AppConnectionStatus.CONNECTED -> tokens.accentSuccess
+        AppConnectionStatus.CONNECTED, AppConnectionStatus.USING -> tokens.accentSuccess
         AppConnectionStatus.DEVICE_BUSY -> tokens.accentWarning
     }
     Row(

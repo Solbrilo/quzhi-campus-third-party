@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>趣智校园 · 管理台</title><link rel="icon" href="/favicon-48x48.png"><link rel="stylesheet" href="/project-qzxy-console/console.css?v=400-feedback-1"></head>
+<body>
+<div class="ambient" aria-hidden="true"></div>
+<header><a href="/project-qzxy-hotwater.php" class="brand"><img src="/favicon-48x48.png" alt=""><span>nebularive<span class="brand-sub">趣智校园 / 管理台</span></span></a><button id="logout" class="quiet" hidden>退出登录 ↗</button></header>
+<main>
+  <section id="login" class="login panel">
+    <span class="eyebrow">PRIVATE WORKSPACE</span><h1>校园的每一天，<br><em>在这里看见。</em></h1><p>查看匿名使用趋势，和用户保持沟通。</p>
+    <form id="login-form"><label for="password">管理密码</label><input id="password" type="password" autocomplete="current-password" required maxlength="200"><button class="primary" type="submit">进入管理台 <span>→</span></button></form>
+    <p id="login-error" role="alert" class="error"></p>
+  </section>
+  <div id="workspace" hidden>
+    <section class="intro"><div><span class="eyebrow">QZXY / OVERVIEW</span><h1>使用概览<span class="serif">。</span></h1><p id="asof">所有时间均为北京时间</p></div><button id="refresh" class="quiet">↻ 刷新数据</button></section>
+    <nav class="tabs" aria-label="管理内容"><button data-tab="overview" class="selected">使用统计</button><button data-tab="announcements">系统公告</button><button data-tab="feedback">应用反馈</button></nav>
+    <section id="overview">
+      <div class="metrics"><article class="panel metric"><span>今日活跃安装</span><strong id="dau">—</strong><small>DAU / 按日去重</small></article><article class="panel metric accented"><span>本月活跃安装</span><strong id="mau">—</strong><small>MAU / 按月去重</small></article><article class="panel metric"><span>昨日活跃安装</span><strong id="yesterday">—</strong><small>自然日 · Asia/Shanghai</small></article></div>
+      <article class="panel chart-panel"><div class="section-title"><div><span class="eyebrow">DAILY</span><h2>每天，轻轻打开</h2></div><select id="days" aria-label="日活展示范围"><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select></div><div id="daily-chart" class="chart" role="img" aria-label="每日活跃安装趋势"></div><details><summary>查看日活数据表</summary><div id="daily-table"></div></details></article>
+      <div class="two-columns"><article class="panel chart-panel"><div class="section-title"><div><span class="eyebrow">MONTHLY</span><h2>月度活跃</h2></div></div><div id="monthly-chart" class="chart small" role="img" aria-label="每月活跃安装趋势"></div><details><summary>查看月活数据表</summary><div id="monthly-table"></div></details></article><article class="panel chart-panel"><div class="section-title"><div><span class="eyebrow">VERSIONS</span><h2>版本分布</h2></div><select id="version-kind" aria-label="版本统计口径"><option value="monthly">本月</option><option value="daily">今日</option></select></div><div id="versions" class="versions"></div></article></div>
+      <p class="footnote">统计对象为匿名安装，不是账户人数。清除应用数据或重新安装会产生新标识。旧版继续计入日活与月活，版本归为“旧版 / 未上报”；同一周期内升级会归入最后上报的版本，不重复增加总数。日标识保留 7 天重试窗口，月标识保留当前月及必要的上月窗口。</p>
+    </section>
+    <section id="announcements" hidden>
+      <div class="section-title"><div><span class="eyebrow">ANNOUNCEMENTS</span><h2>让消息准时抵达</h2><p>应用打开或在前台时同步；无需趣智校园账户即可接收。</p></div><button id="new-notice" class="primary">＋ 新建公告</button></div>
+      <div id="notice-list" class="notice-list"></div>
+    </section>
+    <section id="feedback" hidden>
+      <div class="section-title"><div><span class="eyebrow">FEEDBACK / INBOX</span><h2>听见使用中的声音</h2><p>来自 Android 与 HarmonyOS 应用的建议和问题。</p></div></div>
+      <div class="panel feedback-filters">
+        <label>归档月份（UTC）<select id="feedback-month"><option value="">最近月份</option></select></label>
+        <label>平台<select id="feedback-platform"><option value="">全部平台</option><option value="android">Android</option><option value="harmonyos">HarmonyOS</option></select></label>
+        <label>类型<select id="feedback-category"><option value="">全部类型</option><option value="bug">问题反馈</option><option value="suggestion">功能建议</option><option value="experience">使用体验</option><option value="other">其他</option></select></label>
+      </div>
+      <p id="feedback-summary" class="hint" aria-live="polite"></p>
+      <div id="feedback-list" class="feedback-list"></div>
+      <div class="feedback-footer"><button id="feedback-more" class="quiet" hidden>加载更早反馈</button></div>
+    </section>
+  </div>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+</main>
+<dialog id="editor"><form id="notice-form"><div class="dialog-heading"><div><span class="eyebrow">COMPOSE</span><h2 id="editor-title">新建公告</h2></div><button type="button" class="quiet" data-close="editor" aria-label="关闭">×</button></div><input type="hidden" id="notice-id"><input type="hidden" id="notice-revision"><label for="notice-title">标题</label><input id="notice-title" maxlength="120" required><label for="notice-body">正文</label><textarea id="notice-body" rows="7" maxlength="12000" required placeholder="写下希望用户看到的消息…"></textarea><div class="time-grid"><label>生效时间<input type="datetime-local" id="starts" required></label><label>弹窗推送时间<input type="datetime-local" id="pushes" required></label><label>到期时间<input type="datetime-local" id="expires" required></label></div><p class="hint">北京时间。生效后可在消息列表查看；推送时间到达后在应用内弹出；到期后隐藏。修改已发布公告会生成新版本并重新提醒，旧版回复仍可查看。</p><div class="section-title"><h3>回复选项</h3><button type="button" id="add-option" class="quiet">＋ 添加选项</button></div><div id="options"></div><p class="hint">最多 8 个选项。勾选“自由输入”后，用户需填写文字。每台安装对每版公告保留一份回复，可修改；请勿索取密码或账号等敏感信息。</p><label class="check"><input id="notice-enabled" type="checkbox" checked>启用公告</label><p id="editor-error" role="alert" class="error"></p><div class="dialog-actions"><button type="button" class="quiet" data-close="editor">取消</button><button type="submit" id="save-notice" class="primary">保存公告</button></div></form></dialog>
+<dialog id="responses"><div class="dialog-heading"><div><span class="eyebrow">RESPONSES</span><h2 id="responses-title">回复统计</h2></div><button class="quiet" data-close="responses" aria-label="关闭">×</button></div><label>公告版本<select id="response-revision"></select></label><div id="response-counts"></div><div id="response-texts"></div><p class="hint">自由输入仅在此认证页面展示，最多展示最新 500 条。内容来自用户输入。</p></dialog>
+<script src="/project-qzxy-console/console.js?v=400-feedback-1" defer></script></body></html>

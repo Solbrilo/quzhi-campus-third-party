@@ -332,7 +332,9 @@ private fun RechargeButton(onClick: () -> Unit) {
 @Composable
 private fun LoadingRing(color: androidx.compose.ui.graphics.Color) {
     val motionEnabled = rememberMotionEnabled()
-    val palette = LocalThemePalette.current
+    val palette = if (LocalThemePalette.current == ThemePalette.CUSTOM)
+        ThemePalette.fromStorageValue(cn.qzxy.hotwater.designsystem.theme.LocalCustomTheme.current.animation)
+        else LocalThemePalette.current
     if (palette in listOf(ThemePalette.TIDE, ThemePalette.EMBER, ThemePalette.MONO)) {
         ThemedActivityRing(palette, color, motionEnabled)
         return

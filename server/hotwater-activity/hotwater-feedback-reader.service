@@ -1,0 +1,30 @@
+[Unit]
+Description=Private read-only hotwater feedback bridge
+After=local-fs.target
+
+[Service]
+Type=simple
+User=nebularive-feedback
+Group=hotwater-feedback-view
+SupplementaryGroups=nebularive-feedback
+ExecStart=/usr/bin/python3 /opt/hotwater-activity/feedback_reader.py
+RuntimeDirectory=hotwater-feedback-reader
+RuntimeDirectoryMode=0750
+UMask=0027
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+ReadOnlyPaths=/www/wwwroot/.nebularive-private/hotwater-feedback
+InaccessiblePaths=-/var/lib/hotwater-activity
+MemoryMax=64M
+TasksMax=8
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

@@ -23,8 +23,9 @@ data class ServerMessage(
     val publishedAt: String,
     val summaryHtml: String,
     val contentHtml: String,
+    val systemNotice: SystemNotice? = null,
 ) {
-    val revision: String get() = "$id|$publishedAt"
+    val revision: String get() = if (systemNotice == null) "$id|$publishedAt" else "$id|${systemNotice.revision}"
 }
 
 interface ServerMessageRemoteDataSource {

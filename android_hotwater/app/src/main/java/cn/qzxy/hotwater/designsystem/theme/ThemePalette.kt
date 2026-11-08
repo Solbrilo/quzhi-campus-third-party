@@ -17,12 +17,14 @@ enum class ThemePalette(val storageValue: String, val label: String) {
     SAND("sand", "暖砂"),
     TIDE("tide", "潮汐"),
     EMBER("ember", "余晖"),
-    MONO("mono", "墨序");
+    MONO("mono", "墨序"),
+    CUSTOM("custom", "自定义");
 
     val description: String get() = when (this) {
         TIDE -> "海蓝 · 柔润轮廓 · 涟漪"
         EMBER -> "陶橙 · 温暖弧面 · 日晕"
         MONO -> "石墨 · 利落线条 · 刻度"
+        CUSTOM -> "让每一处都合你心意"
         else -> "通透玻璃 · 轻盈流转"
     }
 
@@ -54,7 +56,7 @@ enum class ThemePalette(val storageValue: String, val label: String) {
             TIDE -> if (dark) Color(0xFF8BD6EA) else Color(0xFF176C89)
             EMBER -> if (dark) Color(0xFFFFBA91) else Color(0xFF9B4729)
             MONO -> if (dark) Color(0xFFD6DDD8) else Color(0xFF3C4B45)
-            SKY -> base.accentPrimary
+            SKY, CUSTOM -> base.accentPrimary
         }
         val background = when (this) {
             JADE -> if (dark) Color(0xFF111E1C) else Color(0xFFECF4EF)
@@ -63,7 +65,7 @@ enum class ThemePalette(val storageValue: String, val label: String) {
             TIDE -> if (dark) Color(0xFF0D2029) else Color(0xFFEDF6F8)
             EMBER -> if (dark) Color(0xFF281A17) else Color(0xFFFFF3E9)
             MONO -> if (dark) Color(0xFF191D1B) else Color(0xFFF1F3EF)
-            SKY -> base.meshBase
+            SKY, CUSTOM -> base.meshBase
         }
         val panel = lerp(background, if (dark) Color.White else accent, if (dark) 0.085f else 0.035f)
         val soft = lerp(background, accent, if (dark) 0.15f else 0.12f)

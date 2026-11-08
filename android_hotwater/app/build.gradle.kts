@@ -20,8 +20,8 @@ android {
         applicationId = "cn.qzxy.hotwater"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "3.1.2"
+        versionCode = 31
+        versionName = "4.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -81,6 +81,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Compose

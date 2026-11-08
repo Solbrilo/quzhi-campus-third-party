@@ -42,6 +42,9 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Restore
@@ -119,6 +122,8 @@ internal enum class MorePageDestination(val title: String) {
     FEEDBACK("问题反馈"),
     PRIVACY("隐私政策"),
     CREATORS("制作者"),
+    OPEN_SOURCE("开源支持"),
+    THEME("主题"),
 }
 
 private const val ProjectRepositoryUrl =
@@ -154,8 +159,12 @@ internal fun MorePage(
     accountBusy: Boolean = false,
     onAccountAction: () -> Unit = {},
     onOpenConfig: () -> Unit = {},
+    accountName: String = "",
+    schoolName: String = "",
+    onAccountSettings: (Boolean) -> Unit = {},
 ) {
     val pageStateHolder = rememberSaveableStateHolder()
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     var showReleaseNotes by rememberSaveable { mutableStateOf(false) }
     var releaseNotesDialogSession by rememberSaveable { mutableStateOf(0) }
     var showClearAllDialog by rememberSaveable { mutableStateOf(false) }
@@ -209,7 +218,7 @@ internal fun MorePage(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
+                        .then(if (page == MorePageDestination.THEME) Modifier else Modifier.verticalScroll(rememberScrollState())),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     when (page) {
@@ -237,11 +246,15 @@ internal fun MorePage(
                             accountBusy = accountBusy,
                             onAccountAction = onAccountAction,
                             onOpenConfig = onOpenConfig,
+                            onAbout = { showAbout = true }, accountName = accountName, schoolName = schoolName,
+                            onAccountSettings = onAccountSettings,
                         )
 
                         MorePageDestination.FEEDBACK -> FeedbackPage()
                         MorePageDestination.PRIVACY -> PrivacyPolicyPage()
                         MorePageDestination.CREATORS -> CreatorsPage(onOpenExternal = onOpenExternal)
+                        MorePageDestination.OPEN_SOURCE -> OpenSourcePage(onOpenExternal = onOpenExternal)
+                        MorePageDestination.THEME -> ThemePage(themePalette, onThemePaletteChange)
                     }
                     Spacer(modifier = Modifier.height(if (embedded) bottomDockClearance() else 12.dp))
                 }
@@ -249,6 +262,17 @@ internal fun MorePage(
         }
     }
 
+    if (showAbout) {
+        HalfPageSheet(null, { showAbout = false }) { close ->
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                AboutApplicationContent(checkResult, checking, installing,
+                    onOpenReleaseNotes = { showReleaseNotes = true; releaseNotesDialogSession += 1; onLoadReleaseNotes() },
+                    onCheckForUpdate = onCheckForUpdate, onOpenConfig = { close(onOpenConfig) },
+                    onNavigate = { next -> close { onNavigate(next) } }, onOpenExternal = onOpenExternal)
+                Spacer(Modifier.height(20.dp))
+            }
+        }
+    }
     if (showReleaseNotes) {
         ReleaseNotesDialog(
             releases = releaseNotes,
@@ -336,48 +360,136 @@ private fun MoreOverviewPage(
     accountBusy: Boolean,
     onAccountAction: () -> Unit,
     onOpenConfig: () -> Unit,
+    onAbout: () -> Unit,
+    accountName: String,
+    schoolName: String,
+    onAccountSettings: (Boolean) -> Unit,
 ) {
     val tokens = LocalGlassTokens.current
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(
-                painter = painterResource(R.mipmap.ic_launcher),
-                contentDescription = "趣智校园热水应用图标",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(22.dp)),
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "趣智校园热水",
-                    color = tokens.textPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "第三方热水控制工具",
-                    color = tokens.textSecondary,
-                    fontSize = 14.sp,
-                )
+        Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 28.dp).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(if (loggedIn) accountName.ifBlank { "校园账户" } else "尚未登录", color = tokens.textPrimary,
+                        fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Text(if (loggedIn) schoolName.ifBlank { "学校信息暂不可用" } else "登录后同步校园信息",
+                        color = tokens.textSecondary, fontSize = 13.sp)
+                }
+                GlassPressable(onAccountAction, enabled = !accountBusy, cornerRadius = 18.dp,
+                    modifier = Modifier.height(48.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+                    Text(if (loggedIn) "退出登录" else "登录", color = tokens.accentPrimary, fontSize = 13.sp)
+                }
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            GlassPressable(
-                onClick = onAccountAction, enabled = !accountBusy,
-                material = GlassMaterial.Control, cornerRadius = 18.dp,
-                modifier = Modifier.height(48.dp),
-            ) {
-                Text(if (loggedIn) "退出登录" else "登录", color = tokens.accentPrimary,
-                    fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp))
+            if (loggedIn) {
+                MoreDivider()
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassPressable({ onAccountSettings(false) }, enabled = !accountBusy, cornerRadius = 16.dp,
+                        modifier = Modifier.weight(1f), contentPadding = PaddingValues(12.dp)) {
+                        Text("修改密码", color = tokens.accentPrimary, fontSize = 13.sp)
+                    }
+                    GlassPressable({ onAccountSettings(true) }, enabled = !accountBusy, cornerRadius = 16.dp,
+                        modifier = Modifier.weight(1f), contentPadding = PaddingValues(12.dp)) {
+                        Text("更换手机号", color = tokens.accentPrimary, fontSize = 13.sp)
+                    }
+                }
             }
         }
 
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassMaterial(GlassMaterial.Panel, 28.dp)
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = null,
+                    tint = tokens.accentPrimary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "显示与外观",
+                    color = tokens.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            MoreActionRow(MoreAction("主题", themePalette.label, Icons.Outlined.Palette,
+                onClick = { onNavigate(MorePageDestination.THEME) }))
+            MoreDivider()
+            GlassIntensityPanel(
+                glassIntensity = glassIntensity,
+                onGlassIntensityChange = onGlassIntensityChange,
+                onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
+                onResetGlassIntensity = onResetGlassIntensity,
+                embedded = true,
+            )
+            MoreDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "深浅色模式",
+                    color = tokens.textPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "选择应用显示模式",
+                    color = tokens.textSecondary,
+                    fontSize = 13.sp,
+                )
+                ThemeModeSelector(
+                    selected = themeMode,
+                    onSelected = onThemeModeChange,
+                )
+            }
+        }
+
+        FeedbackSettingsPanel()
+
+        MoreActionGroup(
+            actions = listOf(
+                MoreAction(
+                    title = "问题反馈",
+                    summary = "提交建议、查看已提交记录",
+                    icon = Icons.Outlined.Feedback,
+                    onClick = { onNavigate(MorePageDestination.FEEDBACK) },
+                ),
+                MoreAction(
+                    title = "隐私政策",
+                    summary = "了解信息处理方式",
+                    icon = Icons.Outlined.Description,
+                    onClick = { onNavigate(MorePageDestination.PRIVACY) },
+                ),
+                MoreAction(
+                    title = "清空所有信息",
+                    summary = "删除本机保存的全部用户数据",
+                    icon = Icons.Outlined.DeleteSweep,
+                    onClick = onRequestClearAllData,
+                ),
+                MoreAction("关于应用", "版本、配置与项目支持", Icons.Outlined.Info, onClick = onAbout),
+            ),
+        )
+
+
+    }
+}
+
+
+@Composable
+private fun AboutApplicationContent(checkResult: AppUpdateCheckResult?, checking: Boolean, installing: Boolean,
+    onOpenReleaseNotes: () -> Unit, onCheckForUpdate: () -> Unit, onOpenConfig: () -> Unit,
+    onNavigate: (MorePageDestination) -> Unit, onOpenExternal: (String) -> Unit) {
+    val tokens = LocalGlassTokens.current
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Image(painterResource(R.mipmap.ic_launcher), "应用图标", Modifier.size(78.dp).clip(RoundedCornerShape(24.dp)))
+        Text("趣智校园热水", color = tokens.textPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Text("简洁、轻盈的校园用水体验", color = tokens.textSecondary, fontSize = 12.sp)
+    }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -459,82 +571,6 @@ private fun MoreOverviewPage(
             ))
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassMaterial(GlassMaterial.Panel, 28.dp)
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = null,
-                    tint = tokens.accentPrimary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "显示与外观",
-                    color = tokens.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            ThemePaletteSelector(themePalette, onThemePaletteChange)
-            MoreDivider()
-            GlassIntensityPanel(
-                glassIntensity = glassIntensity,
-                onGlassIntensityChange = onGlassIntensityChange,
-                onGlassIntensityChangeFinished = onGlassIntensityChangeFinished,
-                onResetGlassIntensity = onResetGlassIntensity,
-                embedded = true,
-            )
-            MoreDivider()
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "深浅色模式",
-                    color = tokens.textPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "选择应用显示模式",
-                    color = tokens.textSecondary,
-                    fontSize = 13.sp,
-                )
-                ThemeModeSelector(
-                    selected = themeMode,
-                    onSelected = onThemeModeChange,
-                )
-            }
-        }
-
-        FeedbackSettingsPanel()
-
-        MoreActionGroup(
-            actions = listOf(
-                MoreAction(
-                    title = "问题反馈",
-                    summary = "提交建议、查看已提交记录",
-                    icon = Icons.Outlined.Feedback,
-                    onClick = { onNavigate(MorePageDestination.FEEDBACK) },
-                ),
-                MoreAction(
-                    title = "隐私政策",
-                    summary = "了解信息处理方式",
-                    icon = Icons.Outlined.Description,
-                    onClick = { onNavigate(MorePageDestination.PRIVACY) },
-                ),
-                MoreAction(
-                    title = "清空所有信息",
-                    summary = "删除本机保存的全部用户数据",
-                    icon = Icons.Outlined.DeleteSweep,
-                    onClick = onRequestClearAllData,
-                ),
-            ),
-        )
-
         MoreActionGroup(
             actions = listOf(
                 MoreAction(
@@ -542,6 +578,12 @@ private fun MoreOverviewPage(
                     summary = "查看项目参与者",
                     icon = Icons.Outlined.Group,
                     onClick = { onNavigate(MorePageDestination.CREATORS) },
+                ),
+                MoreAction(
+                    title = "开源支持",
+                    summary = "项目、开发套件与许可",
+                    icon = Icons.Outlined.Code,
+                    onClick = { onNavigate(MorePageDestination.OPEN_SOURCE) },
                 ),
                 MoreAction(
                     title = "项目仓库",
@@ -553,13 +595,13 @@ private fun MoreOverviewPage(
                 MoreAction(
                     title = "项目网站",
                     summary = "了解趣智校园热水项目",
-                    icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                    icon = Icons.Outlined.Language,
+                    drawable = R.drawable.ic_nebularive,
                     external = true,
                     onClick = { onOpenExternal("https://nebularive.top/project-qzxy-hotwater.php") },
                 ),
             ),
         )
-    }
 }
 
 @Composable
@@ -757,6 +799,7 @@ private data class MoreAction(
     val summary: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val external: Boolean = false,
+    val drawable: Int? = null,
     val onClick: () -> Unit,
 )
 
@@ -799,7 +842,7 @@ private fun MoreActionRow(action: MoreAction) {
                     .background(tokens.controlSurface),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
+                if (action.drawable != null) Image(painterResource(action.drawable), null, Modifier.size(25.dp)) else Icon(
                     imageVector = action.icon,
                     contentDescription = null,
                     tint = tokens.accentPrimary,
@@ -1455,6 +1498,13 @@ private fun PrivacyPolicyPage() {
             fontSize = 14.sp,
             lineHeight = 22.sp,
         )
+        PrivacyPolicyHeading(text = "充值与支付")
+        Text(
+            text = "充值金额和支付方式由趣智校园服务器提供。你确认充值后，应用向趣智校园创建订单，并将返回的支付订单交给支付宝 SDK 完成支付；支付宝会按其隐私政策处理支付所需的订单、设备与网络信息。应用不收集支付密码，不在本地保存充值支付凭证，付款返回后重新查询服务器余额。",
+            color = tokens.textSecondary,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
+        )
         PrivacyPolicyHeading(text = "本地保存")
         Text(
             text = "账号凭据和设备配置使用系统支持的加密存储。必要的订单与结算状态、消息已读状态、反馈记录及显示偏好保存在本机；消息正文仅在内存中展示。",
@@ -1471,9 +1521,11 @@ private fun PrivacyPolicyPage() {
         )
         PrivacyPolicyHeading(text = "匿名使用统计")
         Text(
-            text = "应用会发送使用日期、月份和匿名标识，用于汇总日活与月活。匿名统计始终开启，不包含账号、手机号或硬件标识；匿名标识按日或月变化，本机随机种子不会上传，统计不用于广告或用户画像。",
+            text = "应用会发送使用日期、月份、应用版本和匿名标识，用于汇总日活、月活及版本分布。匿名统计始终开启，不包含账号、手机号或硬件标识；匿名标识按日或月变化，本机随机种子不会上传，统计不用于广告或用户画像。升级不会在同一统计周期重复计数。",
             color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 22.sp,
         )
+        PrivacyPolicyHeading(text = "系统公告与自定义主题")
+        Text("系统公告由项目网站提供，无需登录即可查看。主动提交公告回复时，会发送你选择的选项、填写的文字及该公告独立的匿名标识，用于去重和汇总；不会发送趣智校园账号、手机号或匿名活跃统计标识。请勿在回复中填写敏感信息。自定义背景图片仅保存在本机，不上传服务器。", color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 22.sp)
         PrivacyPolicyHeading(text = "反馈与用户选择")
         Text(
             text = "提交问题反馈时，仅发送你填写的邮箱、反馈内容、类型和应用版本。请勿在反馈中填写密码、Token、学号或其他不必要的敏感信息。你可以在设置页的“清空所有信息”入口移除应用在本机保存的配置、记录、消息已读状态、反馈、显示设置和引导状态；匿名统计标识会一并删除，再次打开应用时会重新生成匿名标识并继续统计，也可以通过 Android 系统设置清除应用数据。政策内容会在处理方式发生重要变化时更新。",

@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -108,8 +109,9 @@ private fun GlassThemeContent(
     content: @Composable () -> Unit,
 ) {
     val motionEnabled = rememberMotionEnabled()
-    val targetTokens = palette.tokens(darkTheme)
-    val targetGeometry = palette.geometry
+    val custom = rememberCustomThemeSettings()
+    val targetTokens = if (palette == ThemePalette.CUSTOM) custom.tokens(darkTheme) else palette.tokens(darkTheme)
+    val targetGeometry = if (palette == ThemePalette.CUSTOM) ThemeGeometry(custom.corner / 24f, (custom.corner * 4).dp) else palette.geometry
     var startGeometry by remember { mutableStateOf(targetGeometry) }
     var endGeometry by remember { mutableStateOf(targetGeometry) }
     var startTokens by remember { mutableStateOf(targetTokens) }
@@ -189,6 +191,7 @@ private fun GlassThemeContent(
     CompositionLocalProvider(
         LocalHapticFeedback provides optionalHaptic,
         LocalThemePalette provides palette,
+        LocalCustomTheme provides custom,
         LocalThemeGeometry provides geometry,
         LocalGlassTokens provides tokens,
         LocalGlassEnvironment provides environment,
@@ -204,8 +207,7 @@ private fun GlassThemeContent(
             typography = GlassTypography,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                GlassMeshBackground(
-                    tokens = tokens,
+                Box(
                     modifier = (if (hazeAvailable) {
                         Modifier.hazeSource(
                             state = hazeState,
@@ -214,7 +216,10 @@ private fun GlassThemeContent(
                     } else {
                         Modifier
                     }).then(if (liquidAvailable) Modifier.layerBackdrop(backgroundBackdrop) else Modifier),
-                )
+                ) {
+                    GlassMeshBackground(tokens = tokens)
+                    if (palette == ThemePalette.CUSTOM && custom.image) CustomThemeBackground(custom)
+                }
                 content()
             }
         }

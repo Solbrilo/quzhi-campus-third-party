@@ -69,7 +69,7 @@ fun HotWaterRoot(
     onResetGlassIntensity: () -> Unit,
     onExportConfig: () -> Unit,
     onImportConfig: () -> Unit,
-    onOpenAlipayRecharge: () -> Unit,
+    onPayWithAlipay: (Long) -> Unit,
     onRequestNotificationPermission: ((() -> Unit) -> Unit),
     onClearAllUserData: () -> Unit,
 ) {
@@ -184,7 +184,7 @@ fun HotWaterRoot(
                     onResetGlassIntensity = onResetGlassIntensity,
                     onExportConfig = onExportConfig,
                     onImportConfig = onImportConfig,
-                    onOpenAlipayRecharge = onOpenAlipayRecharge,
+                    onPayWithAlipay = onPayWithAlipay,
                     onRequestNotificationPermission = onRequestNotificationPermission,
                     onClearAllUserData = onClearAllUserData,
                     onOpenLogin = {

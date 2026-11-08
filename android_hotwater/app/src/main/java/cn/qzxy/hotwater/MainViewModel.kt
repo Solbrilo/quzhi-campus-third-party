@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.withPermit
 
 data class FeedbackEvent(
@@ -65,6 +67,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         QZXY_LOGIN,
         SN_CODE_SAVE,
         NEARBY_PAIR,
+        ACCOUNT,
     }
 
     private val store = HotWaterConfigStore(application)
@@ -89,14 +92,152 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         showCredentialExpiryPrompt()
     }
     val serverMessages = messagesController.state
+    private val announcementsController = AnnouncementsController(application, viewModelScope)
+    val systemAnnouncements = announcementsController.state
+    val announcementResponse = announcementsController.response
+    private var announcementPollingJob: Job? = null
+    fun respondToAnnouncement(message: ServerMessage, option: String, text: String) = announcementsController.respond(message, option, text)
 
     fun loadMessages(announce: Boolean = false) {
+        announcementsController.load(announce)
         if (store.requiresReauthentication()) return
         messagesController.load(store.loadConfig(), announce)
     }
-    fun markMessageRead(message: ServerMessage) = messagesController.markRead(message)
-    fun markAllMessagesRead() = messagesController.markAllRead()
-    fun dismissMessageAnnouncement() = messagesController.dismissAnnouncement()
+    fun markMessageRead(message: ServerMessage) {
+        if (message.systemNotice != null) announcementsController.markRead(message) else messagesController.markRead(message)
+    }
+    fun markAllMessagesRead() { messagesController.markAllRead(); announcementsController.markAllRead() }
+    fun dismissMessageAnnouncement() { messagesController.dismissAnnouncement(); announcementsController.dismiss() }
+
+    private val rechargeController = RechargeController(
+        scope = viewModelScope, remote = HotWaterApi(), currentConfig = store::loadConfig,
+        stateGeneration = store::loadStateGeneration, credentialsExpired = store::requiresReauthentication,
+        onCredentialsExpired = { showCredentialExpiryPrompt() },
+        onBalanceUpdated = { balance ->
+            // Account-only query: recharge also works before a heater is bound and while it is busy.
+            val snapshot = _snapshot.value ?: buildPlaceholderSnapshot(store.loadConfig())
+            _snapshot.value = snapshot.copy(balanceYuan = balance, balanceLabel = "%.2f".format(java.util.Locale.CHINA, balance))
+        },
+    )
+    val rechargeState = rechargeController.state
+    fun openRecharge() = rechargeController.open()
+    fun reloadRecharge() = rechargeController.load()
+    fun selectRechargePackage(id: Long) = rechargeController.select(id)
+    fun submitRecharge() = rechargeController.submit()
+    fun claimRechargePayment(id: Long): String? = rechargeController.claimPayment(id)
+    fun completeRechargePayment(id: Long, result: AlipayResult) = rechargeController.completePayment(id, result)
+    fun closeRecharge() = rechargeController.close()
+    fun refreshRechargeBalance() = rechargeController.refreshBalance()
+
+    private val _accountProfile = MutableStateFlow(AccountProfile())
+    val accountProfile = _accountProfile.asStateFlow()
+    private val _accountAction = MutableStateFlow(AccountActionState())
+    val accountAction = _accountAction.asStateFlow()
+    private var accountJob: Job? = null
+    private var profileJob: Job? = null
+    private var accountGeneration = 0L
+    private var accountCodeDeadline = 0L
+    private var accountCodeJob: Job? = null
+
+    fun loadAccountProfile() {
+        profileJob?.cancel()
+        _accountProfile.value = AccountProfile()
+        val c = store.loadConfig()
+        if (!c.hasAccount() || store.requiresReauthentication()) return
+        val generation = store.loadStateGeneration()
+        profileJob = viewModelScope.launch {
+            try {
+                val api = HotWaterApi()
+                suspend fun optional(block: suspend () -> org.json.JSONObject): org.json.JSONObject = try { block() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { org.json.JSONObject() }
+                val (user, project) = coroutineScope {
+                    val user = async { optional { api.accountInfo(c) } }
+                    val project = async { optional { api.projectInfo(c) } }
+                    user.await() to project.await()
+                }
+                if (generation == store.loadStateGeneration() && c.accountRequestKey() == store.loadConfig().accountRequestKey())
+                    _accountProfile.value = cn.qzxy.hotwater.accountProfile(user, project)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* The card retains a masked phone and an explicit unavailable school. */ }
+        }
+    }
+
+    fun resetAccountAction() {
+        if (!_accountAction.value.busy) _accountAction.value = _accountAction.value.copy(error = null, success = false)
+    }
+
+    fun sendAccountCode(phone: String, changingPhone: Boolean) {
+        if (_accountAction.value.sending || android.os.SystemClock.elapsedRealtime() < accountCodeDeadline) return
+        val c = store.loadConfig(); val generation = accountGeneration
+        if (!c.hasAccount() || store.requiresReauthentication()) return
+        if (!QzxyLoginProtocol.isValidTelephone(phone)) {
+            _accountAction.value = _accountAction.value.copy(error = "请输入有效的 11 位手机号"); return
+        }
+        _accountAction.value = _accountAction.value.copy(sending = true, error = null)
+        accountCodeJob = viewModelScope.launch {
+            try {
+                QzxyLoginProtocol.requireSuccessfulResponse(HotWaterApi().accountCode(c, phone, if (changingPhone) 5 else 2))
+                if (generation != accountGeneration || c.accountRequestKey() != store.loadConfig().accountRequestKey()) return@launch
+                accountCodeDeadline = android.os.SystemClock.elapsedRealtime() + 60_000
+                while (true) {
+                    val seconds = ((accountCodeDeadline - android.os.SystemClock.elapsedRealtime() + 999) / 1000).toInt().coerceAtLeast(0)
+                    _accountAction.value = _accountAction.value.copy(sending = false, remaining = seconds)
+                    if (seconds == 0) break
+                    delay(1000)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (generation == accountGeneration) _accountAction.value = _accountAction.value.copy(sending = false, error = "验证码发送失败，请稍后重试") }
+        }
+    }
+
+    fun updateAccount(phone: String?, oldPassword: String, password: String, code: String?) {
+        if (_busy.value || _accountAction.value.busy || rechargeState.value.busy) return
+        val c = store.loadConfig(); val generation = ++accountGeneration
+        val storeGeneration = store.loadStateGeneration()
+        if (!c.hasAccount() || store.requiresReauthentication()) { showCredentialExpiryPrompt(); return }
+        _accountAction.value = _accountAction.value.copy(busy = true, error = null, success = false)
+        acquireBusy(BusyOwner.ACCOUNT)
+        accountJob = viewModelScope.launch {
+            try {
+                HotWaterRepository.withDeviceControl {
+                    require(store.loadOrderNo().isNullOrBlank() && store.loadUsageSession() == null && store.loadPendingSettlements().isEmpty()) {
+                        "请先结束用水，并等待账单同步完成后再修改账户"
+                    }
+                    if (phone != null) {
+                        require(QzxyLoginProtocol.isValidTelephone(phone) && phone != c.telephone) { "请输入不同的有效手机号" }
+                        require(code?.matches(Regex("[0-9]{6}")) == true) { "请输入 6 位验证码" }
+                    } else {
+                        require(password.isNotBlank() && (code != null || oldPassword.isNotBlank())) { "请完整填写密码" }
+                        require(code == null || code.matches(Regex("[0-9]{6}"))) { "请输入 6 位验证码" }
+                    }
+                    val api = HotWaterApi()
+                    val result = if (phone != null) api.changePhone(c, phone, code.orEmpty()) else api.changePassword(c, oldPassword, password, code)
+                    QzxyLoginProtocol.requireSuccessfulResponse(result)
+                    if (generation != accountGeneration || storeGeneration != store.loadStateGeneration() || c.accountRequestKey() != store.loadConfig().accountRequestKey()) return@withDeviceControl
+                    if (phone != null) {
+                        store.clearActiveUsageState()
+                        val next = c.copy(telephone = phone, snCode = "", macAddress = "")
+                        store.saveConfig(next); _config.value = next
+                    }
+                    rechargeController.clear()
+                    showCredentialExpiryPrompt(force = true)
+                    _accountAction.value = _accountAction.value.copy(busy = false, success = true)
+                    reportFeedback(FeedbackEvent.FeedbackType.SUCCESS, "修改成功，请重新登录")
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (generation == accountGeneration) _accountAction.value = _accountAction.value.copy(busy = false,
+                    error = if (e is IllegalArgumentException) e.message else "修改未确认，请重新登录核对后再试")
+            } finally { if (generation == accountGeneration) releaseBusy(BusyOwner.ACCOUNT) }
+        }
+    }
+
+    private fun clearAccountWork() {
+        ++accountGeneration; accountJob?.cancel(); accountCodeJob?.cancel(); profileJob?.cancel()
+        _accountAction.value = AccountActionState(); _accountProfile.value = AccountProfile()
+        releaseBusy(BusyOwner.ACCOUNT)
+    }
 
     fun logout() {
         if (_busy.value) return
@@ -126,7 +267,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@withDeviceControl
                 }
                 billsController.clear()
+                clearAccountWork()
                 messagesController.clear()
+                rechargeController.clear()
                 _config.value = HotWaterConfig()
                 _snapshot.value = buildPlaceholderSnapshot(_config.value)
                 _credentialExpired.value = false
@@ -204,6 +347,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var appInForeground = false
     private var busyOwner: BusyOwner? = null
 
+    init {
+        viewModelScope.launch { config.collect { rechargeController.synchronizeAccount() } }
+    }
+
     fun initialize() {
         if (initialized) return
         initialized = true
@@ -262,6 +409,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveConfig(rawConfig: HotWaterConfig) {
+        clearAccountWork()
         cancelNearbyPairing()
         stopNearbyScan()
         invalidateLoginRequest()
@@ -308,6 +456,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onAppForegrounded() {
         appInForeground = true
         loadMessages(announce = true)
+        if (announcementPollingJob?.isActive != true) announcementPollingJob = viewModelScope.launch {
+            while (true) { delay(60_000); announcementsController.load(announce = true) }
+        }
         if (store.requiresReauthentication()) {
             activeStateSyncJob?.cancel()
             activeStateSyncJob = null
@@ -320,6 +471,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAppBackgrounded() {
         appInForeground = false
+        announcementPollingJob?.cancel(); announcementPollingJob = null
         activeStateSyncJob?.cancel()
         activeStateSyncJob = null
         stopNearbyScan()
@@ -655,7 +807,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * state so a cancelled request cannot repopulate data after confirmation.
      */
     fun clearAllUserData(): Boolean {
+        clearAccountWork()
+        announcementsController.clear()
         val appContext = getApplication<Application>()
+        rechargeController.clear()
 
         // Invalidate every in-flight operation before removing its backing state.
         ++operationGeneration
