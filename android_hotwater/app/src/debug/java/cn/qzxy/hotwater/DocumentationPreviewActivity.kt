@@ -38,6 +38,12 @@ class DocumentationPreviewActivity : ComponentActivity() {
 
 @Composable
 private fun DocumentationScreen(screen: String, palette: ThemePalette, mode: ThemeMode, onPalette: (ThemePalette) -> Unit) {
+    var previewFeatures by remember { mutableStateOf(screen == "update") }
+    if (screen == "welcome") {
+        OnboardingQuotePage(onNext = { previewFeatures = true }, isUpgrade = true)
+        if (previewFeatures) UpdateHighlightsSheet { previewFeatures = false }
+        return
+    }
     var destination by remember { mutableStateOf(when (screen) {
         "theme" -> MorePageDestination.THEME
         "settings" -> MorePageDestination.OVERVIEW
@@ -90,6 +96,7 @@ private fun DocumentationScreen(screen: String, palette: ThemePalette, mode: The
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                     .padding(start = 20.dp, end = 20.dp, bottom = 12.dp))
         }
+        if (screen == "update" && previewFeatures) UpdateHighlightsSheet { previewFeatures = false }
         if (screen == "recharge") {
             RechargeSheet(
                 state = RechargeState(visible = true,

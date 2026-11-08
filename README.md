@@ -24,6 +24,10 @@
 | :---: | :---: | :---: |
 | ![带手机外壳的主题预览](docs/screenshots/android-theme-preview.png) | ![自定义主题与编辑入口](docs/screenshots/android-theme-custom.png) | ![关于应用半屏页面](docs/screenshots/android-about.png) |
 
+| 中文欢迎 | 英文欢迎 | 更新功能展示 |
+| :---: | :---: | :---: |
+| ![至繁归于至简逐字竖排](docs/screenshots/android-welcome-chinese.png) | ![Simplicity is the ultimate sophistication.](docs/screenshots/android-welcome-english.png) | ![更新后的半屏功能展示](docs/screenshots/android-update-highlights.png) |
+
 ## Android 能做什么
 
 - **日常用水**：首页查询余额、切换热水器和开关热水。连接状态区分绿色“已连接 / 正在使用”、黄色“设备使用中”和红色“离线”。
@@ -34,6 +38,7 @@
 - **七套预设与自定义主题**：澄空、青屿、暮紫、暖砂、潮汐、余晖、墨序，支持浅色、深色与跟随系统。主题切换与子页面导航有过渡，液态玻璃强度可调；编辑时上方完整显示手机预览，下方调节图片背景、位置与模糊、颜色、圆角和开关动画。颜色可通过色相、饱和度和明度直观选择。
 - **桌面与系统入口**：2×1 横向滑动开关、2×2 极简控制、4×2 状态小组件，以及快捷设置磁贴和用水通知。
 - **集中设置**：账户卡片提供修改密码与更换手机号；关于应用集中版本、配置及项目链接。震动反馈、开关水通知、计时与实况通知可分别设置；支持忽略当前更新版本、配置备份、问题反馈、项目网站和开源支持入口。
+- **欢迎与更新引导**：首次安装和更新后，以竖排逐字的“至繁归于至简”及分行英文欢迎。更新后展示可翻页的半屏功能介绍，完成后同版本不再重复。
 
 更多实现细节见 [Android README](android_hotwater/README.md)。
 

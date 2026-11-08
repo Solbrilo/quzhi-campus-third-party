@@ -2,313 +2,143 @@ package cn.qzxy.hotwater.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import cn.qzxy.hotwater.designsystem.component.GlassButton
-import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 
-internal const val QuoteLineRevealDurationMillis = 1_300
-internal const val QuoteAuthorRevealDurationMillis = 560
-internal const val QuoteLineInitialOffsetDp = 20f
-internal const val QuoteAuthorInitialOffsetDp = 10f
+internal const val WelcomeChinese = "至繁归于至简"
+internal const val WelcomeEnglish = "Simplicity is the ultimate sophistication."
+private const val WelcomeDurationMillis = 3_600
+internal const val WelcomeEnglishStartMillis = 2_300
+
+internal fun welcomeCharacterProgress(index: Int, elapsed: Float): Float =
+    ((elapsed - 180f - index * 190f) / 430f).coerceIn(0f, 1f)
+
+internal fun welcomeEnglishProgress(index: Int, elapsed: Float): Float =
+    ((elapsed - WelcomeEnglishStartMillis - index * 190f) / 620f).coerceIn(0f, 1f)
 
 @Composable
-fun OnboardingQuotePage(onNext: () -> Unit) {
+fun OnboardingQuotePage(onNext: () -> Unit, isUpgrade: Boolean = false) {
     val tokens = LocalGlassTokens.current
     val motionEnabled = LocalGlassEnvironment.current.motionEnabled
-    val hapticFeedback = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var pageActive by remember { mutableStateOf(true) }
     var lifecycleActive by remember(lifecycleOwner) {
-        mutableStateOf(
-            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED),
-        )
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     }
-    val quoteOneProgress = remember { Animatable(if (motionEnabled) 0f else 1f) }
-    val quoteTwoProgress = remember { Animatable(if (motionEnabled) 0f else 1f) }
-    val authorProgress = remember { Animatable(if (motionEnabled) 0f else 1f) }
-
+    val timeline = remember { Animatable(0f) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            lifecycleActive = quoteLifecycleActiveAfterEvent(
-                wasActive = lifecycleActive,
-                event = event,
-            )
+            lifecycleActive = quoteLifecycleActiveAfterEvent(lifecycleActive, event)
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
     LaunchedEffect(motionEnabled, pageActive, lifecycleActive) {
         if (!pageActive) return@LaunchedEffect
-        if (!lifecycleActive) {
-            val restingProgress = if (motionEnabled) 0f else 1f
-            quoteOneProgress.snapTo(restingProgress)
-            quoteTwoProgress.snapTo(restingProgress)
-            authorProgress.snapTo(restingProgress)
-            return@LaunchedEffect
-        }
-        if (!motionEnabled) {
-            quoteOneProgress.snapTo(1f)
-            quoteTwoProgress.snapTo(1f)
-            authorProgress.snapTo(1f)
-            return@LaunchedEffect
-        }
-
-        quoteOneProgress.snapTo(0f)
-        quoteTwoProgress.snapTo(0f)
-        authorProgress.snapTo(0f)
-        quoteOneProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = QuoteLineRevealDurationMillis,
-                easing = FastOutSlowInEasing,
-            ),
-        )
-        if (!pageActive || !lifecycleActive) return@LaunchedEffect
-        hapticFeedback.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
-        if (!pageActive || !lifecycleActive) return@LaunchedEffect
-        quoteTwoProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = QuoteLineRevealDurationMillis,
-                easing = FastOutSlowInEasing,
-            ),
-        )
-        if (!pageActive || !lifecycleActive) return@LaunchedEffect
-        hapticFeedback.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
-        if (!pageActive || !lifecycleActive) return@LaunchedEffect
-        authorProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = QuoteAuthorRevealDurationMillis,
-                easing = FastOutSlowInEasing,
-            ),
-        )
+        timeline.snapTo(0f)
+        if (motionEnabled && lifecycleActive) timeline.animateTo(WelcomeDurationMillis.toFloat(),
+            tween(WelcomeDurationMillis, easing = LinearEasing))
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Horizontal))
-            .padding(horizontal = 24.dp, vertical = 18.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center,
-        ) {
-            QuoteComposition(
-                firstLineProgress = quoteOneProgress.value,
-                secondLineProgress = quoteTwoProgress.value,
-                authorProgress = authorProgress.value,
-            )
+    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+        .padding(horizontal = 24.dp, vertical = 18.dp)) {
+        Text("趣智校园热水", Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
+            color = tokens.textTertiary, fontSize = 12.sp, letterSpacing = 2.sp)
+        val availableScale = ((maxHeight - 110.dp) / 440.dp).coerceIn(.25f, 1f)
+        Box(Modifier.align(Alignment.Center).fillMaxWidth().graphicsLayer {
+            scaleX = availableScale; scaleY = availableScale
+        }, contentAlignment = Alignment.Center) {
+            if (!motionEnabled) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    WelcomeChineseColumn(0f, static = true, compact = true)
+                    Spacer(Modifier.height(28.dp))
+                    WelcomeEnglishComposition(WelcomeDurationMillis.toFloat(), compact = true)
+                }
+            } else {
+                val chineseOpacity = 1f - ((timeline.value - 1_950f) / 300f).coerceIn(0f, 1f)
+                if (chineseOpacity > 0f) Box(Modifier.graphicsLayer { alpha = chineseOpacity }) {
+                    WelcomeChineseColumn(timeline.value)
+                }
+                if (timeline.value >= WelcomeEnglishStartMillis) WelcomeEnglishComposition(timeline.value)
+            }
         }
-
-        Spacer(modifier = Modifier.height(18.dp))
-        GlassButton(
-            text = "快速开始",
-            onClick = {
-                pageActive = false
-                onNext()
-            },
-            modifier = Modifier
-                .fillMaxWidth(),
-            singleLineText = true,
-            icon = {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                    contentDescription = null,
-                    tint = tokens.textPrimary,
-                )
-            },
-        )
+        GlassButton(text = if (isUpgrade) "看看新变化" else "快速开始",
+            onClick = { pageActive = false; onNext() }, singleLineText = true,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            icon = { Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, tint = tokens.textPrimary) })
     }
 }
 
 @Composable
-private fun QuoteComposition(
-    firstLineProgress: Float,
-    secondLineProgress: Float,
-    authorProgress: Float,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .width(216.dp)
-            .height(350.dp),
-    ) {
-        AnimatedVerticalTextColumn(
-            text = "删繁就简三秋树",
-            lineProgress = firstLineProgress,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(x = 42.dp),
-        )
-        AnimatedVerticalTextColumn(
-            text = "领异标新二月花",
-            lineProgress = secondLineProgress,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(x = -24.dp, y = 42.dp),
-        )
-        QuoteAuthor(
-            progress = authorProgress,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(x = -78.dp, y = 126.dp),
-        )
-    }
-}
-
-@Composable
-private fun AnimatedVerticalTextColumn(
-    text: String,
-    lineProgress: Float,
-    modifier: Modifier = Modifier,
-) {
+private fun WelcomeChineseColumn(elapsed: Float, static: Boolean = false, compact: Boolean = false) {
     val tokens = LocalGlassTokens.current
-    val revealProgress = lineProgress.coerceIn(0f, 1f)
-    Column(
-        modifier = modifier
-            .graphicsLayer {
-                alpha = revealProgress
-                translationY = quoteRevealOffsetDp(
-                    progress = revealProgress,
-                    initialOffsetDp = QuoteLineInitialOffsetDp,
-                ).dp.toPx()
-            }
-            .clearAndSetSemantics {
-                contentDescription = text
-            },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        text.forEach { character ->
-            Box(
-                modifier = Modifier
-                    .width(40.dp)
-                    .height(40.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = character.toString(),
-                    color = tokens.textPrimary,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+    Column(horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clearAndSetSemantics { contentDescription = WelcomeChinese }) {
+        WelcomeChinese.forEachIndexed { index, character ->
+            val progress = if (static) 1f else FastOutSlowInEasing.transform(welcomeCharacterProgress(index, elapsed))
+            Box(Modifier.size(if (compact) 36.dp else 52.dp).graphicsLayer {
+                alpha = progress
+                translationY = (-14f * (1f - progress)).dp.toPx()
+            }, contentAlignment = Alignment.Center) {
+                Text(character.toString(), color = tokens.textPrimary,
+                    fontSize = if (compact) 26.sp else 36.sp, fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Light)
             }
         }
     }
 }
 
 @Composable
-private fun QuoteAuthor(
-    progress: Float,
-    modifier: Modifier = Modifier,
-) {
+private fun WelcomeEnglishComposition(elapsed: Float, compact: Boolean = false) {
     val tokens = LocalGlassTokens.current
-    Column(
-        modifier = modifier
-            .width(28.dp)
-            .graphicsLayer {
-                val revealProgress = progress.coerceIn(0f, 1f)
-                alpha = revealProgress
-                translationY = quoteRevealOffsetDp(
-                    progress = revealProgress,
-                    initialOffsetDp = QuoteAuthorInitialOffsetDp,
-                ).dp.toPx()
-            }
-            .clearAndSetSemantics {
-                contentDescription = "郑板桥"
-            },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .height(34.dp)
-                .background(tokens.textTertiary.copy(alpha = 0.72f)),
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        "郑板桥".forEach { character ->
-            Box(
-                modifier = Modifier
-                    .width(28.dp)
-                    .height(28.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = character.toString(),
-                    color = tokens.textSecondary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Normal,
-                )
-            }
+    Column(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = WelcomeEnglish },
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        listOf("Simplicity", "is the ultimate", "sophistication.").forEachIndexed { index, line ->
+            val progress = FastOutSlowInEasing.transform(welcomeEnglishProgress(index, elapsed))
+            Text(line, modifier = Modifier.fillMaxWidth().graphicsLayer {
+                alpha = progress
+                translationY = (14f * (1f - progress)).dp.toPx()
+            }, textAlign = TextAlign.Center, fontFamily = FontFamily.SansSerif,
+                color = if (index == 1) tokens.textSecondary else tokens.textPrimary,
+                fontWeight = FontWeight.Light,
+                letterSpacing = if (index == 1) 2.sp else .2.sp,
+                fontSize = when (index) { 0 -> if (compact) 29.sp else 40.sp; 1 -> 15.sp; else -> if (compact) 25.sp else 31.sp })
         }
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.width(30.dp).height(1.dp).graphicsLayer { alpha = welcomeEnglishProgress(2, elapsed) }
+            .background(tokens.accentPrimary.copy(alpha = .6f)))
     }
 }
 
-internal fun quoteRevealOffsetDp(progress: Float, initialOffsetDp: Float): Float =
-    (1f - progress.coerceIn(0f, 1f)) * initialOffsetDp
-
-internal fun quoteLifecycleActiveAfterEvent(
-    wasActive: Boolean,
-    event: Lifecycle.Event,
-): Boolean = when (event) {
-    Lifecycle.Event.ON_START,
-    Lifecycle.Event.ON_RESUME,
-    -> true
-
-    Lifecycle.Event.ON_PAUSE,
-    Lifecycle.Event.ON_STOP,
-    Lifecycle.Event.ON_DESTROY,
-    -> false
-
+internal fun quoteLifecycleActiveAfterEvent(wasActive: Boolean, event: Lifecycle.Event): Boolean = when (event) {
+    Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> true
+    Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP, Lifecycle.Event.ON_DESTROY -> false
     else -> wasActive
 }
 

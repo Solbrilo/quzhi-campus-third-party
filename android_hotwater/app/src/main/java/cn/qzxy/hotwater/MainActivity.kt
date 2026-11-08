@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
     private lateinit var onboardingPreferences: OnboardingPreferences
     private var onboardingRequired by mutableStateOf(false)
+    private var introductionKind by mutableStateOf(InstallationIntroduction.NONE)
     private var themePalette by mutableStateOf(ThemePalette.SKY)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var glassIntensity by mutableFloatStateOf(DEFAULT_GLASS_INTENSITY)
@@ -86,9 +87,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         updateManager = AppUpdateManager(applicationContext)
         onboardingPreferences = OnboardingPreferences(applicationContext)
-        onboardingRequired = onboardingPreferences.shouldShowForCurrentVersion(
-            skipUpgradeForRelease = BuildConfig.VERSION_CODE == RELEASE_WITHOUT_UPGRADE_WELCOME,
-        )
+        introductionKind = onboardingPreferences.introductionForCurrentVersion()
+        onboardingRequired = introductionKind != InstallationIntroduction.NONE
         glassIntensity = if (savedInstanceState?.containsKey(STATE_GLASS_INTENSITY) == true) {
             sanitizeGlassIntensity(savedInstanceState.getFloat(STATE_GLASS_INTENSITY))
         } else {
@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     updateManager = updateManager,
                     onboardingRequired = onboardingRequired,
+                    isUpgradeIntroduction = introductionKind == InstallationIntroduction.UPDATE,
                     onOnboardingCompleted = {
                         onboardingPreferences.markCurrentVersionCompleted()
                         onboardingRequired = false
@@ -293,6 +294,7 @@ class MainActivity : ComponentActivity() {
         StartupTheme.sync(this, themePalette, themeMode)
         glassIntensity = DEFAULT_GLASS_INTENSITY
         onboardingRequired = true
+        introductionKind = InstallationIntroduction.FIRST_INSTALL
         pendingOpenRequested = false
         pendingOpenAction = null
         Toast.makeText(
@@ -306,6 +308,5 @@ class MainActivity : ComponentActivity() {
         private const val STATE_PENDING_OPEN = "pending_open_after_notification_permission"
         private const val STATE_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val STATE_GLASS_INTENSITY = "glass_intensity"
-        private const val RELEASE_WITHOUT_UPGRADE_WELCOME = 30
     }
 }

@@ -72,6 +72,7 @@ fun HotWaterRoot(
     onPayWithAlipay: (Long) -> Unit,
     onRequestNotificationPermission: ((() -> Unit) -> Unit),
     onClearAllUserData: () -> Unit,
+    isUpgradeIntroduction: Boolean = false,
 ) {
     var rootScreen by rememberSaveable(onboardingRequired) {
         mutableStateOf(
@@ -79,6 +80,7 @@ fun HotWaterRoot(
         )
     }
     var pendingConfigSnCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var showUpdateFeatures by rememberSaveable(onboardingRequired) { mutableStateOf(false) }
     var onboardingScanResetKey by rememberSaveable { mutableStateOf(0) }
     val saveableStateHolder = rememberSaveableStateHolder()
     val motionEnabled = LocalGlassEnvironment.current.motionEnabled
@@ -89,7 +91,7 @@ fun HotWaterRoot(
     val onboardingScanSaving = snCodeSaveState.loading
 
     LaunchedEffect(onboardingRequired) {
-        val onOnboardingScreen = rootScreen == RootScreen.ONBOARDING_QUOTE ||
+        val onOnboardingScreen = showUpdateFeatures || rootScreen == RootScreen.ONBOARDING_QUOTE ||
             rootScreen == RootScreen.ONBOARDING_LOGIN ||
             rootScreen == RootScreen.ONBOARDING_SCANNER ||
             rootScreen == RootScreen.ONBOARDING_NEARBY ||
@@ -198,6 +200,7 @@ fun HotWaterRoot(
                     },
                     scannedSnCode = pendingConfigSnCode,
                     onScannedSnCodeConsumed = { pendingConfigSnCode = null },
+                    automaticPromptsEnabled = !showUpdateFeatures,
                 )
 
                 RootScreen.LOGIN -> LoginPage(
@@ -223,8 +226,12 @@ fun HotWaterRoot(
                 )
 
                 RootScreen.ONBOARDING_QUOTE -> OnboardingQuotePage(
+                    isUpgrade = isUpgradeIntroduction,
                     onNext = {
-                        when (resolveOnboardingResumeDestination(config)) {
+                        if (isUpgradeIntroduction) {
+                            showUpdateFeatures = true
+                            rootScreen = RootScreen.MAIN
+                        } else when (resolveOnboardingResumeDestination(config)) {
                             OnboardingResumeDestination.MAIN -> {
                                 onOnboardingCompleted()
                                 rootScreen = RootScreen.MAIN
@@ -313,4 +320,9 @@ fun HotWaterRoot(
             }
         }
     }
+    if (showUpdateFeatures) UpdateHighlightsSheet(onDismiss = {
+        onOnboardingCompleted()
+        showUpdateFeatures = false
+    })
+
 }

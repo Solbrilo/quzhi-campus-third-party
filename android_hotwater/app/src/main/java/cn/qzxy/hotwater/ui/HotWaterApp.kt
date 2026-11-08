@@ -144,6 +144,7 @@ fun HotWaterApp(
     onAddDeviceByQr: () -> Unit,
     scannedSnCode: String?,
     onScannedSnCodeConsumed: () -> Unit,
+    automaticPromptsEnabled: Boolean = true,
 ) {
     val tokens = LocalGlassTokens.current
     val environment = LocalGlassEnvironment.current
@@ -376,8 +377,8 @@ fun HotWaterApp(
         }
     }
 
-    LaunchedEffect(updateManager) {
-        checkForUpdate(false)
+    LaunchedEffect(updateManager, automaticPromptsEnabled) {
+        if (automaticPromptsEnabled) checkForUpdate(false)
     }
 
     if (showLowBalanceDialog) {
@@ -831,7 +832,7 @@ fun HotWaterApp(
                 }, emphasized = true) },
                 dismissButton = { GlassDialogAction("取消", { showLogoutDialog = false }) })
         }
-        messages.announcement?.takeIf { !showMessages && !showLogoutDialog && !showUpdateDialog && !recharge.visible && accountEditor == null }?.let { notice ->
+        messages.announcement?.takeIf { automaticPromptsEnabled && !showMessages && !showLogoutDialog && !showUpdateDialog && !recharge.visible && accountEditor == null }?.let { notice ->
             if (notice.systemNotice != null) {
                 SystemAnnouncementDialog(notice, announcementResponse, viewModel::respondToAnnouncement,
                     onDismiss = viewModel::dismissMessageAnnouncement, onDetails = {

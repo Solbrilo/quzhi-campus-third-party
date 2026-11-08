@@ -2,18 +2,20 @@ package cn.qzxy.hotwater
 
 import android.content.Context
 import java.io.File
+import android.util.AtomicFile
+
+enum class InstallationIntroduction { NONE, FIRST_INSTALL, UPDATE }
 
 class OnboardingPreferences(context: Context) {
     private val markerFile = File(context.noBackupFilesDir, MARKER_FILE_NAME)
+    private val experienceFile = AtomicFile(File(context.noBackupFilesDir, "hotwater_introduction_experience"))
 
-    fun shouldShowForCurrentVersion(skipUpgradeForRelease: Boolean = false): Boolean {
-        val completedVersionCode = completedVersionCode()
-        return OnboardingVersionGate.shouldShow(
-            completedVersionCode,
-            BuildConfig.VERSION_CODE,
-            skipUpgradeForRelease,
-        )
-    }
+    fun introductionForCurrentVersion(): InstallationIntroduction = OnboardingVersionGate.introduction(
+        completedVersionCode(), BuildConfig.VERSION_CODE,
+        runCatching { experienceFile.readFully().toString(Charsets.UTF_8) == experienceKey() }.getOrDefault(false),
+    )
+
+    private fun experienceKey() = "${BuildConfig.VERSION_CODE}:1"
 
     fun completedVersionCode(): Int? = runCatching {
         markerFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
@@ -22,12 +24,21 @@ class OnboardingPreferences(context: Context) {
     fun markCurrentVersionCompleted() {
         runCatching {
             markerFile.parentFile?.mkdirs()
+            val output = experienceFile.startWrite()
+            try {
+                output.write(experienceKey().toByteArray(Charsets.UTF_8))
+                experienceFile.finishWrite(output)
+            } catch (error: Exception) {
+                experienceFile.failWrite(output)
+                throw error
+            }
             markerFile.writeText(BuildConfig.VERSION_CODE.toString())
         }
     }
 
     fun clear() {
         runCatching { markerFile.delete() }
+        experienceFile.delete()
     }
 
     companion object {
@@ -36,14 +47,9 @@ class OnboardingPreferences(context: Context) {
 }
 
 internal object OnboardingVersionGate {
-    fun shouldShow(
-        completedVersionCode: Int?,
-        currentVersionCode: Int,
-        skipUpgradeForRelease: Boolean = false,
-    ): Boolean {
-        if (skipUpgradeForRelease && completedVersionCode != null && completedVersionCode < currentVersionCode) {
-            return false
-        }
-        return completedVersionCode != currentVersionCode
+    fun introduction(completedVersionCode: Int?, currentVersionCode: Int, currentExperienceCompleted: Boolean): InstallationIntroduction = when {
+        completedVersionCode == null -> InstallationIntroduction.FIRST_INSTALL
+        completedVersionCode != currentVersionCode || !currentExperienceCompleted -> InstallationIntroduction.UPDATE
+        else -> InstallationIntroduction.NONE
     }
 }

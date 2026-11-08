@@ -8,41 +8,21 @@ import org.junit.Test
 
 class OnboardingQuoteAnimationTest {
     @Test
-    fun quoteLineUsesShortenedRevealDuration() {
-        assertEquals(1_300, QuoteLineRevealDurationMillis)
+    fun charactersAppearFromTopToBottomBeforeEnglish() {
+        assertTrue(welcomeCharacterProgress(0, 500f) > 0f)
+        assertEquals(0f, welcomeCharacterProgress(5, 500f), 0f)
+        assertEquals(1f, welcomeCharacterProgress(5, 1900f), 0f)
+        assertEquals(0f, welcomeEnglishProgress(0, 1900f), 0f)
+        assertTrue(welcomeEnglishProgress(0, 2600f) > welcomeEnglishProgress(2, 2600f))
+        assertEquals(1f, welcomeEnglishProgress(2, 3600f), 0f)
     }
 
     @Test
-    fun quoteLineMovesUpFromItsInitialOffset() {
-        assertEquals(
-            QuoteLineInitialOffsetDp,
-            quoteRevealOffsetDp(0f, QuoteLineInitialOffsetDp),
-            0f,
-        )
-        assertEquals(
-            QuoteLineInitialOffsetDp / 2f,
-            quoteRevealOffsetDp(0.5f, QuoteLineInitialOffsetDp),
-            0f,
-        )
-        assertEquals(
-            0f,
-            quoteRevealOffsetDp(1f, QuoteLineInitialOffsetDp),
-            0f,
-        )
-    }
-
-    @Test
-    fun revealOffsetClampsProgressAtTimelineBounds() {
-        assertEquals(
-            QuoteLineInitialOffsetDp,
-            quoteRevealOffsetDp(-1f, QuoteLineInitialOffsetDp),
-            0f,
-        )
-        assertEquals(
-            0f,
-            quoteRevealOffsetDp(2f, QuoteLineInitialOffsetDp),
-            0f,
-        )
+    fun progressRemainsValidBeforeAndAfterTimeline() {
+        assertEquals(0f, welcomeCharacterProgress(0, -1f), 0f)
+        assertEquals(1f, welcomeCharacterProgress(0, 10000f), 0f)
+        assertEquals(0f, welcomeEnglishProgress(0, -1f), 0f)
+        assertEquals(1f, welcomeEnglishProgress(2, 10000f), 0f)
     }
 
     @Test

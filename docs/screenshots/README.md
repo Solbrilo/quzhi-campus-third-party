@@ -15,6 +15,9 @@
 | android-theme-preview.png | 带手机外壳的主题预览 · 潮汐浅色 |
 | android-theme-custom.png | 自定义主题与编辑入口 |
 | android-about.png | 关于应用半屏页 · 潮汐浅色 |
+| android-welcome-chinese.png | 欢迎页 · 中文逐字竖排阶段 |
+| android-welcome-english.png | 欢迎页 · 英文排版阶段 |
+| android-update-highlights.png | 更新后的半屏功能展示 · 潮汐浅色 |
 
 ## 复现
 
@@ -26,6 +29,6 @@
 adb shell am start -W -n cn.qzxy.hotwater/.DocumentationPreviewActivity --es screen home --es palette tide
 ```
 
-`screen` 支持 `home`、`bills`、`recharge`、`opensource`、`settings`、`theme`，`palette` 支持项目中的主题标识（如 `sky`、`tide`、`ember`、`mono`、`custom`）。主题页可交互选主题；设置页可进入关于应用。添加 `--ez dark true` 可拍摄深色模式。更换参数前用 `adb shell am force-stop cn.qzxy.hotwater` 关闭预览。
+`screen` 支持 `home`、`bills`、`recharge`、`opensource`、`settings`、`theme`、`welcome`、`update`，`palette` 支持项目中的主题标识（如 `sky`、`tide`、`ember`、`mono`、`custom`）。主题页可交互选主题；设置页可进入关于应用；`welcome` 展示新的中英文欢迎动画，`update` 展示升级功能半屏页。添加 `--ez dark true` 可拍摄深色模式。更换参数前用 `adb shell am force-stop cn.qzxy.hotwater` 关闭预览。
 
 使用 `adb exec-out screencap -p` 采集画面；Windows 上应通过 Python `subprocess` 写入二进制文件，避免旧版 PowerShell 的重定向改变 PNG 字节。运行示例入口不会验证真实设备控制、学校套餐或充值到账。
