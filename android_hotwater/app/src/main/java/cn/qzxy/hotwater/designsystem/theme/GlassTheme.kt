@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -111,6 +112,7 @@ private fun GlassThemeContent(
     val motionEnabled = rememberMotionEnabled()
     val custom = rememberCustomThemeSettings()
     val targetTokens = if (palette == ThemePalette.CUSTOM) custom.tokens(darkTheme) else palette.tokens(darkTheme)
+    val surfaceDark = if (palette == ThemePalette.CUSTOM && custom.image) targetTokens.meshBase.luminance() < .35f else darkTheme
     val targetGeometry = if (palette == ThemePalette.CUSTOM) ThemeGeometry(custom.corner / 24f, (custom.corner * 4).dp) else palette.geometry
     var startGeometry by remember { mutableStateOf(targetGeometry) }
     var endGeometry by remember { mutableStateOf(targetGeometry) }
@@ -143,7 +145,7 @@ private fun GlassThemeContent(
     val contentBackdrop = rememberLayerBackdrop()
     val floatingBackdrop = rememberCombinedBackdrop(backgroundBackdrop, contentBackdrop)
     val environment = remember(
-        darkTheme,
+        surfaceDark,
         hazeState,
         blurAvailable,
         motionEnabled,
@@ -151,7 +153,7 @@ private fun GlassThemeContent(
         normalizedGlassIntensity, backgroundBackdrop, contentBackdrop, floatingBackdrop, liquidAvailable,
     ) {
         GlassEnvironment(
-            darkTheme = darkTheme,
+            darkTheme = surfaceDark,
             hazeState = hazeState,
             blurAvailable = blurAvailable,
             motionEnabled = motionEnabled,
@@ -171,8 +173,8 @@ private fun GlassThemeContent(
             window.navigationBarColor = Color.TRANSPARENT
             WindowCompat.setDecorFitsSystemWindows(window, false)
             WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
+                isAppearanceLightStatusBars = !surfaceDark
+                isAppearanceLightNavigationBars = !surfaceDark
             }
         }
     }

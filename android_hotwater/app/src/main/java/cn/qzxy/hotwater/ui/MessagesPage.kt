@@ -99,11 +99,14 @@ internal fun MessagesPage(
                     if (selected.systemNotice != null) selected.contentHtml else
                         messageBodyWithoutRepeatedHeader(messagePlainText(selected.contentHtml), selected.title, selected.publishedAt)
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text(selected.title, color = tokens.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(selected.publishedAt, color = tokens.textTertiary, fontSize = 12.sp)
+                ScrollViewport(Modifier.weight(1f)) {
+                Column(Modifier.fillMaxSize().cardVerticalScroll(rememberScrollState())) {
+                    CollapsingGlassCard(header = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(selected.title, color = tokens.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text(selected.publishedAt, color = tokens.textTertiary, fontSize = 12.sp)
+                        }
+                    }) {
                         SelectionContainer {
                             Text(body.ifBlank { "此消息暂无正文。" }, color = tokens.textPrimary,
                                 fontSize = 15.sp, lineHeight = 25.sp)
@@ -111,6 +114,7 @@ internal fun MessagesPage(
                         AnnouncementOptions(selected, responseState, onRespond)
                     }
                     Spacer(Modifier.height(24.dp))
+                }
                 }
             } else {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -143,7 +147,8 @@ internal fun MessagesPage(
                 if (!state.loading && filtered.isEmpty()) {
                     Text("暂无消息", color = tokens.textSecondary)
                 }
-                LazyColumn(Modifier.weight(1f), state = listState, verticalArrangement = Arrangement.spacedBy(12.dp),
+                ScrollViewport(Modifier.weight(1f)) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)) {
                     items(filtered, key = { it.revision }) { message ->
                         val summary = remember(message) { if (message.systemNotice != null) message.summaryHtml else messagePlainText(message.summaryHtml) }
@@ -163,6 +168,7 @@ internal fun MessagesPage(
                             }
                         }
                     }
+                }
                 }
             }
         }

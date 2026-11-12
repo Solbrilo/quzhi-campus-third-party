@@ -15,7 +15,7 @@ class OnboardingPreferences(context: Context) {
         runCatching { experienceFile.readFully().toString(Charsets.UTF_8) == experienceKey() }.getOrDefault(false),
     )
 
-    private fun experienceKey() = "${BuildConfig.VERSION_CODE}:1"
+    private fun experienceKey() = "${BuildConfig.VERSION_CODE}:2"
 
     fun completedVersionCode(): Int? = runCatching {
         markerFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()

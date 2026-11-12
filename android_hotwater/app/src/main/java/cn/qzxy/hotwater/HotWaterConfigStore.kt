@@ -422,6 +422,21 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         }
     }
 
+    fun saveWidgetSnapshot(snapshot: DashboardSnapshot, expectedGeneration: Long): Boolean = synchronized(PERSISTED_STATE_LOCK) {
+        if (currentStateGeneration() != expectedGeneration) return@synchronized false
+        val balance = if (snapshot.balanceYuan == null) loadWidgetBalance() else snapshot.balanceLabel
+        prefs.edit().putLong("widget_snapshot_generation", expectedGeneration)
+            .putString("widget_balance", balance)
+            .putBoolean("widget_online", snapshot.isDeviceOnline ?: (snapshot.balanceYuan != null))
+            .putBoolean("widget_occupied", snapshot.isDeviceBusyByOther).apply()
+        true
+    }
+
+    fun loadWidgetBalance(): String = if (prefs.getLong("widget_snapshot_generation", -1) == currentStateGeneration())
+        prefs.getString("widget_balance", "--").orEmpty() else "--"
+    fun loadWidgetOnline(): Boolean = prefs.getLong("widget_snapshot_generation", -1) == currentStateGeneration() && prefs.getBoolean("widget_online", false)
+    fun loadWidgetOccupied(): Boolean = prefs.getLong("widget_snapshot_generation", -1) == currentStateGeneration() && prefs.getBoolean("widget_occupied", false)
+
     fun loadWidgetState(): WidgetState {
         return WidgetState(
             title = prefs.getString(KEY_WIDGET_TITLE, "").orEmpty(),

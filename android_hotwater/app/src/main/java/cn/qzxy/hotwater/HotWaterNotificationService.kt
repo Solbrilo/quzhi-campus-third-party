@@ -216,6 +216,10 @@ class HotWaterNotificationService : Service() {
                     stopSelf()
                     return@launch
                 }
+                result.snapshot?.let { store.saveWidgetSnapshot(it, stateGeneration) }
+                store.saveWidgetState(result.title, result.summary, false,
+                    if (result.outcome == OperationOutcome.SUCCESS) "success" else "warning",
+                    expectedStateGeneration = stateGeneration, skipIfBusy = true)
                 NotificationHelper.notifyOperation(this@HotWaterNotificationService, OperationHistory.OperationType.CLOSE, result)
                 if (result.historyId != null) {
                     HotWaterSettlementSyncScheduler.enqueue(this@HotWaterNotificationService)

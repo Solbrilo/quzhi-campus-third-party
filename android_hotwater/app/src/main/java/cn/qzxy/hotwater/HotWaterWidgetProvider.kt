@@ -19,13 +19,18 @@ open class HotWaterWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        HotWaterWidgetUi.updateAllWidgets(context, force = true)
+        HotWaterWidgetUi.updateAllWidgets(context, forceIds = appWidgetIds.toSet())
         requestStateRefresh(context)
     }
 
     override fun onEnabled(context: Context) {
-        HotWaterWidgetUi.updateAllWidgets(context, force = true)
         requestStateRefresh(context)
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        context.getSharedPreferences("hotwater_widget_presentation", Context.MODE_PRIVATE).edit().apply {
+            appWidgetIds.forEach { remove("content_$it"); remove("layout_$it"); remove("opened_$it"); remove("generation_$it") }
+        }.apply()
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -34,7 +39,7 @@ open class HotWaterWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: android.os.Bundle,
     ) {
-        HotWaterWidgetUi.updateAllWidgets(context, force = true)
+        HotWaterWidgetUi.updateAllWidgets(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -117,8 +122,12 @@ open class HotWaterWidgetProvider : AppWidgetProvider() {
         private const val WORK_TAG = "hotwater_widget"
 
         fun requestStateRefresh(context: Context) {
+            val refreshPrefs = context.getSharedPreferences("hotwater_widget_presentation", Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            if (now - refreshPrefs.getLong("last_refresh_request", 0L) in 0 until 60_000L) return
             val store = HotWaterConfigStore(context)
             if (!store.loadConfig().isComplete() || WidgetActionPolicy.isBusy(store.loadWidgetState())) return
+            refreshPrefs.edit().putLong("last_refresh_request", now).apply()
             val workRequest = OneTimeWorkRequest.Builder(HotWaterWidgetActionWorker::class.java)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setInputData(Data.Builder()

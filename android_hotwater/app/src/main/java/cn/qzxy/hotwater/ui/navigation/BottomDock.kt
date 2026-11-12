@@ -93,6 +93,7 @@ internal fun BottomDock(
     onSelected: (index: Int, source: DockSelectionSource) -> Unit,
     onDragStateChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    pagePosition: (() -> Float)? = null,
 ) {
     require(labels.size == BOTTOM_DOCK_TAB_COUNT)
     require(selectedIndex in labels.indices)
@@ -129,6 +130,9 @@ internal fun BottomDock(
     val haptic = LocalHapticFeedback.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val latestSelectedIndex by rememberUpdatedState(selectedIndex)
+    val latestPagePosition by rememberUpdatedState(pagePosition)
+    val selectTab by rememberUpdatedState(onSelected)
+    val dragStateChanged by rememberUpdatedState(onDragStateChanged)
     val scope = rememberCoroutineScope()
     var contentWidthPx by remember { mutableIntStateOf(0) }
     var isDragging by remember { mutableStateOf(false) }
@@ -264,7 +268,7 @@ internal fun BottomDock(
                             if (target.logicalIndex != lastEmittedIndex) {
                                 lastEmittedIndex = target.logicalIndex
                                 haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
-                                onSelected(target.logicalIndex, DockSelectionSource.Drag)
+                                selectTab(target.logicalIndex, DockSelectionSource.Drag)
                             }
                             regionState = BottomDockRegionState(target.logicalIndex)
 
@@ -300,7 +304,7 @@ internal fun BottomDock(
                                 }
                             }
                             isDragging = false
-                            onDragStateChanged(false)
+                            dragStateChanged(false)
                         }
 
                         try {
@@ -340,8 +344,11 @@ internal fun BottomDock(
                                     // The displayed position is magnetic space; invert the current
                                     // frame to keep the raw pointer coordinate continuous when a
                                     // settle is re-grabbed.
-                                    val displayedOffsetPx = indicatorPosition.value * tabWidthPx
-                                    dragIndicatorPosition = indicatorPosition.value
+                                    val displayedPosition = latestPagePosition?.invoke()?.let {
+                                        if (isRtl) BOTTOM_DOCK_TAB_COUNT - 1f - it else it
+                                    } ?: indicatorPosition.value
+                                    val displayedOffsetPx = displayedPosition * tabWidthPx
+                                    dragIndicatorPosition = displayedPosition
                                     startIndicatorOffsetPx = if (environment.motionEnabled) {
                                         bottomDockMagneticInverseOffset(
                                             mappedOffsetPx = displayedOffsetPx,
@@ -368,11 +375,11 @@ internal fun BottomDock(
                                     )
                                     settlingJob = scope.launch { indicatorPosition.stop() }
                                     isDragging = true
-                                    onDragStateChanged(true)
+                                    dragStateChanged(true)
                                     if (regionState.logicalIndex != lastEmittedIndex) {
                                         lastEmittedIndex = regionState.logicalIndex
                                         haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
-                                        onSelected(regionState.logicalIndex, DockSelectionSource.Drag)
+                                        selectTab(regionState.logicalIndex, DockSelectionSource.Drag)
                                     }
                                 }
 
@@ -402,7 +409,7 @@ internal fun BottomDock(
                                     if (updatedRegion.logicalIndex != lastEmittedIndex) {
                                         lastEmittedIndex = updatedRegion.logicalIndex
                                         haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
-                                        onSelected(updatedRegion.logicalIndex, DockSelectionSource.Drag)
+                                        selectTab(updatedRegion.logicalIndex, DockSelectionSource.Drag)
                                     }
                                 }
                             }
@@ -422,7 +429,7 @@ internal fun BottomDock(
                     .absoluteOffset {
                         IntOffset(
                             x = (
-                                (if (isDragging) dragIndicatorPosition else indicatorPosition.value) *
+                                (if (isDragging) dragIndicatorPosition else pagePosition?.invoke()?.let { if (isRtl) BOTTOM_DOCK_TAB_COUNT - 1f - it else it } ?: indicatorPosition.value) *
                                     tabWidthPx
                                 ).roundToInt(),
                             y = 0,
@@ -474,8 +481,8 @@ internal fun BottomDock(
                     val selected = index == selectedIndex
                     GlassPressable(
                         onClick = {
-                            if (!selected) {
-                                onSelected(index, DockSelectionSource.Click)
+                            if (!selected || pagePosition != null) {
+                                selectTab(index, DockSelectionSource.Click)
                             }
                         },
                         selected = selected,

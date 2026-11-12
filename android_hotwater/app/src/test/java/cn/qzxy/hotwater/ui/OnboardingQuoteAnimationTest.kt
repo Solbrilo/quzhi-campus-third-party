@@ -7,22 +7,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OnboardingQuoteAnimationTest {
-    @Test
-    fun charactersAppearFromTopToBottomBeforeEnglish() {
-        assertTrue(welcomeCharacterProgress(0, 500f) > 0f)
-        assertEquals(0f, welcomeCharacterProgress(5, 500f), 0f)
+    @Test fun phrasesRevealTogetherAndHapticAtEachEntrance() {
+        assertEquals(0, welcomeHapticCueCount(179f))
+        assertEquals(1, welcomeHapticCueCount(180f))
+        assertEquals(1, welcomeHapticCueCount(899f))
+        assertEquals(2, welcomeHapticCueCount(900f))
+        assertEquals(welcomeCharacterProgress(0, 500f), welcomeCharacterProgress(1, 500f), 0f)
+        assertEquals(0f, welcomeCharacterProgress(2, 500f), 0f)
+        assertEquals(welcomeCharacterProgress(2, 1200f), welcomeCharacterProgress(5, 1200f), 0f)
         assertEquals(1f, welcomeCharacterProgress(5, 1900f), 0f)
-        assertEquals(0f, welcomeEnglishProgress(0, 1900f), 0f)
-        assertTrue(welcomeEnglishProgress(0, 2600f) > welcomeEnglishProgress(2, 2600f))
-        assertEquals(1f, welcomeEnglishProgress(2, 3600f), 0f)
-    }
-
-    @Test
-    fun progressRemainsValidBeforeAndAfterTimeline() {
-        assertEquals(0f, welcomeCharacterProgress(0, -1f), 0f)
-        assertEquals(1f, welcomeCharacterProgress(0, 10000f), 0f)
-        assertEquals(0f, welcomeEnglishProgress(0, -1f), 0f)
-        assertEquals(1f, welcomeEnglishProgress(2, 10000f), 0f)
+        assertEquals(2, welcomeHapticCueCount(10000f))
     }
 
     @Test

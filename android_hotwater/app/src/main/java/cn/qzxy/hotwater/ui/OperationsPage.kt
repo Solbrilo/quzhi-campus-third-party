@@ -11,7 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -71,6 +70,7 @@ fun OperationsPage(
     onRefreshBalance: () -> Unit,
     onOpenRecharge: () -> Unit,
     onOpenNearbyDevices: () -> Unit,
+    previewAnimation: Boolean = false,
 ) {
     val tokens = LocalGlassTokens.current
 
@@ -114,7 +114,7 @@ fun OperationsPage(
                     ))
                 }
                 // 加载环（仅在 busy 时显示）
-                if (busy) {
+                if (busy || previewAnimation) {
                     LoadingRing(color = buttonColor)
                 }
 
@@ -203,13 +203,6 @@ private fun BalanceCard(
         }
 
         Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "宿舍位置：${snapshot?.locationLabel ?: "先完成配置再刷新"}",
-            color = tokens.textPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(2.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

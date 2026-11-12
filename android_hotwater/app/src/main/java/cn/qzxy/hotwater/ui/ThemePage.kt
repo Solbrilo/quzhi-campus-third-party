@@ -6,6 +6,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
+import cn.qzxy.hotwater.DashboardSnapshot
+import cn.qzxy.hotwater.ui.navigation.BottomDock
+import kotlin.math.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -25,6 +36,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,7 +61,12 @@ internal fun ThemePage(selected: ThemePalette, onSelected: (ThemePalette) -> Uni
         if (uri != null) scope.launch {
             importing = true
             runCatching { CustomThemePreferences.importImage(context, uri) }
-                .onSuccess { CustomThemePreferences.write(context, CustomThemePreferences.read(context).copy(image = true, imageRevision = System.currentTimeMillis())) }
+                .onSuccess { background ->
+                    val revision = System.currentTimeMillis()
+                    CustomThemePreferences.write(context, CustomThemePreferences.read(context).copy(image = true,
+                        imageRevision = revision, imageColorRevision = revision, background = background,
+                        positionX = 0f, positionY = 0f, zoom = 1f))
+                }
                 .onFailure { error = "无法读取这张图片，请选择其他图片" }
             importing = false
         }
@@ -61,14 +79,15 @@ internal fun ThemePage(selected: ThemePalette, onSelected: (ThemePalette) -> Uni
         animationSpec = tween(if (LocalGlassEnvironment.current.motionEnabled) 320 else 0), label = "theme_preview_size")
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Box(Modifier.weight(previewFraction).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            PhoneThemePreview(selected)
+            PhoneThemePreview(selected, editing) { update(it) }
         }
         Column(Modifier.weight(1f - previewFraction), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (editing) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("自定义主题", color = tokens.textPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 TextButton({ showCustomEditor = false }) { Text("完成", color = tokens.accentPrimary) }
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            ScrollViewport(Modifier.weight(1f)) {
+            Column(Modifier.fillMaxSize().cardVerticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 if (!editing) {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ThemePalette.entries.forEach { palette ->
@@ -85,17 +104,18 @@ internal fun ThemePage(selected: ThemePalette, onSelected: (ThemePalette) -> Uni
                     }
                 }
                 if (editing) {
-                    Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CollapsingGlassCard(header = {
+                        Text("背景与外观", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
+                    }) {
                         GlassButton(if (importing) "正在处理图片…" else "选择背景图片", { picker.launch(arrayOf("image/*")) },
                             enabled = !importing, modifier = Modifier.fillMaxWidth())
                         if (settings.image) {
                             TextButton(onClick = { update(settings.copy(image = false)) }) { Text("使用背景颜色") }
-                            ThemeSlider("水平位置", settings.positionX, -1f..1f) { update(settings.copy(positionX = it)) }
-                            ThemeSlider("垂直位置", settings.positionY, -1f..1f) { update(settings.copy(positionY = it)) }
+                            Text("在上方手机中拖动图片，双指缩放", color = tokens.textSecondary, fontSize = 13.sp)
+                            TextButton({ update(settings.copy(positionX = 0f, positionY = 0f, zoom = 1f)) }) { Text("重置构图") }
                             ThemeSlider("模糊度", settings.blur, 0f..24f) { update(settings.copy(blur = it)) }
                         }
-                        ColorEditor("背景颜色", settings.background) { update(settings.copy(background = it, image = false)) }
+                        ColorEditor(if (settings.image) "图片协调底色" else "背景颜色", settings.background) { update(settings.copy(background = it)) }
                         ColorEditor("主题色", settings.accent) { update(settings.copy(accent = it)) }
                         ThemeSlider("圆角 · ${settings.corner.roundToInt()}", settings.corner, 0f..36f) { update(settings.copy(corner = it)) }
                         Text("热水开关动画", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
@@ -108,11 +128,12 @@ internal fun ThemePage(selected: ThemePalette, onSelected: (ThemePalette) -> Uni
                                 }
                             }
                         }
-                        Text("图片仅保存在本机。拖动位置和模糊度后，预览会同步更新。", color = tokens.textTertiary, fontSize = 12.sp)
+                        Text("图片仅保存在本机。构图、模糊和颜色均实时预览。", color = tokens.textTertiary, fontSize = 12.sp)
                         error?.let { Text(it, color = tokens.accentError) }
                         Spacer(Modifier.height(12.dp))
                     }
                 }
+            }
             }
         }
     }
@@ -168,10 +189,7 @@ private fun ColorEditor(label: String, value: Long, onChange: (Long) -> Unit) {
         }
         AnimatedVisibility(expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                ColorSlider("色相", hue, 0f..360f,
-                    (0..6).map { Color.hsv(it * 60f, 1f, 1f) }) { publish(h = it) }
-                ColorSlider("饱和度", saturation, 0f..1f,
-                    listOf(Color.hsv(hue, 0f, brightness), Color.hsv(hue, 1f, brightness))) { publish(s = it) }
+                ColorWheel(hue, saturation, brightness) { h, s -> publish(h = h, s = s) }
                 ColorSlider("明度", brightness, 0f..1f,
                     listOf(Color.Black, Color.hsv(hue, saturation, 1f))) { publish(v = it) }
                 TextButton({ showHex = !showHex }) { Text(if (showHex) "收起色值" else "输入色值", color = tokens.accentPrimary) }
@@ -200,50 +218,99 @@ private fun ColorSlider(label: String, value: Float, range: ClosedFloatingPointR
 }
 
 @Composable
-private fun PhoneThemePreview(palette: ThemePalette) {
+private fun ColorWheel(hue: Float, saturation: Float, brightness: Float, onChange: (Float, Float) -> Unit) {
+    val change by rememberUpdatedState(onChange)
+    val colors = remember { (0..12).map { Color.hsv(it * 30f, 1f, 1f) } }
+    fun positionToColor(point: Offset, size: androidx.compose.ui.unit.IntSize) {
+        val delta = point - Offset(size.width / 2f, size.height / 2f)
+        val radius = min(size.width, size.height) / 2f
+        change(((atan2(delta.y, delta.x) * 180f / PI.toFloat()) + 360f) % 360f,
+            (delta.getDistance() / radius).coerceIn(0f, 1f))
+    }
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(196.dp).semantics { contentDescription = "色轮：环绕选择色相，向中心减小饱和度" }
+            .pointerInput(Unit) { detectTapGestures { positionToColor(it, size) } }
+            .pointerInput(Unit) { detectDragGestures { change, _ -> change.consume(); positionToColor(change.position, size) } }) {
+            val radius = size.minDimension / 2f
+            drawCircle(Brush.sweepGradient(colors))
+            drawCircle(Brush.radialGradient(listOf(Color.White, Color.Transparent), radius = radius))
+            val radians = hue * PI.toFloat() / 180f
+            val point = center + Offset(cos(radians), sin(radians)) * (radius * saturation)
+            drawCircle(Color.hsv(hue, saturation, brightness), 7.dp.toPx(), point)
+            drawCircle(Color.Black.copy(alpha = .3f), 9.dp.toPx(), point, style = Stroke(3.dp.toPx()))
+            drawCircle(Color.White, 8.dp.toPx(), point, style = Stroke(2.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun PhoneThemePreview(palette: ThemePalette, editing: Boolean, update: (CustomThemeSettings) -> Unit) {
     val custom = LocalCustomTheme.current
+    val latestCustom by rememberUpdatedState(custom)
+    val change by rememberUpdatedState(update)
+    val bitmap = rememberBackgroundBitmap(custom)
     val tokens = if (palette == ThemePalette.CUSTOM) custom.tokens(LocalGlassEnvironment.current.darkTheme)
         else palette.tokens(LocalGlassEnvironment.current.darkTheme)
     val geometry = if (palette == ThemePalette.CUSTOM) ThemeGeometry(custom.corner / 24f, (custom.corner * 4).dp) else palette.geometry
+    val density = LocalDensity.current
+    val window = LocalWindowInfo.current.containerSize
+    val screenWidth = with(density) { window.width.toDp() }
+    val screenHeight = with(density) { window.height.toDp() }
+    val statusHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navigationHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val shellWidth = screenWidth + 16.dp
+    val shellHeight = screenHeight + 16.dp
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        // Scale a complete virtual phone instead of squeezing its contents as controls expand.
-        val scale = minOf(maxHeight / 612.dp, maxWidth / 300.dp, 1f)
-        Box(Modifier.requiredSize(300.dp, 612.dp).graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(34.dp))
-            .background(Color(0xFF20252B)).padding(6.dp)) {
-            CompositionLocalProvider(LocalGlassTokens provides tokens, LocalThemeGeometry provides geometry, LocalThemePalette provides palette) {
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(29.dp)).background(tokens.meshBase)) {
-                    if (palette == ThemePalette.CUSTOM && custom.image) CustomThemeBackground(custom)
-                    Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.width(52.dp).height(13.dp).align(Alignment.CenterHorizontally)
-                            .background(Color(0xFF20252B), RoundedCornerShape(10.dp)))
-                        Text("● 已连接", color = tokens.accentSuccess, fontSize = 10.sp)
-                        Text("你好，校园", color = tokens.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(14.dp)) {
-                            Text("可用余额", color = tokens.textSecondary, fontSize = 10.sp)
-                            Text("¥ 28.60", color = tokens.textPrimary, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-                            Text("宿舍热水器", color = tokens.textSecondary, fontSize = 10.sp)
+        // Lay out at the actual window size first, then shrink the entire phone. This keeps
+        // every control in the same proportion as the real home screen, on any display density.
+        val scale = minOf(maxHeight / shellHeight, maxWidth / shellWidth, 1f)
+        Box(Modifier.requiredSize(shellWidth, shellHeight).graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(38.dp)).background(Color(0xFF15191E)).padding(8.dp)) {
+            CompositionLocalProvider(LocalGlassTokens provides tokens, LocalThemeGeometry provides geometry,
+                LocalThemePalette provides palette) {
+                val imageGesture = if (editing && custom.image && bitmap != null) Modifier.pointerInput(bitmap) {
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            val old = latestCustom
+                            val nextZoom = (old.zoom * zoom).coerceIn(1f, 4f)
+                            val crop = max(size.width.toFloat() / bitmap.width, size.height.toFloat() / bitmap.height)
+                            val oldX = (bitmap.width * crop * old.zoom - size.width).coerceAtLeast(0f) / 2
+                            val oldY = (bitmap.height * crop * old.zoom - size.height).coerceAtLeast(0f) / 2
+                            val newX = (bitmap.width * crop * nextZoom - size.width).coerceAtLeast(0f) / 2
+                            val newY = (bitmap.height * crop * nextZoom - size.height).coerceAtLeast(0f) / 2
+                            val ratio = nextZoom / old.zoom
+                            val focus = centroid - Offset(size.width / 2f, size.height / 2f)
+                            val tx = -old.positionX * oldX * ratio + focus.x * (1 - ratio) + pan.x
+                            val ty = -old.positionY * oldY * ratio + focus.y * (1 - ratio) + pan.y
+                            change(old.copy(zoom = nextZoom,
+                                positionX = if (newX > 0) (-tx / newX).coerceIn(-1f, 1f) else 0f,
+                                positionY = if (newY > 0) (-ty / newY).coerceIn(-1f, 1f) else 0f))
                         }
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            val anim = if (palette == ThemePalette.CUSTOM) ThemePalette.fromStorageValue(custom.animation) else palette
-                            Box(Modifier.fillMaxSize(.8f), contentAlignment = Alignment.Center) {
-                                // The same activity renderer as the real switch, scaled to the phone shell.
-                                Box(Modifier.requiredSize(288.dp).graphicsLayer { scaleX = .48f; scaleY = .48f }) {
-                                    ThemedActivityRing(anim, tokens.accentPrimary, LocalGlassEnvironment.current.motionEnabled)
-                                }
+                    } else Modifier
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(30.dp))) {
+                    GlassPageSurface {
+                        Box(Modifier.fillMaxSize()) {
+                        Column(Modifier.fillMaxSize().glassHazeSource(1f)) {
+                            Row(Modifier.fillMaxWidth().height(statusHeight.coerceAtLeast(24.dp)).padding(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("9:41", color = tokens.textPrimary, fontSize = 11.sp)
+                                Box(Modifier.size(8.dp).background(Color(0xFF15191E), RoundedCornerShape(4.dp)))
+                                Text("5G  ▰", color = tokens.textPrimary, fontSize = 10.sp)
                             }
-                            Column(Modifier.size(106.dp).glassMaterial(GlassMaterial.Control, geometry.powerCorner * .45f),
-                                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(themeWaterIcon(anim), null, Modifier.size(26.dp), tint = tokens.accentPrimary)
-                                Text("开热水", color = tokens.textPrimary, fontSize = 14.sp)
+                            AppHeader(AppConnectionStatus.CONNECTED, {}, modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp))
+                            Box(Modifier.weight(1f).padding(horizontal = 20.dp)) {
+                                OperationsPage(DashboardSnapshot(26.8, "26.80", "演示账号", "301 宿舍热水器", "",
+                                    "热水已关闭", null, false, isDeviceOnline = true), false, {}, {}, {}, {},
+                                    previewAnimation = true)
                             }
                         }
-                        Row(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Floating, 24.dp).padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly) {
-                            listOf("用水", "账单", "设置").forEachIndexed { i, label -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(themeNavigationIcon(palette, i), null, Modifier.size(15.dp), tint = if (i == 0) tokens.accentPrimary else tokens.textSecondary)
-                                Text(label, fontSize = 9.sp, color = tokens.textSecondary)
-                            } }
+                        BottomDock(listOf("用水", "账单", "设置"), 0, { _, _ -> }, {},
+                            Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp).padding(bottom = navigationHeight + 12.dp))
+                        // Preview controls never issue actions or steal the image-edit gesture.
+                        Box(Modifier.fillMaxSize().then(imageGesture).pointerInput(editing, custom.image) {
+                            if (!(editing && custom.image)) awaitPointerEventScope {
+                                while (true) awaitPointerEvent().changes.forEach { it.consume() }
+                            }
+                        })
                         }
                     }
                 }

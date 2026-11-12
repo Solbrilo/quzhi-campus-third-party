@@ -37,9 +37,9 @@ internal fun FeedbackSettingsPanel() {
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val options = remember(revision) { FeedbackOption.entries.associateWith { FeedbackPreferences.enabled(context, it) } }
-    Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 28.dp).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    CollapsingGlassCard(header = {
         Text("振动与通知", color = tokens.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    }) {
         val labels = listOf(
             Triple(FeedbackOption.HAPTICS, "振动反馈", "按钮、切换和操作结果的触感反馈"),
             Triple(FeedbackOption.OPEN_NOTIFICATION, "开水通知", "热水开启操作的结果提醒"),

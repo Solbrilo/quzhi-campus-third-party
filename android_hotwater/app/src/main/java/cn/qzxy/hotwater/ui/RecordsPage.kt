@@ -1,5 +1,7 @@
 package cn.qzxy.hotwater.ui
 
+import androidx.compose.ui.platform.testTag
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -90,7 +92,8 @@ fun RecordsPage(
     LaunchedEffect(query, accountKey, active, loggedIn, credentialsExpired) { if (active && loggedIn && !credentialsExpired) onLoad(query, false) }
     LaunchedEffect(query, grouping, accountKey) { collapsedGroupKeys = emptyList() }
 
-    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LazyColumn(Modifier.fillMaxSize().testTag("bill_list"), state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -104,7 +107,8 @@ fun RecordsPage(
             }
         }
         if (credentialsExpired || !loggedIn) {
-            item {
+            item(key = "bill_login") {
+                ScrollCardItem(listState, "bill_login") {
                 Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 24.dp).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (credentialsExpired) "登录已失效" else "登录后查看账单",
@@ -114,12 +118,15 @@ fun RecordsPage(
                     GlassButton(text = if (credentialsExpired) "重新登录" else "去登录", onClick = onLogin,
                         modifier = Modifier.fillMaxWidth())
                 }
+                }
             }
         } else {
-            item {
+            item(key = "bill_filters") {
+                ScrollCardItem(listState, "bill_filters") {
                 BillFilters(scope, { scope = it }, selectedYear, selectedMonth, now) { period ->
                     selectedYear = period.year
                     selectedMonth = period.monthValue
+                }
                 }
             }
             if (state.loading || !matchingState) {
@@ -132,7 +139,8 @@ fun RecordsPage(
                 }
             }
             if (matchingState && state.message.isNotBlank()) {
-                item {
+                item(key = "bill_sync_message") {
+                    ScrollCardItem(listState, "bill_sync_message") {
                     Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 18.dp).padding(16.dp)) {
                         Text(state.message, color = tokens.accentWarning, fontSize = 13.sp)
                         if (state.failedMonths.isNotEmpty()) Text(
@@ -140,24 +148,29 @@ fun RecordsPage(
                             color = tokens.textSecondary, fontSize = 12.sp,
                             modifier = Modifier.padding(top = 6.dp))
                     }
+                    }
                 }
             }
             if (entries.isNotEmpty()) {
-                item {
+                item(key = "bill_summary") {
+                    ScrollCardItem(listState, "bill_summary") {
                     BillSummaryCard(
                         title = if (scope == BillScope.YEAR) "${selectedYear}年度汇总" else "${selectedYear}年${selectedMonth}月汇总",
                         summary = summary,
                     )
+                    }
                 }
                 groups.forEach { group ->
                     item(key = group.key) {
+                        ScrollCardItem(listState, group.key) {
                         BillGroupSection(group, group.key in collapsedGroupKeys) {
                             collapsedGroupKeys = if (group.key in collapsedGroupKeys) collapsedGroupKeys - group.key else collapsedGroupKeys + group.key
+                        }
                         }
                     }
                 }
             } else if (matchingState && state.loaded && !state.loading) {
-                item { EmptyFilteredBillState() }
+                item(key = "bill_empty") { ScrollCardItem(listState, "bill_empty") { EmptyFilteredBillState() } }
             }
         }
         item { Spacer(Modifier.height(bottomDockClearance())) }
@@ -173,7 +186,7 @@ private fun BillFilters(
     now: YearMonth,
     onPeriodChange: (YearMonth) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 22.dp).padding(14.dp),
+    Column(Modifier.fillMaxWidth().testTag("bill_filters").glassMaterial(GlassMaterial.Panel, 22.dp).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         BillSegmentedControl(
             selectedIndex = if (scope == BillScope.MONTH) 0 else 1,
@@ -276,19 +289,9 @@ private fun BillSummaryCard(
     summary: BillSummary,
 ) {
     val tokens = LocalGlassTokens.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 18.dp)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            text = title,
-            color = tokens.textPrimary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-        )
+    CollapsingGlassCard(header = {
+        Text(title, color = tokens.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+    }) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -365,16 +368,9 @@ private fun BillGroupSection(
     val expandDuration = if (motionEnabled) 220 else 0
     val collapseDuration = if (motionEnabled) 180 else 0
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 18.dp),
-    ) {
-        BillGroupHeader(
-            group = group,
-            collapsed = collapsed,
-            onClick = onClick,
-        )
+    CollapsingGlassCard(header = {
+        BillGroupHeader(group, collapsed, onClick)
+    }) {
         AnimatedVisibility(
             visible = !collapsed,
             enter = expandVertically(

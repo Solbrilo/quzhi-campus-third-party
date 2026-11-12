@@ -7,6 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.text.format.DateFormat
 import android.widget.RemoteViews
+import android.os.Build
+import android.os.Bundle
+import android.util.SizeF
 import java.util.Date
 
 object HotWaterWidgetUi {
@@ -14,90 +17,120 @@ object HotWaterWidgetUi {
     const val ACTION_CLOSE = "cn.qzxy.hotwater.widget.CLOSE"
     const val ACTION_REFRESH = "cn.qzxy.hotwater.widget.REFRESH"
 
-    private val lastSwitchContent = mutableMapOf<Int, List<Any>>()
-
     @Synchronized
-    fun updateAllWidgets(context: Context, force: Boolean = false) {
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val sliderIds = appWidgetManager.getAppWidgetIds(ComponentName(context, HotWaterSwitchWidgetProvider::class.java)).toSet()
-        val appWidgetIds = appWidgetManager.getAppWidgetIds(ComponentName(context, HotWaterWidgetProvider::class.java)).toSet() + sliderIds
-        val statePreferences = context.getSharedPreferences("hotwater_widget_presentation", Context.MODE_PRIVATE)
+    fun updateAllWidgets(context: Context, forceIds: Set<Int> = emptySet()) {
+        val manager = AppWidgetManager.getInstance(context)
+        val sliderIds = manager.getAppWidgetIds(ComponentName(context, HotWaterSwitchWidgetProvider::class.java)).toSet()
+        val ids = manager.getAppWidgetIds(ComponentName(context, HotWaterWidgetProvider::class.java)).toSet() + sliderIds
+        val prefs = context.getSharedPreferences("hotwater_widget_presentation", Context.MODE_PRIVATE)
         val store = HotWaterConfigStore(context)
-        val opened = !store.loadOrderNo().isNullOrBlank()
-        val state = store.loadWidgetState()
-        val renderKey = listOf(store.loadStateGeneration(), opened, state,
-            WidgetActionPolicy.isBusy(state), store.loadConfig().isComplete(), store.requiresReauthentication())
-        appWidgetIds.forEach { appWidgetId ->
-            // Workers publish once on completion and again in finally. Preserve the in-flight
-            // launcher animation when those updates contain exactly the same state.
-            if (appWidgetId in sliderIds && !force && lastSwitchContent[appWidgetId] == renderKey) return@forEach
-            val key = "switch_$appWidgetId"
-            val animate = statePreferences.contains(key) && statePreferences.getBoolean(key, opened) != opened &&
-                android.provider.Settings.Global.getFloat(context.contentResolver,
-                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+        val display = displayState(context, store)
+        val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        ids.forEach { id ->
+            val force = id in forceIds
+            val options = manager.getAppWidgetOptions(id)
+            val slider = id in sliderIds
+            val sizes = widgetHostSizes(options, slider)
+            val layouts = sizes.map { widgetLayoutSize(context, it.width.toInt(), it.height.toInt()) }
+            // Both providers may be resized. A 3×1, 2×3, 3×2, 4×4, etc. all use
+            // the original information/actions layout, including the switch provider.
+            val legacy = layouts.any { it != WidgetLayoutSize.DASHBOARD }
+            val layoutKey = "$slider:$layouts:$sizes:$dark:${context.resources.displayMetrics.density}:v6"
+            val state = store.loadWidgetState()
+            val generation = store.loadStateGeneration()
+            val sameLayout = !force && prefs.getString("layout_$id", null) == layoutKey
+            val previousOpened = if (sameLayout && prefs.getLong("generation_$id", -1L) == generation && prefs.contains("opened_$id")) prefs.getBoolean("opened_$id", false) else null
+            val widgetDisplay = if (display.busy && previousOpened != null) display.copy(opened = previousOpened) else display
+            val visibleKey = listOf(generation, widgetDisplay, layoutKey,
+                if (legacy) listOf(state.title, state.message, state.tone) else "").toString()
+            val key = java.security.MessageDigest.getInstance("SHA-256").digest(visibleKey.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            if (!force && prefs.getString("content_$id", null) == key) return@forEach
+            val animation = widgetSwitchAnimation(previousOpened, widgetDisplay.opened, state.tone != "error" && !widgetDisplay.busy,
+                android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f)
+            val variants = sizes.zip(layouts).associate { (size, layout) ->
+                size to if (layout == WidgetLayoutSize.DASHBOARD) switchRemoteViews(context, id, widgetDisplay, !slider, animation)
+                    else buildRemoteViews(context, manager, id, layout, size.height.toInt())
+            }
+            val views = when {
+                variants.size == 1 -> variants.values.first()
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> RemoteViews(variants)
+                else -> RemoteViews(variants.values.last(), variants.values.first())
+            }
             runCatching {
-                appWidgetManager.updateAppWidget(appWidgetId,
-                    if (appWidgetId in sliderIds) buildSwitchRemoteViews(context, appWidgetId, animate)
-                    else buildRemoteViews(context, appWidgetManager, appWidgetId))
+                // A full RemoteViews replaces cached animation actions; the host still
+                // reapplies the same native layout. Partial merges would replay an old
+                // setDisplayedChild action on every later balance/status refresh.
+                if (layouts.all { it != WidgetLayoutSize.DASHBOARD } && sameLayout) manager.partiallyUpdateAppWidget(id, views)
+                else manager.updateAppWidget(id, views)
             }.onSuccess {
-                statePreferences.edit().putBoolean(key, opened).apply()
-                if (appWidgetId in sliderIds) lastSwitchContent[appWidgetId] = renderKey
+                prefs.edit().putString("content_$id", key).putString("layout_$id", layoutKey).putBoolean("opened_$id", widgetDisplay.opened).putLong("generation_$id", generation).apply()
             }
         }
     }
 
-    internal fun buildSwitchRemoteViews(context: Context, appWidgetId: Int, animate: Boolean = false): RemoteViews {
-        val store = HotWaterConfigStore(context)
-        val opened = !store.loadOrderNo().isNullOrBlank()
+    private fun displayState(context: Context, store: HotWaterConfigStore): WidgetDisplayState {
         val state = store.loadWidgetState()
-        val busy = WidgetActionPolicy.isBusy(state)
+        val opened = !store.loadOrderNo().isNullOrBlank()
         val ready = store.loadConfig().isComplete() && !store.requiresReauthentication()
-        val layout = when {
-            opened && animate -> R.layout.widget_hotwater_switch_on_animated
-            opened -> R.layout.widget_hotwater_switch_on
-            animate -> R.layout.widget_hotwater_switch_off_animated
-            else -> R.layout.widget_hotwater_switch_off
-        }
-        val targetId = if (opened) R.id.widget_switch_left else R.id.widget_switch_right
-        val hiddenId = if (opened) R.id.widget_switch_right else R.id.widget_switch_left
-        val action = if (opened) ACTION_CLOSE else ACTION_OPEN
-        return RemoteViews(context.packageName, layout).apply {
-            setDisplayedChild(R.id.widget_switch_slider, 0)
-            setTextViewText(R.id.widget_switch_thumb, when {
-                !ready -> "待登录"
-                !busy && (state.isBusy || state.tone == "error" || state.tone == "warning") -> "待确认"
-                opened -> "已开"
-                else -> "已关"
-            })
-            setTextViewText(hiddenId, "")
-            setTextViewText(targetId, when {
-                !ready -> "登录"
-                busy -> "处理中"
-                else -> if (opened) "关" else "开"
-            })
-            setTextViewTextSize(targetId, android.util.TypedValue.COMPLEX_UNIT_SP,
-                if (busy || !ready) 14f else 22f)
-            setTextViewTextSize(R.id.widget_switch_thumb, android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-            setContentDescription(targetId, when {
-                !ready -> "打开应用登录并绑定设备"
-                busy -> "操作处理中，请稍候"
-                else -> if (opened) "关闭热水" else "开启热水"
-            })
-            setContentDescription(R.id.widget_switch_thumb, when {
-                !ready -> "打开应用登录并绑定设备"
-                state.isBusy || state.tone == "error" || state.tone == "warning" -> "状态待确认，打开应用查看"
-                opened -> "热水已开启"
-                else -> "热水已关闭"
-            })
-            setFloat(R.id.widget_switch_track, "setAlpha", if (busy) 0.65f else 1f)
-            setInt(R.id.widget_switch_track, "setBackgroundResource", when {
-                !ready -> R.drawable.widget_switch_idle
-                opened -> R.drawable.widget_switch_close
-                else -> R.drawable.widget_switch_open
-            })
-            setOnClickPendingIntent(R.id.widget_switch_thumb, openAppPendingIntent(context))
-            setOnClickPendingIntent(targetId, if (ready) actionPendingIntent(context, appWidgetId, action,
-                widgetRequestCode(appWidgetId, action)) else openAppPendingIntent(context))
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val connected = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        return WidgetDisplayState(opened, WidgetActionPolicy.isBusy(state), ready, store.loadWidgetBalance(),
+            widgetIndicator(ready && connected && store.loadWidgetOnline() && state.tone != "error",
+                store.loadWidgetOccupied(), opened))
+    }
+
+    internal fun buildSwitchRemoteViews(context: Context, appWidgetId: Int, animate: Boolean = false): RemoteViews =
+        switchRemoteViews(context, appWidgetId, displayState(context, HotWaterConfigStore(context)), false,
+            if (animate) !HotWaterConfigStore(context).loadOrderNo().isNullOrBlank() else null)
+
+    internal fun switchRemoteViews(context: Context, id: Int, state: WidgetDisplayState,
+        dashboard: Boolean, animation: Boolean?): RemoteViews {
+        return RemoteViews(context.packageName, if (dashboard) R.layout.widget_hotwater_dashboard else R.layout.widget_hotwater_slider).apply {
+            val status = state.indicator
+            val led = when (status) {
+                DeviceIndicator.IDLE -> R.drawable.widget_led_idle
+                DeviceIndicator.OFFLINE -> R.drawable.widget_led_offline
+                DeviceIndicator.OCCUPIED -> R.drawable.widget_led_occupied
+                DeviceIndicator.USING -> R.drawable.widget_led_using
+            }
+            setContentDescription(R.id.widget_root, "${status.label}，${if (dashboard) "余额 ${state.balance} 元，" else ""}热水${if (state.opened) "已开" else "已关"}")
+            setInt(R.id.widget_switch_track, "setBackgroundResource",
+                if (state.opened) R.drawable.widget_switch_track_close else R.drawable.widget_switch_track_open)
+            setViewVisibility(R.id.widget_thumb_off, if (state.opened) android.view.View.INVISIBLE else android.view.View.VISIBLE)
+            setViewVisibility(R.id.widget_thumb_on, if (state.opened) android.view.View.VISIBLE else android.view.View.INVISIBLE)
+            listOf(R.id.widget_led_on_0, R.id.widget_led_on_1, R.id.widget_led_off_0, R.id.widget_led_off_1).forEach {
+                setImageViewResource(it, led)
+            }
+            // Toggle between identical children only on a confirmed position change. The
+            // launcher's ViewFlipper runs the translation locally without bitmap refreshes.
+            // Prepare only the hidden direction. First inflation/restoration stays static,
+            // while the next confirmed change can animate from either side.
+            setDisplayedChild(if (state.opened) R.id.widget_thumb_off else R.id.widget_thumb_on, 0)
+            if (animation != null) setDisplayedChild(if (state.opened) R.id.widget_thumb_on else R.id.widget_thumb_off, 1)
+            val actionText = if (!state.ready) "登录" else if (state.busy) "稍候" else if (state.opened) "关" else "开"
+            setTextViewText(R.id.widget_switch_left, if (state.opened) actionText else "")
+            setTextViewText(R.id.widget_switch_right, if (state.opened) "" else actionText)
+            if (dashboard) {
+                setTextViewText(R.id.widget_balance, "¥ ${state.balance}")
+                setTextViewText(R.id.widget_dashboard_status, "● ${status.label}")
+                setTextColor(R.id.widget_dashboard_status, status.color)
+                setTextViewCompoundDrawables(R.id.widget_dashboard_status, 0, 0, 0, 0)
+                setInt(R.id.widget_dashboard_status, "setBackgroundResource", when (status) {
+                    DeviceIndicator.IDLE -> R.drawable.widget_status_idle
+                    DeviceIndicator.OFFLINE -> R.drawable.widget_status_error
+                    DeviceIndicator.OCCUPIED -> R.drawable.widget_status_warning
+                    DeviceIndicator.USING -> R.drawable.widget_status_using
+                })
+            }
+            val target = if (state.opened) R.id.widget_switch_left else R.id.widget_switch_right
+            val thumb = if (state.opened) R.id.widget_switch_right else R.id.widget_switch_left
+            val action = if (state.opened) ACTION_CLOSE else ACTION_OPEN
+            setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent(context))
+            setOnClickPendingIntent(thumb, openAppPendingIntent(context))
+            setContentDescription(thumb, "${status.label}，打开应用")
+            setContentDescription(target, if (!state.ready) "登录并绑定设备" else if (state.opened) "关闭热水" else "开启热水")
+            setOnClickPendingIntent(target, if (state.ready) actionPendingIntent(context, id, action, widgetRequestCode(id, action)) else openAppPendingIntent(context))
         }
     }
 
@@ -105,9 +138,13 @@ object HotWaterWidgetUi {
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
-        layoutSize: WidgetLayoutSize = widgetLayoutSize(appWidgetManager, appWidgetId),
+        layoutSize: WidgetLayoutSize = widgetLayoutSize(context, appWidgetManager, appWidgetId),
+        availableHeightDp: Int = appWidgetManager.getAppWidgetOptions(appWidgetId)
+            .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 240),
     ): RemoteViews {
         val store = HotWaterConfigStore(context)
+        if (layoutSize == WidgetLayoutSize.DASHBOARD) return switchRemoteViews(context, appWidgetId,
+            displayState(context, store), true, null)
         val config = store.loadConfig()
         val savedState = store.loadWidgetState()
         val widgetState = if (savedState.isBusy && !WidgetActionPolicy.isBusy(savedState)) {
@@ -122,9 +159,12 @@ object HotWaterWidgetUi {
             usageSession = store.loadUsageSession(),
         )
         val layoutId = when (layoutSize) {
+            WidgetLayoutSize.DASHBOARD -> error("Dashboard is rendered above")
             WidgetLayoutSize.COMPACT -> R.layout.widget_hotwater_compact
+            WidgetLayoutSize.COMPACT_WIDE -> R.layout.widget_hotwater_compact_wide
             WidgetLayoutSize.STANDARD -> R.layout.widget_hotwater
             WidgetLayoutSize.EXPANDED -> R.layout.widget_hotwater_expanded
+            WidgetLayoutSize.TALL -> R.layout.widget_hotwater_tall
         }
         val openAppIntent = openAppPendingIntent(context)
         // Keep the action reachable: the provider debounces active work and recovers expired work.
@@ -136,7 +176,8 @@ object HotWaterWidgetUi {
             setFloat(R.id.widget_open_button, "setAlpha", if (presentation.isBusy) 0.5f else 1f)
             setFloat(R.id.widget_close_button, "setAlpha", if (presentation.isBusy) 0.5f else 1f)
             when (layoutSize) {
-                WidgetLayoutSize.COMPACT -> {
+                WidgetLayoutSize.DASHBOARD -> Unit
+                WidgetLayoutSize.COMPACT, WidgetLayoutSize.COMPACT_WIDE -> {
                     setTextViewText(R.id.widget_compact_state, presentation.status)
                     setTextViewText(R.id.widget_compact_detail, presentation.detail)
                     setInt(
@@ -158,12 +199,21 @@ object HotWaterWidgetUi {
                     )
                 }
 
-                WidgetLayoutSize.EXPANDED -> {
+                WidgetLayoutSize.EXPANDED, WidgetLayoutSize.TALL -> {
                     setTextViewText(R.id.widget_expanded_status, presentation.status)
                     setTextViewText(R.id.widget_expanded_title, presentation.title)
                     setTextViewText(R.id.widget_expanded_detail, presentation.detail)
                     setTextViewText(R.id.widget_expanded_usage, presentation.nextAction)
                     setTextViewText(R.id.widget_expanded_updated, presentation.meta)
+                    if (layoutSize == WidgetLayoutSize.TALL) {
+                        // Keep the shared upper status/lower actions arrangement on 3×2;
+                        // compact secondary copy before it can overlap the buttons.
+                        setInt(R.id.widget_expanded_title, "setMaxLines", if (availableHeightDp < 200) 1 else 2)
+                        setViewVisibility(R.id.widget_expanded_detail, if (availableHeightDp < 165) android.view.View.GONE else android.view.View.VISIBLE)
+                        val extraVisibility = if (availableHeightDp < 200) android.view.View.GONE else android.view.View.VISIBLE
+                        setViewVisibility(R.id.widget_expanded_usage, extraVisibility)
+                        setViewVisibility(R.id.widget_expanded_updated, extraVisibility)
+                    }
                     setInt(
                         R.id.widget_expanded_status_dot,
                         "setBackgroundResource",
@@ -299,23 +349,40 @@ object HotWaterWidgetUi {
     }
 
     private fun widgetLayoutSize(
+        context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
     ): WidgetLayoutSize {
         val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
         val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
         val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
-        return when {
-            minWidth >= EXPANDED_MIN_WIDTH_DP && minHeight >= EXPANDED_MIN_HEIGHT_DP -> {
-                WidgetLayoutSize.EXPANDED
-            }
+        return widgetLayoutSize(context, minWidth, minHeight)
+    }
 
-            minWidth >= STANDARD_MIN_WIDTH_DP && minHeight >= STANDARD_MIN_HEIGHT_DP -> {
-                WidgetLayoutSize.STANDARD
-            }
+    internal fun widgetLayoutSize(context: Context, minWidth: Int, minHeight: Int): WidgetLayoutSize = when {
+            usesTallWidget(minWidth.toFloat(), minHeight.toFloat()) -> WidgetLayoutSize.TALL
+            usesWideTwoRowWidget(minWidth.toFloat(), minHeight.toFloat()) -> WidgetLayoutSize.TALL
+            usesDashboardWidget(minWidth.toFloat(), minHeight.toFloat(), context.resources.configuration.smallestScreenWidthDp) -> WidgetLayoutSize.DASHBOARD
+            minWidth >= 220 && minHeight < STANDARD_MIN_HEIGHT_DP -> WidgetLayoutSize.COMPACT_WIDE
+            minHeight >= STANDARD_MIN_HEIGHT_DP -> WidgetLayoutSize.TALL
 
             else -> WidgetLayoutSize.COMPACT
         }
+
+    @Suppress("DEPRECATION")
+    internal fun widgetHostSizes(options: Bundle, slider: Boolean): List<SizeF> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val exact = options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+                ?.filter { it.width.isFinite() && it.height.isFinite() && it.width > 0 && it.height > 0 }
+                ?.distinct()?.take(16)
+            if (!exact.isNullOrEmpty()) return exact
+        }
+        val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 180).coerceAtLeast(1)
+        val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, if (slider) 64 else 180).coerceAtLeast(1)
+        val maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth).coerceAtLeast(minWidth)
+        val maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight).coerceAtLeast(minHeight)
+        // Minimum width and minimum height can describe different orientations.
+        return listOf(SizeF(minWidth.toFloat(), maxHeight.toFloat()), SizeF(maxWidth.toFloat(), minHeight.toFloat())).distinct()
     }
 
     private fun openAppPendingIntent(context: Context): PendingIntent {
@@ -398,9 +465,12 @@ object HotWaterWidgetUi {
     private const val EXPANDED_MIN_HEIGHT_DP = 180
 
     internal enum class WidgetLayoutSize {
+        DASHBOARD,
         COMPACT,
+        COMPACT_WIDE,
         STANDARD,
         EXPANDED,
+        TALL,
     }
 
     private data class WidgetPresentation(

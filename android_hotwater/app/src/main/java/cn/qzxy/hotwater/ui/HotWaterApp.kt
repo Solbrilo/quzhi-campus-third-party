@@ -19,8 +19,10 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import cn.qzxy.hotwater.designsystem.theme.GlassPageSurface
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
@@ -68,7 +70,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -79,7 +80,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -108,8 +108,7 @@ import cn.qzxy.hotwater.designsystem.theme.ThemeMode
 import cn.qzxy.hotwater.designsystem.theme.glassHazeSource
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import cn.qzxy.hotwater.ui.navigation.BottomDock
-import cn.qzxy.hotwater.ui.navigation.DockSelectionSource
-import cn.qzxy.hotwater.ui.navigation.bottomDockSwipeTarget
+import cn.qzxy.hotwater.ui.navigation.rememberMainTabNavigation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -148,13 +147,13 @@ fun HotWaterApp(
 ) {
     val tokens = LocalGlassTokens.current
     val environment = LocalGlassEnvironment.current
-    val layoutDirection = LocalLayoutDirection.current
-    var currentScreen by rememberSaveable { mutableStateOf(AppScreen.OPERATIONS) }
     // A config page can be kept in the saveable state holder while another tab
     // is visible. Bump this key when all data is cleared so stale form values
     // cannot be restored when the config page is opened again.
     var configStateGeneration by rememberSaveable { mutableStateOf(0) }
-    var dockDragging by remember { mutableStateOf(false) }
+    val mainPager = rememberPagerState { AppScreen.entries.size }
+    val tabNavigation = rememberMainTabNavigation(mainPager)
+    val currentScreen = AppScreen.entries[mainPager.settledPage]
     var moreDestination by rememberSaveable { mutableStateOf<MorePageDestination?>(null) }
     var renderedMoreDestination by rememberSaveable {
         mutableStateOf(MorePageDestination.OVERVIEW)
@@ -193,7 +192,7 @@ fun HotWaterApp(
     LaunchedEffect(openConfigRequest) {
         if (openConfigRequest > 0) {
             configRequestPending = true
-            currentScreen = AppScreen.SETTINGS
+            tabNavigation.select(AppScreen.SETTINGS.tabIndex, animated = false)
             showConfig = true
             configRequestPending = false
         }
@@ -252,7 +251,7 @@ fun HotWaterApp(
     }
     val connectionStatus = resolveAppConnectionStatus(
         networkValidated = networkValidated,
-        serverReachable = serverReachable,
+        serverReachable = serverReachable && snapshot?.isDeviceOnline != false,
         deviceBusyByOther = snapshot?.isDeviceBusyByOther == true,
         usingHotWater = snapshot?.hasCachedOrder == true && snapshot?.usageStartedAtMillis != null,
     )
@@ -269,8 +268,7 @@ fun HotWaterApp(
     BackHandler(
         enabled = moreDestination == null && !showConfig && !showMessages && currentScreen != AppScreen.OPERATIONS,
     ) {
-        dockDragging = false
-        currentScreen = AppScreen.OPERATIONS
+        tabNavigation.select(AppScreen.OPERATIONS.tabIndex, motionEnabled)
     }
 
     BackHandler(enabled = showConfig && !showMessages) { showConfig = false }
@@ -533,65 +531,16 @@ fun HotWaterApp(
                     .padding(start = 20.dp, top = 18.dp, end = 20.dp),
             )
 
-            AnimatedContent(
-                targetState = currentScreen,
-                modifier = Modifier
-                .weight(1f)
-                .pointerInput(currentScreen, layoutDirection, showConfig, showMessages, moreDestination) {
-                    if (showConfig || showMessages || moreDestination != null) return@pointerInput
-                    var horizontalDistance = 0f
-                    val thresholdPx = 64.dp.toPx()
-                    detectHorizontalDragGestures(
-                        onDragStart = { horizontalDistance = 0f },
-                        onHorizontalDrag = { _, amount -> horizontalDistance += amount },
-                        onDragEnd = {
-                            bottomDockSwipeTarget(
-                                currentIndex = currentScreen.tabIndex,
-                                dragDistancePx = horizontalDistance,
-                                thresholdPx = thresholdPx,
-                                isRtl = layoutDirection == LayoutDirection.Rtl,
-                            )?.let { targetIndex ->
-                                currentScreen = AppScreen.entries[targetIndex]
-                                haptic.performGlassHapticFeedback(HapticFeedbackType.SegmentTick)
-                            }
-                        },
-                        onDragCancel = { horizontalDistance = 0f },
-                    )
-                }
-                .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
-                    )
-                    .padding(start = 20.dp, top = 18.dp, end = 20.dp),
-                transitionSpec = {
-                    val logicalDirection = if (targetState.tabIndex > initialState.tabIndex) 1 else -1
-                    val direction = if (layoutDirection == LayoutDirection.Rtl) {
-                        -logicalDirection
-                    } else {
-                        logicalDirection
-                    }
-                    if (dockDragging) {
-                        fadeIn(tween(90)) togetherWith fadeOut(tween(90))
-                    } else if (motionEnabled) {
-                        slideInHorizontally(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = 400f,
-                            ),
-                            initialOffsetX = { it * direction / 6 },
-                        ) + fadeIn(tween(140)) togetherWith
-                            slideOutHorizontally(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = 400f,
-                                ),
-                                targetOffsetX = { -it * direction / 6 },
-                            ) + fadeOut(tween(140))
-                    } else {
-                        fadeIn(tween(90)) togetherWith fadeOut(tween(70))
-                    }
-                },
-                label = "screen_transition",
-            ) { screen ->
+            HorizontalPager(state = mainPager,
+                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(mainPager,
+                    pagerSnapDistance = androidx.compose.foundation.pager.PagerSnapDistance.atMost(2)),
+                userScrollEnabled = !showConfig && !showMessages && moreDestination == null,
+                beyondViewportPageCount = 1,
+                modifier = Modifier.weight(1f).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(top = 18.dp),
+            ) { index ->
+                val screen = AppScreen.entries[index]
+                ScrollViewport(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                 val stateKey = if (screen == AppScreen.SETTINGS) {
                     "${screen.name}:$configStateGeneration"
                 } else {
@@ -656,7 +605,7 @@ fun HotWaterApp(
                                 onClearAllUserData()
                             },
                             onOpenExternal = { url -> runCatching { uriHandler.openUri(url) } },
-                            onBack = { currentScreen = AppScreen.OPERATIONS },
+                            onBack = { tabNavigation.select(AppScreen.OPERATIONS.tabIndex, motionEnabled) },
                             embedded = true,
                             loggedIn = config.hasAccount() && !credentialsExpired,
                             accountBusy = busy,
@@ -671,17 +620,13 @@ fun HotWaterApp(
             }
         }
 
+        }
         BottomDock(
             labels = listOf("用水", "账单", "设置"),
-            selectedIndex = currentScreen.tabIndex,
-            onSelected = { index, source ->
-                val nextScreen = AppScreen.entries[index]
-                if (nextScreen != currentScreen) {
-                    dockDragging = source == DockSelectionSource.Drag
-                    currentScreen = nextScreen
-                }
-            },
-            onDragStateChanged = { dockDragging = it },
+            selectedIndex = mainPager.currentPage,
+            pagePosition = { mainPager.currentPage + mainPager.currentPageOffsetFraction },
+            onSelected = { index, _ -> tabNavigation.select(index, motionEnabled) },
+            onDragStateChanged = {},
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(
@@ -737,6 +682,7 @@ fun HotWaterApp(
             label = "more_page_visibility",
         ) {
             val destination = moreDestination ?: renderedMoreDestination
+            GlassPageSurface(solidBackground = destination == MorePageDestination.THEME) {
             MorePage(
                 destination = destination,
                 motionEnabled = motionEnabled,
@@ -781,15 +727,16 @@ fun HotWaterApp(
                 onBack = { moreDestination = null },
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(tokens.meshBase)
-                    .glassHazeSource(zIndex = 3f)
+
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(horizontal = 20.dp, vertical = 18.dp),
             )
         }
+        }
         AnimatedVisibility(visible = showConfig, enter = subpageEnter(motionEnabled),
             exit = subpageExit(motionEnabled), label = "config_page_visibility") {
-            Column(Modifier.fillMaxSize().background(tokens.meshBase)
+            GlassPageSurface {
+            Column(Modifier.fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 SubpageHeader("配置", onBack = { showConfig = false })
@@ -801,12 +748,14 @@ fun HotWaterApp(
                 }
             }
         }
+        }
         AnimatedVisibility(
             visible = showMessages,
             enter = subpageEnter(motionEnabled),
             exit = subpageExit(motionEnabled),
             label = "messages_page_visibility",
         ) {
+            GlassPageSurface(solidBackground = true) {
             MessagesPage(state = messages, selectedRevision = selectedMessageRevision,
                 responseState = announcementResponse, onRespond = viewModel::respondToAnnouncement,
                 onMarkAllRead = viewModel::markAllMessagesRead,
@@ -815,8 +764,9 @@ fun HotWaterApp(
                 onBack = {
                     if (selectedMessageRevision != null) selectedMessageRevision = null else showMessages = false
                 },
-                modifier = Modifier.fillMaxSize().background(tokens.meshBase)
+                modifier = Modifier.fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp))
+        }
         }
         if (showLogoutDialog) {
             AlertDialog(onDismissRequest = { showLogoutDialog = false },
@@ -998,25 +948,22 @@ internal fun AppHeader(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGlassTokens.current
-    val connectionStatusColor = when (connectionStatus) {
-        AppConnectionStatus.OFFLINE -> tokens.accentError
-        AppConnectionStatus.CONNECTED, AppConnectionStatus.USING -> tokens.accentSuccess
-        AppConnectionStatus.DEVICE_BUSY -> tokens.accentWarning
-    }
+    val connectionStatusColor = connectionStatus.indicatorColor()
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "趣智校园热水",
+                text = currentTimeGreeting(),
                 color = tokens.textPrimary,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(6.dp))
             Row(
-                modifier = Modifier.semantics(mergeDescendants = true) {
+                modifier = Modifier.background(connectionStatusColor.copy(alpha = .13f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 5.dp).semantics(mergeDescendants = true) {
                     contentDescription = connectionStatus.label
                     stateDescription = connectionStatus.accessibilityDescription
                 },

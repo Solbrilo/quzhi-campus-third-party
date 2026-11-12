@@ -6,13 +6,19 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
+import android.os.Build
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
@@ -31,15 +37,19 @@ data class CustomThemeSettings(
     val imageRevision: Long = 0,
     val positionX: Float = 0f,
     val positionY: Float = 0f,
+    val zoom: Float = 1f,
+    val imageColorRevision: Long = -1,
     val blur: Float = 0f,
     val animation: String = "tide",
 ) {
     fun tokens(dark: Boolean): GlassTokens {
-        val bg = if (dark) lerp(Color(background), Color.Black, .78f) else Color(background)
-        val chosen = Color(accent)
+        val bg = if (image) {
+            if (dark) lerp(Color(background), Color.Black, .18f) else Color(background)
+        } else if (dark) lerp(Color(background), Color.Black, .78f) else Color(background)
+        val chosen = if (image && bg.luminance() < .35f) lerp(Color(accent), Color.White, .25f) else Color(accent)
         val ink = if (bg.luminance() < .35f) Color(0xFFF4F6FA) else Color(0xFF17212C)
         val panel = lerp(bg, ink, .045f)
-        return ThemePalette.SKY.tokens(dark).copy(
+        return ThemePalette.SKY.tokens(dark || (image && bg.luminance() < .35f)).copy(
             meshBase = bg, backgroundStart = bg, backgroundMiddle = bg, backgroundEnd = bg,
             panelSurface = panel.copy(alpha = if (image) .86f else .8f),
             fallbackSurface = panel, floatingSurface = panel.copy(alpha = .94f),
@@ -68,6 +78,8 @@ object CustomThemePreferences {
             image = j.optBoolean("image"), imageRevision = j.optLong("revision"),
             positionX = j.optDouble("x", 0.0).toFloat().coerceIn(-1f, 1f),
             positionY = j.optDouble("y", 0.0).toFloat().coerceIn(-1f, 1f),
+            zoom = j.optDouble("zoom", 1.0).toFloat().coerceIn(1f, 4f),
+            imageColorRevision = j.optLong("colorRevision", -1),
             blur = j.optDouble("blur", 0.0).toFloat().coerceIn(0f, 24f),
             animation = j.optString("animation", "tide").takeIf { it in listOf("sky", "tide", "ember", "mono") } ?: "tide",
         )
@@ -77,6 +89,7 @@ object CustomThemePreferences {
         prefs(context).edit().putString(KEY, JSONObject().put("background", s.background)
             .put("accent", s.accent).put("corner", s.corner).put("image", s.image)
             .put("revision", s.imageRevision).put("x", s.positionX).put("y", s.positionY)
+            .put("zoom", s.zoom).put("colorRevision", s.imageColorRevision)
             .put("blur", s.blur).put("animation", s.animation).toString()).apply()
     }
     fun imageFile(context: Context) = File(context.noBackupFilesDir, "custom_theme_background.jpg")
@@ -95,6 +108,7 @@ object CustomThemePreferences {
         try {
             temp.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)) }
             check(temp.renameTo(imageFile(context))) { "保存图片失败" }
+            extractImageBackground(bitmap)
         } finally { bitmap.recycle(); temp.delete() }
     }
 }
@@ -111,35 +125,101 @@ fun rememberCustomThemeSettings(): CustomThemeSettings {
         preferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    LaunchedEffect(settings.image, settings.imageRevision) {
+        if (settings.image && settings.imageColorRevision != settings.imageRevision) {
+            val revision = settings.imageRevision
+            val background = withContext(Dispatchers.IO) {
+                BitmapFactory.decodeFile(CustomThemePreferences.imageFile(context).absolutePath)?.let {
+                    try { extractImageBackground(it) } finally { it.recycle() }
+                }
+            }
+            val latest = CustomThemePreferences.read(context)
+            if (background != null && latest.image && latest.imageRevision == revision && latest.imageColorRevision != revision) {
+                CustomThemePreferences.write(context, latest.copy(background = background, imageColorRevision = revision))
+            }
+        }
+    }
     return settings
+}
+
+/** A small, deterministic sample avoids a network dependency or large palette allocation. */
+internal fun extractImageBackground(bitmap: Bitmap): Long {
+    val swatches = mutableMapOf<Int, DoubleArray>()
+    for (y in 0 until bitmap.height step max(1, bitmap.height / 48)) {
+        for (x in 0 until bitmap.width step max(1, bitmap.width / 48)) {
+            val c = bitmap.getPixel(x, y)
+            val r = c shr 16 and 255; val g = c shr 8 and 255; val b = c and 255
+            val key = (r / 32 shl 6) or (g / 32 shl 3) or (b / 32)
+            val bin = swatches.getOrPut(key) { DoubleArray(4) }
+            bin[0]++; bin[1] += r; bin[2] += g; bin[3] += b
+        }
+    }
+    val dominant = swatches.values.maxByOrNull { it[0] } ?: return 0xFF18232D
+    val hsv = FloatArray(3)
+    android.graphics.Color.RGBToHSV((dominant[1] / dominant[0]).toInt(),
+        (dominant[2] / dominant[0]).toInt(), (dominant[3] / dominant[0]).toInt(), hsv)
+    hsv[1] = hsv[1].coerceAtMost(.42f)
+    hsv[2] = hsv[2].coerceIn(.10f, .92f)
+    return android.graphics.Color.HSVToColor(hsv).toLong() and 0xFFFFFFFF
+}
+
+@Composable
+internal fun rememberBackgroundBitmap(settings: CustomThemeSettings): androidx.compose.ui.graphics.ImageBitmap? {
+    val context = LocalContext.current
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, settings.imageRevision, settings.image) {
+        value = if (!settings.image) null else withContext(Dispatchers.IO) {
+            runCatching {
+                BitmapFactory.decodeFile(CustomThemePreferences.imageFile(context).absolutePath)?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    return bitmap
 }
 
 @Composable
 internal fun CustomThemeBackground(settings: CustomThemeSettings, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, settings.imageRevision, settings.blur, settings.image) {
-        if (settings.blur > 0) kotlinx.coroutines.delay(100)
-        value = if (!settings.image) null else withContext(Dispatchers.IO) {
-            runCatching {
-                val original = BitmapFactory.decodeFile(CustomThemePreferences.imageFile(context).absolutePath,
-                    BitmapFactory.Options().apply { inMutable = true })
-                    ?: return@runCatching null
-                // A software blur also works on Android 8–11. Decode and filter only off the UI thread.
-                val scale = (720f / max(original.width, original.height)).coerceAtMost(1f)
-                val small = Bitmap.createScaledBitmap(original, (original.width * scale).toInt().coerceAtLeast(1),
-                    (original.height * scale).toInt().coerceAtLeast(1), true)
-                if (small !== original) original.recycle()
-                val radius = (settings.blur * scale).toInt()
-                if (radius > 0) blurBitmap(small, radius)
-                small.asImageBitmap()
-            }.getOrNull()
+    val bitmap = rememberBackgroundBitmap(settings)
+    // Android 12+ changes RenderEffect every frame; older devices interpolate cached blur levels.
+    val levels by produceState<List<androidx.compose.ui.graphics.ImageBitmap>>(emptyList(), bitmap) {
+        value = emptyList()
+        if (Build.VERSION.SDK_INT < 31 && bitmap != null) withContext(Dispatchers.Default) {
+            val source = bitmap.asAndroidBitmap()
+            val scale = (420f / max(source.width, source.height)).coerceAtMost(1f)
+            val base = Bitmap.createScaledBitmap(source, (source.width * scale).toInt().coerceAtLeast(1),
+                (source.height * scale).toInt().coerceAtLeast(1), true)
+            val result = (1..12).map { level ->
+                base.copy(Bitmap.Config.ARGB_8888, true).also { blurBitmap(it, (level * 2 * scale).toInt().coerceAtLeast(1)) }.asImageBitmap()
+            }
+            if (base !== source) base.recycle()
+            value = listOf(bitmap) + result
         }
     }
-    Box(modifier.fillMaxSize()) {
-        bitmap?.let {
-            Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
-                alignment = androidx.compose.ui.BiasAlignment(settings.positionX, settings.positionY))
-            Box(Modifier.fillMaxSize().background(LocalGlassTokens.current.meshBase.copy(alpha = .22f)))
+    Box(modifier.fillMaxSize().clipToBounds()) {
+        bitmap?.let { original ->
+            val effect = Modifier.fillMaxSize().graphicsLayer {
+                if (Build.VERSION.SDK_INT >= 31 && settings.blur > 0f) {
+                    renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                        settings.blur * density, settings.blur * density, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                }
+            }
+            val amount = settings.blur / 2
+            val low = amount.toInt().coerceIn(0, 12)
+            androidx.compose.foundation.Canvas(effect) {
+                val crop = max(size.width / original.width, size.height / original.height) * settings.zoom
+                val width = original.width * crop
+                val height = original.height * crop
+                val left = (size.width - width) / 2 * (1 + settings.positionX)
+                val top = (size.height - height) / 2 * (1 + settings.positionY)
+                fun image(layer: androidx.compose.ui.graphics.ImageBitmap, alpha: Float = 1f) {
+                    drawImage(layer, dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()),
+                        dstSize = androidx.compose.ui.unit.IntSize(width.toInt().coerceAtLeast(1), height.toInt().coerceAtLeast(1)), alpha = alpha)
+                }
+                if (Build.VERSION.SDK_INT >= 31 || levels.isEmpty()) image(original)
+                else {
+                    image(levels[low])
+                    if (low < 12) image(levels[low + 1], amount - low)
+                }
+            }
         }
     }
 }

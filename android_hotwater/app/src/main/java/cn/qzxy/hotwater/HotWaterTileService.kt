@@ -103,6 +103,10 @@ class HotWaterTileService : TileService() {
                     expectedStateGeneration = stateGeneration,
                 )
                 if (store.loadStateGeneration() != stateGeneration) return@launch
+                result.snapshot?.let { store.saveWidgetSnapshot(it, stateGeneration) }
+                store.saveWidgetState(result.title, result.summary, false,
+                    if (result.outcome == OperationOutcome.SUCCESS) "success" else "warning",
+                    expectedStateGeneration = stateGeneration, skipIfBusy = true)
                 NotificationHelper.notifyOperation(applicationContext,
                     if (shouldClose) OperationHistory.OperationType.CLOSE else OperationHistory.OperationType.OPEN, result)
                 if (shouldClose && result.historyId != null) {

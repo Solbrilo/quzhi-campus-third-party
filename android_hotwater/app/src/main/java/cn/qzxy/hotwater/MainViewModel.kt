@@ -117,6 +117,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Account-only query: recharge also works before a heater is bound and while it is busy.
             val snapshot = _snapshot.value ?: buildPlaceholderSnapshot(store.loadConfig())
             _snapshot.value = snapshot.copy(balanceYuan = balance, balanceLabel = "%.2f".format(java.util.Locale.CHINA, balance))
+            _snapshot.value?.let { store.saveWidgetSnapshot(it, store.loadStateGeneration()) }
+            HotWaterWidgetUi.updateAllWidgets(getApplication())
         },
     )
     val rechargeState = rechargeController.state
@@ -1091,8 +1093,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     showCredentialExpiryPrompt(force = true)
                     return@launch
                 }
+                _snapshot.value?.let { store.saveWidgetSnapshot(it.copy(isDeviceOnline = false), store.loadStateGeneration()) }
+                HotWaterWidgetUi.updateAllWidgets(getApplication())
                 if (recordHistory) {
-                    _snapshot.value = buildPlaceholderSnapshot(preparedConfig)
+                    _snapshot.value = buildPlaceholderSnapshot(preparedConfig).copy(isDeviceOnline = false)
                 }
                 val message = HotWaterUiText.summarizeError(error)
                 if (recordHistory) {
@@ -1224,6 +1228,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun syncWidgetStatus(title: String, summary: String) {
+        _snapshot.value?.let { store.saveWidgetSnapshot(it, store.loadStateGeneration()) }
         store.saveWidgetState(
             title = title,
             message = HotWaterUiText.firstMeaningfulLine(summary).ifBlank { "请求已执行。" },

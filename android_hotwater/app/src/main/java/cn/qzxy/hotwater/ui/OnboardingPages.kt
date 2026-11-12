@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontFamily
@@ -26,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import cn.qzxy.hotwater.designsystem.component.GlassButton
+import cn.qzxy.hotwater.designsystem.motion.performGlassHapticFeedback
 import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassEnvironment
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
@@ -33,19 +36,22 @@ import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 
 internal const val WelcomeChinese = "至繁归于至简"
 internal const val WelcomeEnglish = "Simplicity is the ultimate sophistication."
-private const val WelcomeDurationMillis = 3_600
-internal const val WelcomeEnglishStartMillis = 2_300
-
+private const val WelcomeDurationMillis = 1_900
+private const val WelcomeSecondPhraseMillis = 900
 internal fun welcomeCharacterProgress(index: Int, elapsed: Float): Float =
-    ((elapsed - 180f - index * 190f) / 430f).coerceIn(0f, 1f)
+    ((elapsed - if (index < 2) 180f else WelcomeSecondPhraseMillis.toFloat()) / 650f).coerceIn(0f, 1f)
 
-internal fun welcomeEnglishProgress(index: Int, elapsed: Float): Float =
-    ((elapsed - WelcomeEnglishStartMillis - index * 190f) / 620f).coerceIn(0f, 1f)
+internal fun welcomeHapticCueCount(elapsed: Float): Int = when {
+    elapsed < 180f -> 0
+    elapsed < WelcomeSecondPhraseMillis -> 1
+    else -> 2
+}
 
 @Composable
 fun OnboardingQuotePage(onNext: () -> Unit, isUpgrade: Boolean = false) {
     val tokens = LocalGlassTokens.current
     val motionEnabled = LocalGlassEnvironment.current.motionEnabled
+    val haptic by rememberUpdatedState(LocalHapticFeedback.current)
     val lifecycleOwner = LocalLifecycleOwner.current
     var pageActive by remember { mutableStateOf(true) }
     var lifecycleActive by remember(lifecycleOwner) {
@@ -62,8 +68,20 @@ fun OnboardingQuotePage(onNext: () -> Unit, isUpgrade: Boolean = false) {
     LaunchedEffect(motionEnabled, pageActive, lifecycleActive) {
         if (!pageActive) return@LaunchedEffect
         timeline.snapTo(0f)
-        if (motionEnabled && lifecycleActive) timeline.animateTo(WelcomeDurationMillis.toFloat(),
-            tween(WelcomeDurationMillis, easing = LinearEasing))
+        if (motionEnabled && lifecycleActive) {
+            var deliveredCueCount = 0
+            timeline.animateTo(WelcomeDurationMillis.toFloat(),
+                tween(WelcomeDurationMillis, easing = LinearEasing)) {
+                val dueCount = welcomeHapticCueCount(value)
+                if (dueCount > deliveredCueCount) {
+                    // Follow rendered frames; a delayed frame must not trigger a burst of vibrations.
+                    deliveredCueCount = dueCount
+                    if (pageActive && lifecycleActive) haptic.performGlassHapticFeedback(
+                        if (dueCount == 1) HapticFeedbackType.Confirm else HapticFeedbackType.SegmentTick,
+                    )
+                }
+            }
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
@@ -74,19 +92,7 @@ fun OnboardingQuotePage(onNext: () -> Unit, isUpgrade: Boolean = false) {
         Box(Modifier.align(Alignment.Center).fillMaxWidth().graphicsLayer {
             scaleX = availableScale; scaleY = availableScale
         }, contentAlignment = Alignment.Center) {
-            if (!motionEnabled) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    WelcomeChineseColumn(0f, static = true, compact = true)
-                    Spacer(Modifier.height(28.dp))
-                    WelcomeEnglishComposition(WelcomeDurationMillis.toFloat(), compact = true)
-                }
-            } else {
-                val chineseOpacity = 1f - ((timeline.value - 1_950f) / 300f).coerceIn(0f, 1f)
-                if (chineseOpacity > 0f) Box(Modifier.graphicsLayer { alpha = chineseOpacity }) {
-                    WelcomeChineseColumn(timeline.value)
-                }
-                if (timeline.value >= WelcomeEnglishStartMillis) WelcomeEnglishComposition(timeline.value)
-            }
+            WelcomeChineseColumn(timeline.value, static = !motionEnabled)
         }
         GlassButton(text = if (isUpgrade) "看看新变化" else "快速开始",
             onClick = { pageActive = false; onNext() }, singleLineText = true,
@@ -111,28 +117,6 @@ private fun WelcomeChineseColumn(elapsed: Float, static: Boolean = false, compac
                     fontWeight = FontWeight.Light)
             }
         }
-    }
-}
-
-@Composable
-private fun WelcomeEnglishComposition(elapsed: Float, compact: Boolean = false) {
-    val tokens = LocalGlassTokens.current
-    Column(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = WelcomeEnglish },
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        listOf("Simplicity", "is the ultimate", "sophistication.").forEachIndexed { index, line ->
-            val progress = FastOutSlowInEasing.transform(welcomeEnglishProgress(index, elapsed))
-            Text(line, modifier = Modifier.fillMaxWidth().graphicsLayer {
-                alpha = progress
-                translationY = (14f * (1f - progress)).dp.toPx()
-            }, textAlign = TextAlign.Center, fontFamily = FontFamily.SansSerif,
-                color = if (index == 1) tokens.textSecondary else tokens.textPrimary,
-                fontWeight = FontWeight.Light,
-                letterSpacing = if (index == 1) 2.sp else .2.sp,
-                fontSize = when (index) { 0 -> if (compact) 29.sp else 40.sp; 1 -> 15.sp; else -> if (compact) 25.sp else 31.sp })
-        }
-        Spacer(Modifier.height(12.dp))
-        Box(Modifier.width(30.dp).height(1.dp).graphicsLayer { alpha = welcomeEnglishProgress(2, elapsed) }
-            .background(tokens.accentPrimary.copy(alpha = .6f)))
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import cn.qzxy.hotwater.ui.roundedScrollEdge
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
@@ -154,7 +155,7 @@ fun Modifier.glassMaterial(
         )
     }
 
-    return this
+    return (if (material == GlassMaterial.Panel) this.roundedScrollEdge(LocalThemeGeometry.current.corner(cornerRadius)) else this)
         .then(
             if (resolved.elevation > 0.dp) {
                 Modifier.shadow(

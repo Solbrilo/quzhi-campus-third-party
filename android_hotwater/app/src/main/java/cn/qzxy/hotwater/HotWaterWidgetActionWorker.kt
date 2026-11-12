@@ -111,6 +111,7 @@ class HotWaterWidgetActionWorker(
                     else -> OperationHistory.OperationType.REFRESH
                 }
                 NotificationHelper.notifyOperation(applicationContext, notificationType, result)
+                result.snapshot?.let { store.saveWidgetSnapshot(it, stateGeneration) }
                 val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
                     title = if (deviceBusyByOther) {
@@ -147,9 +148,10 @@ class HotWaterWidgetActionWorker(
             }
             Result.success()
         } catch (timeout: TimeoutCancellationException) {
-            if (!background) store.saveWidgetState(
-                "等待确认", "操作确认超时，请刷新查看热水器状态。", false, "warning",
-                expectedStateGeneration = stateGeneration, expectedRequestId = requestId,
+            store.saveWidgetState(
+                "等待确认", "操作确认超时，请刷新查看热水器状态。", false, "error",
+                expectedStateGeneration = stateGeneration,
+                expectedRequestId = if (background) null else requestId, skipIfBusy = background,
             )
             Result.failure()
         } catch (cancelled: CancellationException) {
@@ -163,7 +165,7 @@ class HotWaterWidgetActionWorker(
             }
             Result.failure()
         } catch (error: Exception) {
-            if (!background) store.saveWidgetState(
+            store.saveWidgetState(
                 title = when (action) {
                     WidgetHotWaterAction.OPEN -> "开热水失败"
                     WidgetHotWaterAction.CLOSE -> "关热水失败"
@@ -173,7 +175,7 @@ class HotWaterWidgetActionWorker(
                 isBusy = false,
                 tone = "error",
                 expectedStateGeneration = stateGeneration,
-                expectedRequestId = requestId,
+                expectedRequestId = if (background) null else requestId, skipIfBusy = background,
             )
             HotWaterWidgetUi.updateAllWidgets(applicationContext)
             Result.failure(workDataOf(KEY_ERROR to (error.message ?: "Widget action failed")))

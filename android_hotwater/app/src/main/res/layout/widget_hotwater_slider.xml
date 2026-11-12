@@ -1,0 +1,4 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:layoutDirection="ltr" android:background="@drawable/widget_switch_shell" android:padding="6dp">
+    <include layout="@layout/widget_switch_track" />
+</FrameLayout>

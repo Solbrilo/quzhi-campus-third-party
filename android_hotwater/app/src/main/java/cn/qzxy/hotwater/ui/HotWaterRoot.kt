@@ -3,6 +3,7 @@ package cn.qzxy.hotwater.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
+import cn.qzxy.hotwater.designsystem.theme.GlassPageSurface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -173,6 +174,7 @@ fun HotWaterRoot(
         label = "root_flow_transition",
     ) { screen ->
         saveableStateHolder.SaveableStateProvider(screen.name) {
+            GlassPageSurface(interactive = screen == rootScreen) {
             when (screen) {
                 RootScreen.MAIN -> HotWaterApp(
                     viewModel = viewModel,
@@ -319,6 +321,7 @@ fun HotWaterRoot(
                 )
             }
         }
+    }
     }
     if (showUpdateFeatures) UpdateHighlightsSheet(onDismiss = {
         onOnboardingCompleted()

@@ -42,7 +42,7 @@ internal fun AnnouncementOptions(message: ServerMessage, state: AnnouncementResp
             }
         }
         if (state.revision == message.revision) state.error?.let { Text(it, color = tokens.accentError, fontSize = 12.sp) }
-        GlassButton(if (sending) "提交中…" else "提交回应", { choice?.let { onRespond(message, it, text) } },
+        GlassButton(if (sending) "提交中…" else "提交", { choice?.let { onRespond(message, it, text) } },
             enabled = !sending && choice != null && (!input || text.isNotBlank()), modifier = Modifier.fillMaxWidth())
     }
 }

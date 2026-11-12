@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
@@ -165,6 +166,7 @@ internal fun MorePage(
 ) {
     val pageStateHolder = rememberSaveableStateHolder()
     var showAbout by rememberSaveable { mutableStateOf(false) }
+    var showFeatures by rememberSaveable { mutableStateOf(false) }
     var showReleaseNotes by rememberSaveable { mutableStateOf(false) }
     var releaseNotesDialogSession by rememberSaveable { mutableStateOf(0) }
     var showClearAllDialog by rememberSaveable { mutableStateOf(false) }
@@ -215,10 +217,11 @@ internal fun MorePage(
             label = "more_page_content",
         ) { page ->
             pageStateHolder.SaveableStateProvider(page.name) {
+                ScrollViewport(Modifier.fillMaxSize()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(if (page == MorePageDestination.THEME) Modifier else Modifier.verticalScroll(rememberScrollState())),
+                        .then(if (page == MorePageDestination.THEME) Modifier else Modifier.cardVerticalScroll(rememberScrollState())),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     when (page) {
@@ -262,17 +265,21 @@ internal fun MorePage(
         }
     }
 
+    }
     if (showAbout) {
         HalfPageSheet(null, { showAbout = false }) { close ->
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            ScrollViewport(Modifier.weight(1f)) {
+            Column(Modifier.fillMaxSize().cardVerticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 AboutApplicationContent(checkResult, checking, installing,
                     onOpenReleaseNotes = { showReleaseNotes = true; releaseNotesDialogSession += 1; onLoadReleaseNotes() },
-                    onCheckForUpdate = onCheckForUpdate, onOpenConfig = { close(onOpenConfig) },
+                    onCheckForUpdate = onCheckForUpdate, onOpenFeatures = { close { showFeatures = true } }, onOpenConfig = { close(onOpenConfig) },
                     onNavigate = { next -> close { onNavigate(next) } }, onOpenExternal = onOpenExternal)
                 Spacer(Modifier.height(20.dp))
             }
+            }
         }
     }
+    if (showFeatures) UpdateHighlightsSheet { showFeatures = false }
     if (showReleaseNotes) {
         ReleaseNotesDialog(
             releases = releaseNotes,
@@ -396,28 +403,9 @@ private fun MoreOverviewPage(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassMaterial(GlassMaterial.Panel, 28.dp)
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = null,
-                    tint = tokens.accentPrimary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "显示与外观",
-                    color = tokens.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+        CollapsingGlassCard(header = {
+            Text("显示与外观", color = tokens.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }) {
             MoreActionRow(MoreAction("主题", themePalette.label, Icons.Outlined.Palette,
                 onClick = { onNavigate(MorePageDestination.THEME) }))
             MoreDivider()
@@ -481,14 +469,15 @@ private fun MoreOverviewPage(
 
 @Composable
 private fun AboutApplicationContent(checkResult: AppUpdateCheckResult?, checking: Boolean, installing: Boolean,
-    onOpenReleaseNotes: () -> Unit, onCheckForUpdate: () -> Unit, onOpenConfig: () -> Unit,
+    onOpenReleaseNotes: () -> Unit, onCheckForUpdate: () -> Unit, onOpenFeatures: () -> Unit, onOpenConfig: () -> Unit,
     onNavigate: (MorePageDestination) -> Unit, onOpenExternal: (String) -> Unit) {
     val tokens = LocalGlassTokens.current
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Image(painterResource(R.mipmap.ic_launcher), "应用图标", Modifier.size(78.dp).clip(RoundedCornerShape(24.dp)))
         Text("趣智校园热水", color = tokens.textPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-        Text("简洁、轻盈的校园用水体验", color = tokens.textSecondary, fontSize = 12.sp)
+        Text("Simplicity is the ultimate sophistication.", color = tokens.textSecondary, fontSize = 12.sp,
+            fontWeight = FontWeight.Light, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
         Column(
             modifier = Modifier
@@ -558,6 +547,7 @@ private fun AboutApplicationContent(checkResult: AppUpdateCheckResult?, checking
                     )
                 }
             }
+            MoreActionRow(MoreAction("查看新功能", "主题、桌面小组件与充值", Icons.Outlined.AutoAwesome, onClick = onOpenFeatures))
             GlassButton(
                 text = "检查更新",
                 onClick = onCheckForUpdate,
@@ -976,13 +966,7 @@ private fun FeedbackPage() {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassMaterial(GlassMaterial.Panel, 28.dp)
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        CollapsingGlassCard(header = {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1022,6 +1006,7 @@ private fun FeedbackPage() {
                 )
             }
         }
+        }) {
         Text(text = "请选择类型", color = tokens.textSecondary, fontSize = 12.sp)
         FeedbackCategoryRow(
             categories = listOf(FeedbackCategory.Bug, FeedbackCategory.Suggestion),
@@ -1467,21 +1452,11 @@ private fun FeedbackHistoryItem(entry: FeedbackHistoryEntry) {
 @Composable
 private fun PrivacyPolicyPage() {
     val tokens = LocalGlassTokens.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassMaterial(GlassMaterial.Panel, 24.dp)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    CollapsingGlassCard(header = {
+        Text("隐私政策", color = tokens.textPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+    }) {
         Text(
-            text = "隐私政策",
-            color = tokens.textPrimary,
-            fontSize = 19.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "最后更新于 2026 年 10 月 1 日。",
+                    text = "最后更新于 2026 年 11 月。",
             color = tokens.textTertiary,
             fontSize = 12.sp,
         )

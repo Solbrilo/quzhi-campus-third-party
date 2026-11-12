@@ -163,25 +163,16 @@ fun ConfigPage(
     fun sensitiveTransformation(isVisible: Boolean): VisualTransformation =
         if (isVisible) VisualTransformation.None else PasswordVisualTransformation()
 
+    ScrollViewport(Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState),
+            .cardVerticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // 配置表单卡片
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassMaterial(GlassMaterial.Panel, 28.dp)
-                .padding(18.dp)
-        ) {
-            Text(
-                text = "填写配置",
-                color = tokens.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
+        CollapsingGlassCard(header = {
+            Text("填写配置", color = tokens.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "可在设置页登录以自动填写账号字段，也可以在这里手动补全或扫码绑定设备。",
@@ -447,6 +438,8 @@ fun ConfigPage(
         // 底部间距
         Spacer(modifier = Modifier.height(bottomDockClearance()))
     }
+}
+
 }
 
 @Composable
