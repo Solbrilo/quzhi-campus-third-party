@@ -111,11 +111,14 @@ class HotWaterWidgetActionWorker(
                     else -> OperationHistory.OperationType.REFRESH
                 }
                 NotificationHelper.notifyOperation(applicationContext, notificationType, result)
-                result.snapshot?.let { store.saveWidgetSnapshot(it, stateGeneration) }
+                result.snapshot?.let {
+                    store.saveWidgetSnapshot(it.copy(isDeviceOnline = it.isDeviceOnline ?:
+                        true.takeIf { result.outcome == OperationOutcome.SUCCESS }), stateGeneration)
+                }
                 val deviceBusyByOther = result.snapshot?.isDeviceBusyByOther == true
                 store.saveWidgetState(
                     title = if (deviceBusyByOther) {
-                        "设备正在使用中"
+                        "设备占用中"
                     } else {
                         result.title
                     },
@@ -136,6 +139,9 @@ class HotWaterWidgetActionWorker(
                     expectedRequestId = if (background) null else requestId, skipIfBusy = background,
                 )
                 HotWaterWidgetUi.updateAllWidgets(applicationContext)
+                if (action != WidgetHotWaterAction.REFRESH) {
+                    runCatching { HotWaterWidgetProvider.requestStateRefresh(applicationContext, afterOperation = true) }
+                }
                 // System surfaces must not turn a successful device operation into a failure.
                 runCatching {
                     if (!store.loadOrderNo().isNullOrBlank()) {

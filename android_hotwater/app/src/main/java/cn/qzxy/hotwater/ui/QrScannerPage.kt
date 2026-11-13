@@ -192,7 +192,7 @@ fun QrScannerPage(
         if (delivered) return
         val snCode = QrCodeParser.parseSnCode(rawValue)
         if (snCode == null) {
-            scanError = "这不是趣智校园热水设备二维码"
+            scanError = "这不是趣智校园设备二维码"
         } else {
             delivered = true
             torchEnabled = false

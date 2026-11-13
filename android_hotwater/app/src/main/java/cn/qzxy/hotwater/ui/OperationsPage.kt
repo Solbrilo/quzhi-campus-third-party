@@ -61,6 +61,10 @@ import cn.qzxy.hotwater.designsystem.theme.GlassMaterial
 import cn.qzxy.hotwater.designsystem.theme.LocalGlassTokens
 import cn.qzxy.hotwater.designsystem.theme.glassMaterial
 import kotlinx.coroutines.delay
+import cn.qzxy.hotwater.designsystem.motion.LocalPageActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 
 @Composable
 fun OperationsPage(
@@ -239,13 +243,19 @@ private fun UsageTimer(startedAtMillis: Long?) {
     }
 
     val tokens = LocalGlassTokens.current
+    val active = LocalPageActivity.current.value
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val elapsedMillis by produceState(
         initialValue = (System.currentTimeMillis() - startedAtMillis).coerceAtLeast(0L),
         key1 = startedAtMillis,
+        key2 = active,
+        key3 = lifecycle,
     ) {
-        while (true) {
-            value = (System.currentTimeMillis() - startedAtMillis).coerceAtLeast(0L)
-            delay(1_000L)
+        if (active) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = (System.currentTimeMillis() - startedAtMillis).coerceAtLeast(0L)
+                delay(1_000L)
+            }
         }
     }
 
@@ -325,11 +335,11 @@ private fun RechargeButton(onClick: () -> Unit) {
 @Composable
 private fun LoadingRing(color: androidx.compose.ui.graphics.Color) {
     val motionEnabled = rememberMotionEnabled()
-    val palette = if (LocalThemePalette.current == ThemePalette.CUSTOM)
-        ThemePalette.fromStorageValue(cn.qzxy.hotwater.designsystem.theme.LocalCustomTheme.current.animation)
-        else LocalThemePalette.current
-    if (palette in listOf(ThemePalette.TIDE, ThemePalette.EMBER, ThemePalette.MONO)) {
-        ThemedActivityRing(palette, color, motionEnabled)
+    val animation = if (LocalThemePalette.current == ThemePalette.CUSTOM)
+        cn.qzxy.hotwater.designsystem.theme.WaterAnimation.fromStorageValue(cn.qzxy.hotwater.designsystem.theme.LocalCustomTheme.current.animation)
+        else cn.qzxy.hotwater.designsystem.theme.WaterAnimation.fromStorageValue(LocalThemePalette.current.storageValue)
+    if (animation != cn.qzxy.hotwater.designsystem.theme.WaterAnimation.FLOW) {
+        ThemedActivityRing(animation, color, motionEnabled)
         return
     }
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="72dp"
+    android:orientation="horizontal" android:gravity="center_vertical" android:paddingEnd="4dp">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="开启时长"
+            android:textSize="12sp" android:textColor="@color/text_secondary" />
+        <Chronometer android:id="@+id/notification_duration" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="28sp" android:fontFamily="sans-serif-medium" android:textColor="@color/text_primary" />
+    </LinearLayout>
+    <ImageView android:id="@+id/notification_close" android:layout_width="48dp" android:layout_height="48dp"
+        android:padding="13dp" android:background="@drawable/notification_stop_background" android:src="@drawable/ic_notification_stop"
+        android:contentDescription="关闭热水" android:clickable="true" android:focusable="true" />
+</LinearLayout>

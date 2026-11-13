@@ -54,6 +54,8 @@
             android:src="@drawable/ic_widget_refresh" />
     </LinearLayout>
 
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="可用余额" android:textSize="10sp" android:textColor="@color/text_secondary" />
+        <TextView android:id="@+id/widget_classic_balance" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="¥ --" android:singleLine="true" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="18sp" android:autoSizeMaxTextSize="28sp" android:textSize="26sp" android:fontFamily="sans-serif-medium" android:textColor="@color/text_primary" android:layout_marginBottom="4dp" />
     <TextView
         android:id="@+id/widget_expanded_title"
         android:layout_width="match_parent"

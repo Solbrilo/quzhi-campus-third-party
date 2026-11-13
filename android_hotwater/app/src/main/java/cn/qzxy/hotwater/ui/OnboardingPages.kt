@@ -86,7 +86,7 @@ fun OnboardingQuotePage(onNext: () -> Unit, isUpgrade: Boolean = false) {
 
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
         .padding(horizontal = 24.dp, vertical = 18.dp)) {
-        Text("趣智校园热水", Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
+        Text("浴爱", Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
             color = tokens.textTertiary, fontSize = 12.sp, letterSpacing = 2.sp)
         val availableScale = ((maxHeight - 110.dp) / 440.dp).coerceIn(.25f, 1f)
         Box(Modifier.align(Alignment.Center).fillMaxWidth().graphicsLayer {
@@ -110,7 +110,7 @@ private fun WelcomeChineseColumn(elapsed: Float, static: Boolean = false, compac
             val progress = if (static) 1f else FastOutSlowInEasing.transform(welcomeCharacterProgress(index, elapsed))
             Box(Modifier.size(if (compact) 36.dp else 52.dp).graphicsLayer {
                 alpha = progress
-                translationY = (-14f * (1f - progress)).dp.toPx()
+                translationY = (14f * (1f - progress)).dp.toPx()
             }, contentAlignment = Alignment.Center) {
                 Text(character.toString(), color = tokens.textPrimary,
                     fontSize = if (compact) 26.sp else 36.sp, fontFamily = FontFamily.SansSerif,

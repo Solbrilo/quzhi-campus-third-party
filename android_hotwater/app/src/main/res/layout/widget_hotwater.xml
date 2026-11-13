@@ -45,6 +45,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+    <TextView android:id="@+id/widget_classic_balance" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="¥ --" android:singleLine="true" android:ellipsize="end" android:textSize="24sp" android:fontFamily="sans-serif-medium" android:textColor="@color/text_primary" android:layout_marginTop="4dp" />
     <TextView
         android:id="@+id/widget_state_text"
         android:layout_width="match_parent"

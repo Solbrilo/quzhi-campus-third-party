@@ -35,7 +35,7 @@ object HotWaterWidgetUi {
             // Both providers may be resized. A 3×1, 2×3, 3×2, 4×4, etc. all use
             // the original information/actions layout, including the switch provider.
             val legacy = layouts.any { it != WidgetLayoutSize.DASHBOARD }
-            val layoutKey = "$slider:$layouts:$sizes:$dark:${context.resources.displayMetrics.density}:v6"
+            val layoutKey = "$slider:$layouts:$sizes:$dark:${context.resources.displayMetrics.density}:v8"
             val state = store.loadWidgetState()
             val generation = store.loadStateGeneration()
             val sameLayout = !force && prefs.getString("layout_$id", null) == layoutKey
@@ -49,7 +49,7 @@ object HotWaterWidgetUi {
             val animation = widgetSwitchAnimation(previousOpened, widgetDisplay.opened, state.tone != "error" && !widgetDisplay.busy,
                 android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f)
             val variants = sizes.zip(layouts).associate { (size, layout) ->
-                size to if (layout == WidgetLayoutSize.DASHBOARD) switchRemoteViews(context, id, widgetDisplay, !slider, animation)
+                size to if (layout == WidgetLayoutSize.DASHBOARD) switchRemoteViews(context, id, widgetDisplay, size.height >= 110f, animation, size)
                     else buildRemoteViews(context, manager, id, layout, size.height.toInt())
             }
             val views = when {
@@ -74,7 +74,7 @@ object HotWaterWidgetUi {
         val opened = !store.loadOrderNo().isNullOrBlank()
         val ready = store.loadConfig().isComplete() && !store.requiresReauthentication()
         val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
-        val connected = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val connected = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         return WidgetDisplayState(opened, WidgetActionPolicy.isBusy(state), ready, store.loadWidgetBalance(),
             widgetIndicator(ready && connected && store.loadWidgetOnline() && state.tone != "error",
                 store.loadWidgetOccupied(), opened))
@@ -85,9 +85,15 @@ object HotWaterWidgetUi {
             if (animate) !HotWaterConfigStore(context).loadOrderNo().isNullOrBlank() else null)
 
     internal fun switchRemoteViews(context: Context, id: Int, state: WidgetDisplayState,
-        dashboard: Boolean, animation: Boolean?): RemoteViews {
+        dashboard: Boolean, animation: Boolean?, size: SizeF = SizeF(180f, if (dashboard) 180f else 64f)): RemoteViews {
         return RemoteViews(context.packageName, if (dashboard) R.layout.widget_hotwater_dashboard else R.layout.widget_hotwater_slider).apply {
             val status = state.indicator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val trackHeight = minOf((size.width - 16f) * .32f,
+                    if (dashboard) size.height * .36f else size.height - 12f).coerceIn(32f, 88f)
+                setViewLayoutHeight(R.id.widget_switch_track, trackHeight, android.util.TypedValue.COMPLEX_UNIT_DIP)
+                if (!dashboard) setViewLayoutHeight(R.id.widget_slider_shell, trackHeight + 8f, android.util.TypedValue.COMPLEX_UNIT_DIP)
+            }
             val led = when (status) {
                 DeviceIndicator.IDLE -> R.drawable.widget_led_idle
                 DeviceIndicator.OFFLINE -> R.drawable.widget_led_offline
@@ -112,6 +118,8 @@ object HotWaterWidgetUi {
             setTextViewText(R.id.widget_switch_left, if (state.opened) actionText else "")
             setTextViewText(R.id.widget_switch_right, if (state.opened) "" else actionText)
             if (dashboard) {
+                setOnClickPendingIntent(R.id.widget_refresh_button, if (state.ready)
+                    actionPendingIntent(context, id, ACTION_REFRESH, widgetRequestCode(id, ACTION_REFRESH)) else openAppPendingIntent(context))
                 setTextViewText(R.id.widget_balance, "¥ ${state.balance}")
                 setTextViewText(R.id.widget_dashboard_status, "● ${status.label}")
                 setTextColor(R.id.widget_dashboard_status, status.color)
@@ -171,6 +179,7 @@ object HotWaterWidgetUi {
         val canSendCommand = config.isComplete()
 
         return RemoteViews(context.packageName, layoutId).apply {
+            setTextViewText(R.id.widget_classic_balance, "¥ ${store.loadWidgetBalance()}")
             setBoolean(R.id.widget_open_button, "setEnabled", true)
             setBoolean(R.id.widget_close_button, "setEnabled", true)
             setFloat(R.id.widget_open_button, "setAlpha", if (presentation.isBusy) 0.5f else 1f)
@@ -209,8 +218,11 @@ object HotWaterWidgetUi {
                         // Keep the shared upper status/lower actions arrangement on 3×2;
                         // compact secondary copy before it can overlap the buttons.
                         setInt(R.id.widget_expanded_title, "setMaxLines", if (availableHeightDp < 200) 1 else 2)
-                        setViewVisibility(R.id.widget_expanded_detail, if (availableHeightDp < 165) android.view.View.GONE else android.view.View.VISIBLE)
-                        val extraVisibility = if (availableHeightDp < 200) android.view.View.GONE else android.view.View.VISIBLE
+                        setViewVisibility(R.id.widget_expanded_title, if (availableHeightDp < 200) android.view.View.GONE else android.view.View.VISIBLE)
+                        setViewVisibility(R.id.widget_classic_balance_label, if (availableHeightDp < 165) android.view.View.GONE else android.view.View.VISIBLE)
+                        setViewVisibility(R.id.widget_expanded_detail, if (availableHeightDp < 240) android.view.View.GONE else android.view.View.VISIBLE)
+                        setTextViewTextSize(R.id.widget_classic_balance, android.util.TypedValue.COMPLEX_UNIT_SP, if (availableHeightDp < 180) 20f else 28f)
+                        val extraVisibility = if (availableHeightDp < 260) android.view.View.GONE else android.view.View.VISIBLE
                         setViewVisibility(R.id.widget_expanded_usage, extraVisibility)
                         setViewVisibility(R.id.widget_expanded_updated, extraVisibility)
                     }

@@ -19,7 +19,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import cn.qzxy.hotwater.designsystem.theme.GlassPageSurface
 import androidx.compose.foundation.background
@@ -531,11 +530,8 @@ fun HotWaterApp(
                     .padding(start = 20.dp, top = 18.dp, end = 20.dp),
             )
 
-            HorizontalPager(state = mainPager,
-                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(mainPager,
-                    pagerSnapDistance = androidx.compose.foundation.pager.PagerSnapDistance.atMost(2)),
-                userScrollEnabled = !showConfig && !showMessages && moreDestination == null,
-                beyondViewportPageCount = 1,
+            cn.qzxy.hotwater.ui.navigation.IntentAwarePager(state = mainPager,
+                enabled = !showConfig && !showMessages && moreDestination == null,
                 modifier = Modifier.weight(1f).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .padding(top = 18.dp),
             ) { index ->

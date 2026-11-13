@@ -1,4 +1,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:layoutDirection="ltr" android:background="@drawable/widget_switch_shell" android:padding="6dp">
-    <include layout="@layout/widget_switch_track" />
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:layoutDirection="ltr">
+    <FrameLayout android:id="@+id/widget_slider_shell" android:layout_width="match_parent" android:layout_height="56dp"
+        android:layout_gravity="center_vertical" android:background="@drawable/widget_switch_shell" android:padding="4dp">
+        <include layout="@layout/widget_switch_track" />
+    </FrameLayout>
 </FrameLayout>

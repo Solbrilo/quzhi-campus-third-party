@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512"><title>趣间 · 光隙 · 玻璃图标</title><defs>
+    <linearGradient id="background" x1="0" y1="0" x2=".65" y2="1"><stop stop-color="#142A35"/><stop offset="1" stop-color="#233A46"/></linearGradient>
+    <radialGradient id="atmosphere"><stop stop-color="#66ABB7" stop-opacity=".20"/><stop offset="1" stop-color="#66ABB7" stop-opacity="0"/></radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFFFFF" stop-opacity=".95"/><stop offset=".28" stop-color="#D9F4FF" stop-opacity=".5"/><stop offset=".53" stop-color="#456D89" stop-opacity=".45"/><stop offset=".74" stop-color="#DBBFA4" stop-opacity=".72"/><stop offset="1" stop-color="#C0E9F3" stop-opacity=".9"/></linearGradient>
+    <linearGradient id="reflection" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#FFFFFF" stop-opacity=".65"/><stop offset=".36" stop-color="#FFFFFF" stop-opacity=".04"/><stop offset=".47" stop-color="#FFFFFF" stop-opacity=".02"/><stop offset=".57" stop-color="#FFFFFF" stop-opacity=".33"/><stop offset=".64" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#FFFFFF" stop-opacity=".03"/></linearGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="180%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="softEdge" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation=".8"/></filter>
+    <filter id="fineBevel" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="1.3" result="height"/><feSpecularLighting in="height" surfaceScale="4" specularConstant=".34" specularExponent="32" lighting-color="#FFFFFF" result="light"><fePointLight x="40" y="-100" z="200"/></feSpecularLighting><feComposite in="light" in2="SourceAlpha" operator="in" result="edgeLight"/><feComposite in="SourceGraphic" in2="edgeLight" operator="arithmetic" k2="1" k3=".45"/></filter>
+    <clipPath id="clip0"><path d="M181 156H237V311L157 354V180Q157 156 181 156Z" /></clipPath><linearGradient id="face0" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#EAF9FF" stop-opacity=".95"/><stop offset=".38" stop-color="#6D9EAB" stop-opacity=".47"/><stop offset=".62" stop-color="#6D9EAB" stop-opacity=".36"/><stop offset="1" stop-color="#385A6C" stop-opacity=".76"/></linearGradient><clipPath id="clip1"><path d="M278 198L355 156V330Q355 354 331 354H278Z" /></clipPath><linearGradient id="face1" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#F1FFFD" stop-opacity=".95"/><stop offset=".38" stop-color="#99B4AE" stop-opacity=".47"/><stop offset=".62" stop-color="#99B4AE" stop-opacity=".36"/><stop offset="1" stop-color="#497C8A" stop-opacity=".76"/></linearGradient>
+  </defs><g transform="translate(256 256) scale(1.22) translate(-256 -256)"><g>
+    <g transform="translate(0 9)" opacity=".20" filter="url(#shadow)"><path d="M181 156H237V311L157 354V180Q157 156 181 156Z" fill="#294755"/></g>
+    <g transform="translate(0 3.2)" opacity=".50"><path d="M181 156H237V311L157 354V180Q157 156 181 156Z" fill="#385A6C"/></g>
+    <g filter="url(#fineBevel)"><path d="M181 156H237V311L157 354V180Q157 156 181 156Z" fill="url(#face0)" fill-opacity="0.72" stroke="url(#rim)" stroke-width="2.1" stroke-linejoin="round"/></g>
+    <g clip-path="url(#clip0)"><rect x="100" y="100" width="320" height="320" fill="url(#reflection)"/><path d="M99 176L372 62L429 111L121 310Z" fill="#FFFFFF" opacity=".10" filter="url(#softEdge)"/></g>
+    <path d="M181 156H237V311L157 354V180Q157 156 181 156Z" fill="none" stroke="#FFFFFF" stroke-opacity=".44" stroke-width=".6" stroke-linejoin="round"/>
+  </g><g>
+    <g transform="translate(0 9)" opacity=".20" filter="url(#shadow)"><path d="M278 198L355 156V330Q355 354 331 354H278Z" fill="#294755"/></g>
+    <g transform="translate(0 3.2)" opacity=".50"><path d="M278 198L355 156V330Q355 354 331 354H278Z" fill="#497C8A"/></g>
+    <g filter="url(#fineBevel)"><path d="M278 198L355 156V330Q355 354 331 354H278Z" fill="url(#face1)" fill-opacity="0.73" stroke="url(#rim)" stroke-width="2.1" stroke-linejoin="round"/></g>
+    <g clip-path="url(#clip1)"><rect x="100" y="100" width="320" height="320" fill="url(#reflection)"/><path d="M99 176L372 62L429 111L121 310Z" fill="#FFFFFF" opacity=".10" filter="url(#softEdge)"/></g>
+    <path d="M278 198L355 156V330Q355 354 331 354H278Z" fill="none" stroke="#FFFFFF" stroke-opacity=".44" stroke-width=".6" stroke-linejoin="round"/>
+  </g></g></svg>

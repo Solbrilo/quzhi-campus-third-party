@@ -374,8 +374,9 @@ private fun MoreOverviewPage(
 ) {
     val tokens = LocalGlassTokens.current
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(Modifier.fillMaxWidth().glassMaterial(GlassMaterial.Panel, 28.dp).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CollapsingGlassCard(header = {
+            Text("账户信息", color = tokens.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(if (loggedIn) accountName.ifBlank { "校园账户" } else "尚未登录", color = tokens.textPrimary,
@@ -475,7 +476,7 @@ private fun AboutApplicationContent(checkResult: AppUpdateCheckResult?, checking
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Image(painterResource(R.mipmap.ic_launcher), "应用图标", Modifier.size(78.dp).clip(RoundedCornerShape(24.dp)))
-        Text("趣智校园热水", color = tokens.textPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Text("浴爱（四封版）", color = tokens.textPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text("Simplicity is the ultimate sophistication.", color = tokens.textSecondary, fontSize = 12.sp,
             fontWeight = FontWeight.Light, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
@@ -584,7 +585,7 @@ private fun AboutApplicationContent(checkResult: AppUpdateCheckResult?, checking
                 ),
                 MoreAction(
                     title = "项目网站",
-                    summary = "了解趣智校园热水项目",
+                    summary = "了解浴爱项目",
                     icon = Icons.Outlined.Language,
                     drawable = R.drawable.ic_nebularive,
                     external = true,
@@ -1461,7 +1462,7 @@ private fun PrivacyPolicyPage() {
             fontSize = 12.sp,
         )
         Text(
-            text = "趣智校园热水应用用于帮助你查看余额、了解设备状态并操作已绑定的热水设备。为完成这些功能，应用会处理你主动填写、导入或登录产生的账号与设备配置，以及必要的运行状态和消费记录。",
+            text = "浴爱应用用于帮助你查看余额、了解设备状态并操作已绑定的热水设备。为完成这些功能，应用会处理你主动填写、导入或登录产生的账号与设备配置，以及必要的运行状态和消费记录。",
             color = tokens.textSecondary,
             fontSize = 14.sp,
             lineHeight = 22.sp,

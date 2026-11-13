@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>趣沐 · 玻璃图标与命名提案</title>
+<style>
+:root{--paper:#f3f5f6;--ink:#31424a;--muted:#73828b;--line:#dce4e8}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",sans-serif}main{max-width:1700px;margin:auto;padding:44px 44px 36px}.eyebrow{font:12px Georgia,serif;letter-spacing:2px;color:var(--muted)}header{display:flex;align-items:end;justify-content:space-between;gap:20px;margin:20px 0 36px}h1{font-family:"STSong","SimSun",serif;font-weight:400;font-size:48px;letter-spacing:3px;margin:0 0 16px}header p{margin:0;color:var(--muted);font-size:14px;line-height:1.9}.round{font:12px Georgia,serif;color:var(--muted);white-space:nowrap;margin-bottom:6px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px}.card{padding:22px;background:#fff;border:1px solid var(--line);border-radius:22px}.card-top{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}.num{font:19px Georgia,serif}.stage{border:0;background:transparent;border-radius:20px;width:100%;padding:28px 0 24px;cursor:zoom-in;display:grid;place-items:center}.stage img{width:100%;height:auto;display:block;transition:transform .25s}.stage:hover img{transform:scale(1.035)}button:focus-visible,a:focus-visible{outline:2px solid #5d8c9e;outline-offset:5px}h2{font-family:"STSong","SimSun",serif;font-size:33px;font-weight:400;letter-spacing:4px;margin:8px 0 6px}.roman{font:11px Georgia,serif;letter-spacing:1px;color:var(--muted)}.tag{font-size:12px;color:var(--muted);margin:20px 0 13px}.meaning{font-size:12px;line-height:1.9;min-height:70px;margin:0 0 20px;color:var(--muted)}.sizes{border-top:1px solid var(--line);padding-top:18px;display:flex;gap:15px;align-items:center}.size{display:flex;flex-direction:column;align-items:center;gap:10px;font:10px Georgia,serif;color:var(--muted)}.mono{width:48px;height:48px;border-radius:11px;background:#e9eef0}.mono img{width:48px;height:48px}.links{display:flex;gap:15px;margin-top:22px}a{font-size:11px;color:var(--ink);text-decoration:none;border-bottom:1px solid #b4c1c7;padding-bottom:3px}a:hover{border-color:var(--ink)}footer{border-top:1px solid var(--line);margin-top:32px;padding-top:23px;display:flex;justify-content:space-between;gap:24px;font-size:12px;line-height:1.9;color:var(--muted)}.recommend{color:var(--ink);font-size:14px}.note{margin-top:20px;color:var(--muted);font-size:11px;line-height:1.9}dialog{padding:0;border:1px solid #d4dfe5;border-radius:24px;background:#f8fafb;max-width:min(90vw,760px);max-height:94vh;overflow:auto;box-shadow:0 30px 120px #0e293247}dialog::backdrop{background:#192a3873;backdrop-filter:blur(10px)}.modal-top{display:flex;align-items:center;justify-content:space-between;padding:18px 22px}.modal-top h3{font-weight:500;font-size:18px;margin:0}.close{border:0;background:#e7edf1;border-radius:50%;width:32px;height:32px;color:#31424a;font-size:24px;line-height:1;cursor:pointer}.modal-img{display:block;width:100%;height:auto}.modal-foot{padding:18px 22px;font-size:12px;line-height:1.8;color:var(--muted)}.modal-foot a{margin-right:20px}@media(max-width:1200px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stage img{max-width:340px}.meaning{min-height:50px}}@media(max-width:600px){main{padding:30px 22px}header{display:block}h1{font-size:34px;letter-spacing:1px}.round{margin-top:20px}.grid{grid-template-columns:1fr}.stage img{max-width:320px}.meaning{min-height:0}footer{display:block}footer p{margin-top:0}.sizes{gap:24px}}
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">QZXY / GLASS ICON STUDIES</div>
+<header><div><h1>让「趣智」更有温度</h1><p>延续当前图标的通透玻璃与柔和折光，用更简洁的图形连接校园热水日常。</p></div><div class="round">CONCEPTS / 03</div></header>
+<section class="grid" id="concepts" aria-label="四组图标与名称方案"></section>
+<footer><div><span class="recommend">首推「趣沐」：趣智的“趣” + 沐浴的“沐”。</span><br>环形水纹与 Q 的轮廓呼应，让名称和图形形成同一个记忆。</div><div>建议简介：趣智校园第三方热水客户端。<br>更多名称：沐趣 · 趣汐 · 趣润 · 智泉</div></footer>
+<p class="note">点击图标查看 1024 原图。已附透明玻璃前景与可编辑 SVG 几何稿；图标和名称可交叉搭配。<br>本轮为独立提案，未替换项目名称或启动图标。名称尚未进行商标、应用商店或域名重名检索。</p>
+</main>
+<dialog id="preview"><div class="modal-top"><h3 id="preview-title"></h3><button type="button" class="close" id="close" aria-label="关闭预览">×</button></div><img class="modal-img" id="preview-image" alt=""><div class="modal-foot"><p id="preview-meaning"></p><a id="png-link" download>1024 PNG ↗</a><a id="source-link" download>矢量几何稿 ↗</a><a id="foreground-link" download>透明玻璃前景 ↗</a></div></dialog>
+<script>
+const data=[
+{id:'01-qumu',name:'趣沐',roman:'QUMU',pinyin:'qù mù',tag:'环形水纹 · 烟青玻璃',meaning:'“趣”承接趣智校园，“沐”点出沐浴与热水。图标延续环形水纹，收出 Q 的尾笔，呼应“趣”的首字母。'},
+{id:'02-zhimu',name:'智沐',roman:'ZHIMU',pinyin:'zhì mù',tag:'留白水滴 · 冰青玻璃',meaning:'从“趣智”保留“智”，与“沐”组成短名称；用一滴清水表达清爽、直接的校园用水体验。'},
+{id:'03-qucheng',name:'趣澄',roman:'QUCHENG',pinyin:'qù chéng',tag:'层叠波纹 · 雾蓝玻璃',meaning:'“趣”保留品牌线索，“澄”联系清水，也呼应清楚、简单。三道波纹保持安静与秩序。'},
+{id:'04-quwen',name:'趣温',roman:'QUWEN',pinyin:'qù wēn',tag:'暖阳倒影 · 香槟玻璃',meaning:'“趣”联系趣智校园，“温”是热水与舒适。暖阳和倒影让图标更温和，有生活气息。'}
+];
+const grid=document.getElementById('concepts');
+grid.innerHTML=data.map((c,i)=>`<article class="card"><div class="card-top"><span class="num">0${i+1}</span><span>${c.pinyin}</span></div><button class="stage" type="button" data-index="${i}" aria-label="放大${c.name}图标"><img src="${c.id}-preview.png" width="1024" height="1024" alt="${c.name}：${c.tag}"></button><h2>${c.name}</h2><span class="roman">${c.roman}</span><p class="tag">${c.tag}</p><p class="meaning">${c.meaning}</p><div class="sizes">${[64,48,32].map(s=>`<div class="size"><img src="${c.id}-${s}.png" width="${s}" height="${s}" alt="${s}像素预览"><span>${s} PX</span></div>`).join('')}<div class="size"><div class="mono"><img src="${c.id}-monochrome.png" alt="单色前景"></div><span>MONO</span></div></div><div class="links"><a href="${c.id}.png" download>PNG 原图 ↗</a><a href="${c.id}-geometry.svg" download>SVG 几何稿 ↗</a></div></article>`).join('');
+const dialog=document.getElementById('preview');
+grid.addEventListener('click',event=>{const button=event.target.closest('button[data-index]');if(!button)return;const c=data[Number(button.dataset.index)];document.getElementById('preview-title').textContent=c.name+' / '+c.roman;const img=document.getElementById('preview-image');img.src=c.id+'.png';img.alt=c.name+'玻璃图标成稿';document.getElementById('preview-meaning').textContent=c.meaning;document.getElementById('png-link').href=c.id+'.png';document.getElementById('source-link').href=c.id+'-geometry.svg';document.getElementById('foreground-link').href=c.id+'-foreground.png';dialog.showModal();});
+document.getElementById('close').addEventListener('click',()=>dialog.close());
+dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
+</script>
+</body>
+</html>

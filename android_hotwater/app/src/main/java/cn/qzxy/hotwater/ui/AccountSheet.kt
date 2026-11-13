@@ -41,7 +41,7 @@ internal fun HalfPageSheet(title: String?, onDismiss: () -> Unit, busy: Boolean 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = tokens.meshBase,
         contentColor = tokens.textPrimary, shape = androidx.compose.foundation.shape.RoundedCornerShape(
             topStart = LocalThemeGeometry.current.corner(28.dp), topEnd = LocalThemeGeometry.current.corner(28.dp))) {
-        Column(Modifier.fillMaxWidth().heightIn(max = LocalConfiguration.current.screenHeightDp.dp * .78f)
+        Column(Modifier.fillMaxWidth().sheetContentGestures().heightIn(max = LocalConfiguration.current.screenHeightDp.dp * .78f)
             .height((LocalConfiguration.current.screenHeightDp.dp * .62f).coerceAtLeast(320.dp))
             .padding(horizontal = 22.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

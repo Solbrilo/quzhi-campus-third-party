@@ -40,18 +40,23 @@ data class CustomThemeSettings(
     val zoom: Float = 1f,
     val imageColorRevision: Long = -1,
     val blur: Float = 0f,
+    val cardBlur: Float = 16f,
     val animation: String = "tide",
 ) {
     fun tokens(dark: Boolean): GlassTokens {
-        val bg = if (image) {
-            if (dark) lerp(Color(background), Color.Black, .18f) else Color(background)
-        } else if (dark) lerp(Color(background), Color.Black, .78f) else Color(background)
-        val chosen = if (image && bg.luminance() < .35f) lerp(Color(accent), Color.White, .25f) else Color(accent)
-        val ink = if (bg.luminance() < .35f) Color(0xFFF4F6FA) else Color(0xFF17212C)
+        // Keep the image's hue, while the selected appearance controls luminance and contrast.
+        val bg = if (dark) lerp(Color(background), Color(0xFF11161C), .84f)
+            else if (image || Color(background).luminance() < .45f) lerp(Color(background), Color(0xFFF9F8F5), .90f) else Color(background)
+        val chosen = when {
+            dark && Color(accent).luminance() < .38f -> lerp(Color(accent), Color.White, .48f)
+            !dark && Color(accent).luminance() > .45f -> lerp(Color(accent), Color(0xFF17212C), .50f)
+            else -> Color(accent)
+        }
+        val ink = if (dark) Color(0xFFF4F6FA) else Color(0xFF17212C)
         val panel = lerp(bg, ink, .045f)
-        return ThemePalette.SKY.tokens(dark || (image && bg.luminance() < .35f)).copy(
+        return ThemePalette.SKY.tokens(dark).copy(
             meshBase = bg, backgroundStart = bg, backgroundMiddle = bg, backgroundEnd = bg,
-            panelSurface = panel.copy(alpha = if (image) .86f else .8f),
+            panelSurface = panel.copy(alpha = .62f),
             fallbackSurface = panel, floatingSurface = panel.copy(alpha = .94f),
             controlSurface = panel.copy(alpha = .9f), overlaySurface = panel.copy(alpha = .96f),
             inputSurface = lerp(bg, chosen, .1f), embeddedControlSurface = lerp(bg, chosen, .12f),
@@ -81,7 +86,8 @@ object CustomThemePreferences {
             zoom = j.optDouble("zoom", 1.0).toFloat().coerceIn(1f, 4f),
             imageColorRevision = j.optLong("colorRevision", -1),
             blur = j.optDouble("blur", 0.0).toFloat().coerceIn(0f, 24f),
-            animation = j.optString("animation", "tide").takeIf { it in listOf("sky", "tide", "ember", "mono") } ?: "tide",
+            cardBlur = j.optDouble("cardBlur", 16.0).toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 16f,
+            animation = j.optString("animation", "tide").takeIf { it in listOf("sky", "tide", "ember", "mono", "brass") } ?: "tide",
         )
     }.getOrDefault(CustomThemeSettings())
 
@@ -90,7 +96,7 @@ object CustomThemePreferences {
             .put("accent", s.accent).put("corner", s.corner).put("image", s.image)
             .put("revision", s.imageRevision).put("x", s.positionX).put("y", s.positionY)
             .put("zoom", s.zoom).put("colorRevision", s.imageColorRevision)
-            .put("blur", s.blur).put("animation", s.animation).toString()).apply()
+            .put("blur", s.blur).put("cardBlur", s.cardBlur).put("animation", s.animation).toString()).apply()
     }
     fun imageFile(context: Context) = File(context.noBackupFilesDir, "custom_theme_background.jpg")
 
@@ -178,6 +184,8 @@ internal fun rememberBackgroundBitmap(settings: CustomThemeSettings): androidx.c
 
 @Composable
 internal fun CustomThemeBackground(settings: CustomThemeSettings, modifier: Modifier = Modifier) {
+    val dark = LocalGlassEnvironment.current.darkTheme
+    val base = settings.tokens(dark).meshBase
     val bitmap = rememberBackgroundBitmap(settings)
     // Android 12+ changes RenderEffect every frame; older devices interpolate cached blur levels.
     val levels by produceState<List<androidx.compose.ui.graphics.ImageBitmap>>(emptyList(), bitmap) {
@@ -219,6 +227,11 @@ internal fun CustomThemeBackground(settings: CustomThemeSettings, modifier: Modi
                     image(levels[low])
                     if (low < 12) image(levels[low + 1], amount - low)
                 }
+                // A hue-matched veil and soft edge shading preserve the picture without a white wash.
+                drawRect(base.copy(alpha = if (dark) .34f else .09f))
+                drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
+                    base.copy(alpha = if (dark) .58f else .38f), Color.Transparent,
+                    base.copy(alpha = if (dark) .64f else .40f))))
             }
         }
     }

@@ -121,14 +121,15 @@ open class HotWaterWidgetProvider : AppWidgetProvider() {
         private const val REFRESH_WORK_NAME = "hotwater_widget_refresh"
         private const val WORK_TAG = "hotwater_widget"
 
-        fun requestStateRefresh(context: Context) {
+        fun requestStateRefresh(context: Context, afterOperation: Boolean = false) {
             val refreshPrefs = context.getSharedPreferences("hotwater_widget_presentation", Context.MODE_PRIVATE)
             val now = System.currentTimeMillis()
-            if (now - refreshPrefs.getLong("last_refresh_request", 0L) in 0 until 60_000L) return
+            if (!afterOperation && now - refreshPrefs.getLong("last_refresh_request", 0L) in 0 until 60_000L) return
             val store = HotWaterConfigStore(context)
             if (!store.loadConfig().isComplete() || WidgetActionPolicy.isBusy(store.loadWidgetState())) return
             refreshPrefs.edit().putLong("last_refresh_request", now).apply()
             val workRequest = OneTimeWorkRequest.Builder(HotWaterWidgetActionWorker::class.java)
+                .setInitialDelay(if (afterOperation) 2L else 0L, java.util.concurrent.TimeUnit.SECONDS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setInputData(Data.Builder()
                     .putString(HotWaterWidgetActionWorker.KEY_ACTION, WidgetHotWaterAction.REFRESH.name)

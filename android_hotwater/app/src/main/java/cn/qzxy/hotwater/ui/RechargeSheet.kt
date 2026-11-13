@@ -65,7 +65,7 @@ internal fun RechargeSheet(
         containerColor = tokens.meshBase, contentColor = tokens.textPrimary,
         dragHandle = { BottomSheetDefaults.DragHandle(color = tokens.textTertiary.copy(alpha = 0.4f)) },
     ) {
-        Column(Modifier.fillMaxWidth().height(height).padding(horizontal = 24.dp),
+        Column(Modifier.fillMaxWidth().sheetContentGestures().height(height).padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {

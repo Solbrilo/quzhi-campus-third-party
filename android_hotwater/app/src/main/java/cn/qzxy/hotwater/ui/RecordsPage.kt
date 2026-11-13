@@ -306,16 +306,16 @@ private fun BillSummaryCard(
                 value = "${summary.recordCount} 笔",
                 modifier = Modifier.weight(1f),
             )
+            BillMetric(
+                label = "用水量合计",
+                value = when {
+                    summary.waterRecordCount == 0 -> "待同步"
+                    summary.waterRecordCount < summary.recordCount -> "≥ ${formatWaterVolume(summary.totalWaterMilliLiters)}"
+                    else -> formatWaterVolume(summary.totalWaterMilliLiters)
+                },
+                modifier = Modifier.weight(1f),
+            )
         }
-        BillMetric(
-            label = "用水量合计",
-            value = when {
-                summary.waterRecordCount == 0 -> "待同步"
-                summary.waterRecordCount < summary.recordCount -> "≥ ${formatWaterVolume(summary.totalWaterMilliLiters)}"
-                else -> formatWaterVolume(summary.totalWaterMilliLiters)
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
         if (summary.waterRecordCount < summary.recordCount) {
             Text(
                 text = "${summary.recordCount - summary.waterRecordCount} 笔暂时没有可用水量",
@@ -349,12 +349,20 @@ private fun BillMetric(
             color = tokens.textSecondary,
             fontSize = 12.sp,
         )
-        Text(
-            text = value,
-            color = tokens.textPrimary,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        androidx.compose.foundation.layout.BoxWithConstraints {
+            val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+            val measured = measurer.measure(value, androidx.compose.material3.LocalTextStyle.current.copy(
+                fontSize = 17.sp, fontWeight = FontWeight.Bold), softWrap = false).size.width
+            val available = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
+            Text(
+                text = value,
+                color = tokens.textPrimary,
+                fontSize = (17f * (available / measured.coerceAtLeast(1)).coerceAtMost(1f)).coerceAtLeast(10f).sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
@@ -368,7 +376,8 @@ private fun BillGroupSection(
     val expandDuration = if (motionEnabled) 220 else 0
     val collapseDuration = if (motionEnabled) 180 else 0
 
-    CollapsingGlassCard(header = {
+    CollapsingGlassCard(headerPadding = PaddingValues(0.dp),
+        bodyPadding = PaddingValues(0.dp), header = {
         BillGroupHeader(group, collapsed, onClick)
     }) {
         AnimatedVisibility(

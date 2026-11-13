@@ -72,15 +72,20 @@ fun Modifier.glassMaterial(
     backdrop: Backdrop? = null,
     backdropBlurScale: Float = 1f,
     refractionScale: Float = 1f,
+    clipScrollEdge: Boolean = true,
     shape: RoundedCornerShape = RoundedCornerShape(LocalThemeGeometry.current.corner(cornerRadius)),
 ): Modifier {
     val environment = LocalGlassEnvironment.current
+    val customCardBlur = LocalCustomTheme.current.cardBlur.takeIf {
+        material == GlassMaterial.Panel && LocalThemePalette.current == ThemePalette.CUSTOM
+    }
     val resolved = resolveGlassMaterial(
         material = material,
         tokens = tokens,
         pressed = pressed,
         enabled = enabled,
         glassIntensity = environment.glassIntensity,
+        cardBlur = customCardBlur,
     )
     // Backdrop retains a shape provider inside its graphics layer. Read snapshot state in
     // that provider so a theme change also invalidates the retained clip, not just our rim.
@@ -96,7 +101,7 @@ fun Modifier.glassMaterial(
     }
     val liquidBackdrop = backdrop ?: if (material == GlassMaterial.Floating || sampleContent) environment.floatingBackdrop
         else environment.backgroundBackdrop
-    // The theme disables the entire capture graph at zero, including its sources.
+    // Custom card blur is independent of liquid-glass strength.
     val surfaceModifier = if (environment.liquidAvailable && liquidBackdrop != null) {
         val intensity = environment.glassIntensity
         val expansion = lensExpansion.coerceIn(0f, 1f)
@@ -104,13 +109,14 @@ fun Modifier.glassMaterial(
             backdrop = liquidBackdrop,
             shape = { currentShape.value },
             effects = {
-                if (intensity > 0f && size.isSpecified && size.width > 0f && size.height > 0f) {
+                if ((intensity > 0f || customCardBlur != null) && size.isSpecified && size.width > 0f && size.height > 0f) {
                     if (backdropBlurScale > 0f) {
-                        blur(((1f + intensity * 5f * (1f - expansion * 0.6f)) * backdropBlurScale).dp.toPx())
+                        val radius = customCardBlur ?: (1f + intensity * 5f * (1f - expansion * 0.6f))
+                        if (radius > 0f) blur((radius * backdropBlurScale).dp.toPx())
                     }
                     val refraction = refractionScale.coerceIn(0f, 1f)
                     // Omit the lens entirely at rest, preserving the captured text geometry.
-                    if (refraction > 0f) {
+                    if (refraction > 0f && customCardBlur == null && intensity > 0f) {
                         lens((5f + intensity * (13f + expansion * 5f)).dp.toPx(),
                             (intensity * (24f + expansion * 12f) * refraction).dp.toPx(),
                             depthEffect = true, chromaticAberration = intensity * refraction > 0.85f)
@@ -120,14 +126,14 @@ fun Modifier.glassMaterial(
             highlight = if (liquidRim) ({ if (intensity > 0f) Highlight.Default else null }) else null,
             shadow = null,
             onDrawBackdrop = { drawBackdrop ->
-                if (intensity > 0f) {
+                if (intensity > 0f || customCardBlur != null) {
                     withTransform({ scale(1f + expansion * 0.16f, 1f + expansion * 0.16f, center) }) {
                         drawBackdrop()
                     }
                 }
             },
             onDrawSurface = {
-                drawRect(if (intensity > 0f) resolved.surface.withAlphaScale(liquidTintScale)
+                drawRect(if (intensity > 0f || customCardBlur != null) resolved.surface.withAlphaScale(liquidTintScale)
                     else if (resolved.canBlur) resolved.fallback else resolved.surface)
             },
         )
@@ -136,7 +142,7 @@ fun Modifier.glassMaterial(
         environment.blurAvailable
     ) {
         Modifier.hazeEffect(state = environment.hazeState) {
-            blurEnabled = environment.glassIntensity > 0f
+            blurEnabled = customCardBlur?.let { it > 0f } ?: (environment.glassIntensity > 0f)
             blurRadius = (resolved.blurRadius * backdropBlurScale).coerceAtLeast(0.1.dp)
             noiseFactor = resolved.noiseFactor
             backgroundColor = tokens.meshBase
@@ -155,7 +161,7 @@ fun Modifier.glassMaterial(
         )
     }
 
-    return (if (material == GlassMaterial.Panel) this.roundedScrollEdge(LocalThemeGeometry.current.corner(cornerRadius)) else this)
+    return (if (material == GlassMaterial.Panel && clipScrollEdge) this.roundedScrollEdge(LocalThemeGeometry.current.corner(cornerRadius)) else this)
         .then(
             if (resolved.elevation > 0.dp) {
                 Modifier.shadow(
@@ -299,6 +305,7 @@ internal fun resolveGlassMaterial(
     pressed: Boolean,
     enabled: Boolean,
     glassIntensity: Float = DEFAULT_GLASS_INTENSITY,
+    cardBlur: Float? = null,
 ): ResolvedGlassMaterial {
     val normalizedIntensity = sanitizeGlassIntensity(glassIntensity)
     val intensityProfile = resolveGlassIntensityProfile(normalizedIntensity)
@@ -325,7 +332,8 @@ internal fun resolveGlassMaterial(
     } else {
         pressedSurface.copy(alpha = pressedSurface.alpha * 0.72f)
     }
-    val surface = unscaledSurface.withAlphaScale(intensityProfile.tintAlphaScale)
+    val surface = if (material == GlassMaterial.Panel && cardBlur != null) unscaledSurface
+        else unscaledSurface.withAlphaScale(intensityProfile.tintAlphaScale)
     val fallback = tokens.fallbackSurface.withAlphaScale(intensityProfile.fallbackAlphaScale)
     val highlightBase = if (pressed) {
         tokens.borderLo.copy(alpha = tokens.borderLo.alpha * 0.72f)
@@ -336,7 +344,7 @@ internal fun resolveGlassMaterial(
     val shadow = tokens.outerShadow.withAlphaScale(intensityProfile.shadowAlphaScale)
 
     val metrics = when (material) {
-        GlassMaterial.Panel -> GlassMaterialMetrics(5.dp, 0.dp, 0f, false)
+        GlassMaterial.Panel -> GlassMaterialMetrics(5.dp, (cardBlur ?: 0f).dp, 0f, cardBlur != null)
         GlassMaterial.Floating -> GlassMaterialMetrics(
             elevation = 12.dp,
             blurRadius = intensityProfile.floatingBlurRadius,

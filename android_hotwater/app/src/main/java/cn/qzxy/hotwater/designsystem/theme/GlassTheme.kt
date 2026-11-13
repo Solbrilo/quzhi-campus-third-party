@@ -28,7 +28,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -112,7 +111,7 @@ private fun GlassThemeContent(
     val motionEnabled = rememberMotionEnabled()
     val custom = rememberCustomThemeSettings()
     val targetTokens = if (palette == ThemePalette.CUSTOM) custom.tokens(darkTheme) else palette.tokens(darkTheme)
-    val surfaceDark = if (palette == ThemePalette.CUSTOM && custom.image) targetTokens.meshBase.luminance() < .35f else darkTheme
+    val surfaceDark = darkTheme
     val targetGeometry = if (palette == ThemePalette.CUSTOM) ThemeGeometry(custom.corner / 24f, (custom.corner * 4).dp) else palette.geometry
     var startGeometry by remember { mutableStateOf(targetGeometry) }
     var endGeometry by remember { mutableStateOf(targetGeometry) }
@@ -135,10 +134,10 @@ private fun GlassThemeContent(
     val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2 &&
         view.isHardwareAccelerated &&
         !preferOpaqueMaterials &&
-        normalizedGlassIntensity > 0f
+        (normalizedGlassIntensity > 0f || palette == ThemePalette.CUSTOM)
     val liquidAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && blurAvailable
-    // Use only one capture engine and disable both sources and consumers at zero.
-    // An empty effect still records RenderNodes; it is not an off switch.
+    // Use one capture engine. Custom cards keep their independently configured blur
+    // even when liquid refraction is off; other themes disable capture at zero.
     val hazeAvailable = blurAvailable && !liquidAvailable
     val hazeState = rememberHazeState(blurEnabled = hazeAvailable)
     val backgroundBackdrop = rememberLayerBackdrop()

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>沐简 · 图标提案</title>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#173F54"/><stop offset="1" stop-color="#2D7C80"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<path d="M256 103 C235 134 158 218 158 276 C158 332 201 374 256 374 C311 374 354 332 354 276 C354 218 277 134 256 103 Z" fill="#F6F6ED"/>
+<path d="M191 289 C229 315 282 299 320 263" fill="none" stroke="#2A7278" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

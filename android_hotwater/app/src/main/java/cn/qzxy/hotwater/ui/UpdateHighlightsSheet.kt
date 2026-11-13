@@ -5,7 +5,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -41,8 +40,9 @@ internal fun UpdateHighlightsSheet(onDismiss: () -> Unit) {
     val pager = rememberPagerState { 4 }
     val scope = rememberCoroutineScope()
     HalfPageSheet("这一版，更顺手", onDismiss) { close ->
-        Text("趣智校园热水 · ${BuildConfig.VERSION_NAME}", color = tokens.textSecondary, fontSize = 13.sp)
-        HorizontalPager(pager, modifier = Modifier.weight(1f).fillMaxWidth(), pageSpacing = 18.dp) { page ->
+        Text("浴爱 · ${BuildConfig.VERSION_NAME}", color = tokens.textSecondary, fontSize = 13.sp)
+        cn.qzxy.hotwater.ui.navigation.IntentAwarePager(pager,
+            modifier = Modifier.weight(1f).fillMaxWidth(), pageSpacing = 18.dp) { page ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .glassMaterial(GlassMaterial.Panel, 26.dp).padding(if (page == 0) 18.dp else 22.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {

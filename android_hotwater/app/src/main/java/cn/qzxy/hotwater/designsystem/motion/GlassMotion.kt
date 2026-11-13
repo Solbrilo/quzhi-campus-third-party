@@ -26,5 +26,5 @@ fun rememberMotionEnabled(): Boolean {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    return enabled
+    return enabled && LocalPageActivity.current.value
 }

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>温屿 · 图标提案</title>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#F5E7D3"/><stop offset="1" stop-color="#EAD2B6"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<path d="M164 333 L164 235 C164 113 348 113 348 235 L348 333" fill="none" stroke="#925244" stroke-width="35" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="256" cy="246" r="31" fill="#CF8353"/>
+<path d="M155 352 C206 324 282 381 357 346" fill="none" stroke="#925244" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -115,12 +115,15 @@ internal fun Modifier.roundedScrollEdge(radius: androidx.compose.ui.unit.Dp): Mo
 @Composable
 internal fun CollapsingGlassCard(
     modifier: Modifier = Modifier,
+    headerPadding: PaddingValues = PaddingValues(18.dp),
+    bodyPadding: PaddingValues = PaddingValues(start = 18.dp, end = 18.dp, bottom = 18.dp),
     header: @Composable () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val viewport = LocalScrollViewport.current
     val tokens = LocalGlassTokens.current
     val radius = LocalThemeGeometry.current.corner(24.dp)
+    val customMaterial = LocalThemePalette.current == ThemePalette.CUSTOM
     // Placement computes the header and drawing offset together. Only drawing observes
     // the state; no post-layout callback schedules a second placement on the next frame.
     val geometry = remember { PinnedCardGeometry() }
@@ -129,8 +132,11 @@ internal fun CollapsingGlassCard(
             val offset = geometry.offset.toFloat()
             val path = Path().apply { addRoundRect(RoundRect(0f, offset, size.width, size.height, CornerRadius(radius.toPx()))) }
             clipPath(path) {
-                drawRoundRect(tokens.fallbackSurface, topLeft = androidx.compose.ui.geometry.Offset(0f, offset),
-                    size = androidx.compose.ui.geometry.Size(size.width, size.height - offset), cornerRadius = CornerRadius(radius.toPx()))
+                // Preset cards keep their original flat surface. Only custom cards
+                // need background blur, rather than a full-card refraction graph.
+                if (!customMaterial) drawRoundRect(tokens.fallbackSurface,
+                    topLeft = Offset(0f, offset), size = androidx.compose.ui.geometry.Size(size.width, size.height - offset),
+                    cornerRadius = CornerRadius(radius.toPx()))
                 this@drawWithContent.drawContent()
                 drawRoundRect(tokens.borderHi.copy(alpha = .35f),
                     topLeft = androidx.compose.ui.geometry.Offset(.5.dp.toPx(), offset + .5.dp.toPx()),
@@ -138,18 +144,18 @@ internal fun CollapsingGlassCard(
                     cornerRadius = CornerRadius((radius.toPx() - .5.dp.toPx()).coerceAtLeast(0f)),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
             }
-        }, content = {
-        Column(Modifier.padding(horizontal = 18.dp).padding(bottom = 18.dp).drawWithContent {
+        }.then(if (customMaterial) Modifier.glassMaterial(GlassMaterial.Panel, 24.dp, clipScrollEdge = false) else Modifier), content = {
+        Column(Modifier.padding(bodyPadding).drawWithContent {
             clipRect(top = geometry.offset.toFloat()) { this@drawWithContent.drawContent() }
         }, verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
-        Box(Modifier.fillMaxWidth().background(tokens.fallbackSurface)) {
+        Box(Modifier.fillMaxWidth()) {
             // Keep clipped body controls from receiving taps through a pinned title.
             // This sibling leaves interactive header actions (for example history) usable.
             Box(Modifier.matchParentSize().clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null, onClick = {},
             ))
-            Box(Modifier.padding(18.dp)) { header() }
+            Box(Modifier.padding(headerPadding)) { header() }
         }
     }) { children, constraints ->
         val body = children[0].measure(constraints.copy(minHeight = 0))

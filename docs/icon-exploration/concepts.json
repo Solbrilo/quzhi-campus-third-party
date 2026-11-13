@@ -1,0 +1,67 @@
+[
+  {
+    "id": "01-quyang",
+    "name": "趣漾",
+    "roman": "QUYANG",
+    "title": "折页",
+    "pronunciation": "qù yàng",
+    "description": "把“智”的 Z 折成一条玻璃带，转折之间保留水的轻盈。",
+    "naming": "保留趣智校园的“趣”，“漾”带出水与校园的活力。",
+    "art": "以一笔连续的折面建立节奏，艺术性来自留白与折射的方向。",
+    "bg": [
+      "#F5FAFC",
+      "#DDEAF0"
+    ],
+    "glow": "#9CBFD5",
+    "text": "#263F4F"
+  },
+  {
+    "id": "02-muzhi",
+    "name": "沐知",
+    "roman": "MUZHI",
+    "title": "交叠",
+    "pronunciation": "mù zhī",
+    "description": "两片错位的玻璃像校园的窗，把冷暖颜色交给交叠处。",
+    "naming": "“沐”点出用途，“知”借“智”的同音，也联系校园与知性。",
+    "art": "不把水画出来，以透明叠色与不对称平衡表达清澈、温润。",
+    "bg": [
+      "#FAF8F4",
+      "#EEE9E4"
+    ],
+    "glow": "#E7B3A7",
+    "text": "#554D50"
+  },
+  {
+    "id": "03-qujian",
+    "name": "趣间",
+    "roman": "QUJIAN",
+    "title": "光隙",
+    "pronunciation": "qù jiān",
+    "description": "两扇静立的玻璃之间留一束光，像忙碌校园里短暂的独处。",
+    "naming": "“趣”联系趣智校园，“间”既是空间，也是一段自己的时间。",
+    "art": "用两块不对称的体量与一道负空间完成构图，克制而有张力。",
+    "bg": [
+      "#142A35",
+      "#233A46"
+    ],
+    "glow": "#66ABB7",
+    "text": "#EDF4F5",
+    "dark": true
+  },
+  {
+    "id": "04-zhinuan",
+    "name": "知暖",
+    "roman": "ZHINUAN",
+    "title": "棱花",
+    "pronunciation": "zhī nuǎn",
+    "description": "一片轻轻旋转的晶体，像被温度舒展开的花。",
+    "naming": "用“知”与“智”同音的联系，融入“知你冷暖”的日常关照。",
+    "art": "让四个方向稍有偏转；光从棱面穿过，轮廓轻盈，中心安静。",
+    "bg": [
+      "#FCF9F4",
+      "#F0E9DD"
+    ],
+    "glow": "#E8C4AB",
+    "text": "#5A5147"
+  }
+]

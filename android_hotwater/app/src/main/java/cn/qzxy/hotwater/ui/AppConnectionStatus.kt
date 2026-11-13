@@ -4,7 +4,7 @@ enum class AppConnectionStatus(val label: String, val accessibilityDescription: 
     OFFLINE("离线", "未联网或无法连接趣智校园服务器"),
     CONNECTED("已连接", "已连接趣智校园服务器"),
     USING("正在使用", "当前账户正在使用热水"),
-    DEVICE_BUSY("设备使用中", "热水器正在被其他用户使用"),
+    DEVICE_BUSY("设备占用中", "热水器正在被其他用户使用"),
 }
 
 internal fun resolveAppConnectionStatus(

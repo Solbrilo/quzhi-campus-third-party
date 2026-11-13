@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">趣智校园热水</string>
+    <string name="app_name">浴爱（四封版）</string>
     <string name="subtitle">把现有 bat 脚本里的 check / open / close 迁移到安卓端。</string>
     <string name="app_home_subtitle">一个主按钮就能开关热水，关键数据自动从接口结果里提取展示。</string>
     <string name="widget_name">热水一键开关</string>

@@ -21,10 +21,68 @@ import cn.qzxy.hotwater.testutil.RecordingHapticFeedback
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.swipeUp
+import cn.qzxy.hotwater.designsystem.theme.*
+import cn.qzxy.hotwater.ui.*
 
 class MainTabNavigationInstrumentedTest {
     @get:Rule val rule = createComposeRule()
     private lateinit var pager: PagerState
+
+    @Test fun realSettingsSurvivesRepeatedHomeReturnsAndScrolling() {
+        rule.setContent {
+            GlassTheme(ThemeMode.LIGHT) {
+                pager = rememberPagerState { 3 }
+                val navigation = rememberMainTabNavigation(pager)
+                val holder = rememberSaveableStateHolder()
+                Box(Modifier.fillMaxSize()) {
+                    IntentAwarePager(pager, Modifier.fillMaxSize().testTag("pager")) { page ->
+                        ScrollViewport(Modifier.fillMaxSize().padding(20.dp)) {
+                            holder.SaveableStateProvider(page) {
+                                when (page) {
+                                    0 -> OperationsPage(null, false, {}, {}, {}, {})
+                                    2 -> MorePage(
+                                        destination = MorePageDestination.OVERVIEW,
+                                        motionEnabled = true, checkResult = null, checking = false,
+                                        installing = false, releaseNotes = null,
+                                        releaseNotesLoading = false, releaseNotesError = null,
+                                        themeMode = ThemeMode.LIGHT, onThemeModeChange = {},
+                                        glassIntensity = DEFAULT_GLASS_INTENSITY,
+                                        onGlassIntensityChange = {}, onGlassIntensityChangeFinished = {},
+                                        onResetGlassIntensity = {}, onCheckForUpdate = {},
+                                        onLoadReleaseNotes = {}, onNavigate = {}, onClearAllUserData = {},
+                                        onOpenExternal = {}, onBack = {}, embedded = true,
+                                    )
+                                    else -> Text("账单")
+                                }
+                            }
+                        }
+                    }
+                    BottomDock(listOf("用水", "账单", "设置"), pager.currentPage,
+                        onSelected = { page, _ -> navigation.select(page, true) }, onDragStateChanged = {},
+                        pagePosition = { pager.currentPage + pager.currentPageOffsetFraction },
+                        modifier = Modifier.align(Alignment.BottomCenter))
+                }
+            }
+        }
+        rule.mainClock.autoAdvance = false
+        repeat(6) {
+            rule.onNodeWithTag("bottom_dock_tab_2").performClick()
+            rule.mainClock.advanceTimeBy(2000)
+            rule.runOnIdle { assertEquals(2, pager.settledPage) }
+            rule.onNodeWithTag("pager").performTouchInput { swipeUp(durationMillis = 180) }
+            rule.mainClock.advanceTimeBy(300)
+            rule.onNodeWithTag("bottom_dock_tab_0").performClick()
+            rule.mainClock.advanceTimeBy(2000)
+            rule.runOnIdle { assertEquals(0, pager.settledPage) }
+        }
+        rule.onNodeWithTag("bottom_dock_tab_2").performClick()
+        rule.mainClock.advanceTimeBy(1000)
+        rule.runOnIdle { assertEquals(2, pager.settledPage) }
+    }
 
     private fun content(haptic: RecordingHapticFeedback = RecordingHapticFeedback()) {
         rule.setContent {
@@ -32,7 +90,7 @@ class MainTabNavigationInstrumentedTest {
             CompositionLocalProvider(LocalHapticFeedback provides haptic) {
             val navigation = rememberMainTabNavigation(pager)
             Box(Modifier.fillMaxSize()) {
-                HorizontalPager(pager, modifier = Modifier.fillMaxSize().testTag("pager")) { Text("Page $it") }
+                IntentAwarePager(pager, modifier = Modifier.fillMaxSize().testTag("pager")) { Text("Page $it") }
                 BottomDock(listOf("用水", "账单", "设置"), pager.currentPage,
                     onSelected = { page, _ -> navigation.select(page, true) }, onDragStateChanged = {},
                     pagePosition = { pager.currentPage + pager.currentPageOffsetFraction },

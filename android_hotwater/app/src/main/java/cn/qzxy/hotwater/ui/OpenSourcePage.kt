@@ -48,7 +48,7 @@ private val referencedProjects = listOf(
 @Composable
 internal fun OpenSourcePage(onOpenExternal: (String) -> Unit) {
     val tokens = LocalGlassTokens.current
-    Text("这些开源项目为趣智校园热水提供了灵感与技术支持。点击项目可查看源码与许可。",
+    Text("这些开源项目为浴爱提供了灵感与技术支持。点击项目可查看源码与许可。",
         color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 23.sp)
     referencedProjects.forEach { project ->
         GlassPressable(onClick = { onOpenExternal(project.url) }, material = GlassMaterial.Panel,

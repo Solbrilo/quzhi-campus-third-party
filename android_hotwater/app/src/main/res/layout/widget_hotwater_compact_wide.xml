@@ -4,6 +4,7 @@
             <ImageView android:id="@+id/widget_status_dot" android:layout_width="8dp" android:layout_height="8dp" android:layout_marginEnd="6dp" android:background="@drawable/widget_status_dot_idle" android:contentDescription="@null" />
             <TextView android:id="@+id/widget_compact_state" android:layout_width="match_parent" android:layout_height="wrap_content" android:maxLines="1" android:ellipsize="end" android:textColor="@color/text_primary" android:textSize="12sp" android:textStyle="bold" />
         </LinearLayout>
+    <TextView android:id="@+id/widget_classic_balance" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="¥ --" android:singleLine="true" android:ellipsize="end" android:textSize="16sp" android:fontFamily="sans-serif-medium" android:textColor="@color/text_primary" android:layout_marginTop="4dp" />
         <TextView android:id="@+id/widget_compact_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:maxLines="1" android:ellipsize="end" android:textColor="@color/text_secondary" android:textSize="10sp" />
     </LinearLayout>
     <TextView android:id="@+id/widget_open_button" android:layout_width="60dp" android:layout_height="36dp" android:gravity="center" android:background="@drawable/widget_glass_action_open" android:textColor="@android:color/white" android:textSize="12sp" />

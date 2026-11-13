@@ -145,6 +145,8 @@ class WidgetStateInstrumentedTest {
             val snapshot = DashboardSnapshot(26.8, "26.80", "", "", "", "", null, false, isDeviceOnline = true)
             assertTrue(store.saveWidgetSnapshot(snapshot, generation))
             assertEquals("26.80", store.loadWidgetBalance())
+            assertTrue(store.saveWidgetSnapshot(snapshot.copy(balanceYuan = null, balanceLabel = "--", isDeviceOnline = null), generation))
+            assertTrue("Missing device fields must not erase a confirmed online state", store.loadWidgetOnline())
             assertTrue(store.saveWidgetSnapshot(snapshot.copy(balanceYuan = null, balanceLabel = "--", isDeviceOnline = false), generation))
             assertEquals("26.80", store.loadWidgetBalance())
             assertFalse(store.loadWidgetOnline())
@@ -153,6 +155,32 @@ class WidgetStateInstrumentedTest {
             assertEquals("--", store.loadWidgetBalance())
             assertFalse(store.loadWidgetOnline())
         } finally { store.clearAll() }
+    }
+
+    @Test fun smallSwitchKeepsLabelAndLedSeparateAndThumbRectangular() {
+        val density = context.resources.displayMetrics.density
+        instrumentation.runOnMainSync {
+            for ((width, height) in listOf(120 to 64, 140 to 64, 150 to 150, 180 to 180, 300 to 100)) {
+                val state = WidgetDisplayState(false, false, true, "7.51", DeviceIndicator.IDLE)
+                val view = HotWaterWidgetUi.switchRemoteViews(context, 0, state, height > 100, null,
+                    android.util.SizeF(width.toFloat(), height.toFloat())).apply(context, FrameLayout(context))
+                val w = (width * density).toInt(); val h = (height * density).toInt()
+                view.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY))
+                view.layout(0, 0, w, h)
+                val text = view.findViewById<TextView>(R.id.widget_thumb_text_off_0)
+                val led = view.findViewById<android.view.View>(R.id.widget_led_off_0)
+                assertTrue("Label/LED collision at $width", text.right <= led.left)
+                assertTrue("Thumb must stay wider than tall at $width", (text.parent as android.view.View).width > (text.parent as android.view.View).height)
+                if (height > 100) assertNotNull(view.findViewById<android.view.View>(R.id.widget_refresh_button))
+                else {
+                    val shell = view.findViewById<android.view.View>(R.id.widget_slider_shell)
+                    val track = view.findViewById<android.view.View>(R.id.widget_switch_track)
+                    assertEquals("Only a 4dp rim above and below the track", 8f * density,
+                        (shell.height - track.height).toFloat(), 2f)
+                }
+            }
+        }
     }
 
 }

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>澄刻 · 图标提案</title>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#3155B9"/><stop offset="1" stop-color="#233A83"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<path d="M202 157 C162 177 140 211 140 259 C140 325 191 375 256 375 C321 375 372 325 372 259 C372 211 350 177 310 157" fill="none" stroke="#F1F5FF" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M256 129 L256 234" fill="none" stroke="#F1F5FF" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M199 282 C233 263 269 305 313 278" fill="none" stroke="#96D9EF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

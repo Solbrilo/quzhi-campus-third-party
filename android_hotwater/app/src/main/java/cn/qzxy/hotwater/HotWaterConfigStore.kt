@@ -427,7 +427,7 @@ class HotWaterConfigStore(context: Context) : HotWaterSessionStore {
         val balance = if (snapshot.balanceYuan == null) loadWidgetBalance() else snapshot.balanceLabel
         prefs.edit().putLong("widget_snapshot_generation", expectedGeneration)
             .putString("widget_balance", balance)
-            .putBoolean("widget_online", snapshot.isDeviceOnline ?: (snapshot.balanceYuan != null))
+            .putBoolean("widget_online", snapshot.isDeviceOnline ?: (loadWidgetOnline() || snapshot.balanceYuan != null))
             .putBoolean("widget_occupied", snapshot.isDeviceBusyByOther).apply()
         true
     }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>沐流 · 图标提案</title>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#235B50"/><stop offset="1" stop-color="#123D38"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<path d="M337 151 C280 109 186 125 166 188 C143 258 207 277 259 296 C293 309 301 333 276 351 C249 369 211 357 187 339 L156 375 C204 417 299 415 331 365 C370 301 325 267 279 250 C221 228 203 216 216 193 C228 172 271 168 307 192 Z" fill="#E9F2DF"/>
+</svg>

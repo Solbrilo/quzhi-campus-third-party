@@ -105,7 +105,7 @@ internal fun ThemePage(selected: ThemePalette, onSelected: (ThemePalette) -> Uni
                 }
                 if (editing) {
                     CollapsingGlassCard(header = {
-                        Text("背景与外观", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
+                        Text("背景", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
                     }) {
                         GlassButton(if (importing) "正在处理图片…" else "选择背景图片", { picker.launch(arrayOf("image/*")) },
                             enabled = !importing, modifier = Modifier.fillMaxWidth())
@@ -116,15 +116,24 @@ internal fun ThemePage(selected: ThemePalette, onSelected: (ThemePalette) -> Uni
                             ThemeSlider("模糊度", settings.blur, 0f..24f) { update(settings.copy(blur = it)) }
                         }
                         ColorEditor(if (settings.image) "图片协调底色" else "背景颜色", settings.background) { update(settings.copy(background = it)) }
+                    }
+                    CollapsingGlassCard(header = {
+                        Text("卡片与控件", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
+                    }) {
                         ColorEditor("主题色", settings.accent) { update(settings.copy(accent = it)) }
                         ThemeSlider("圆角 · ${settings.corner.roundToInt()}", settings.corner, 0f..36f) { update(settings.copy(corner = it)) }
-                        Text("热水开关动画", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
+                        ThemeSlider("卡片模糊度 · ${(settings.cardBlur / 32f * 100).roundToInt()}%", settings.cardBlur, 0f..32f) {
+                            update(settings.copy(cardBlur = it))
+                        }
+                    }
+                    CollapsingGlassCard(header = {
+                        Text("开关动效", color = tokens.textPrimary, fontWeight = FontWeight.Medium)
+                    }) {
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(ThemePalette.SKY, ThemePalette.TIDE, ThemePalette.EMBER, ThemePalette.MONO).forEach { p ->
-                                GlassPressable({ update(settings.copy(animation = p.storageValue)) }, selected = settings.animation == p.storageValue,
+                            WaterAnimation.entries.forEach { animation ->
+                                GlassPressable({ update(settings.copy(animation = animation.storageValue)) }, selected = settings.animation == animation.storageValue,
                                     cornerRadius = 18.dp, contentPadding = PaddingValues(12.dp)) {
-                                    Text(when (p) { ThemePalette.SKY -> "流转"; ThemePalette.TIDE -> "涟漪"; ThemePalette.EMBER -> "日晕"; else -> "刻度" },
-                                        color = tokens.accentPrimary)
+                                    Text(animation.label, color = tokens.accentPrimary)
                                 }
                             }
                         }
@@ -178,18 +187,18 @@ private fun ColorEditor(label: String, value: Long, onChange: (Long) -> Unit) {
                 .border(1.dp, tokens.textTertiary.copy(alpha = .4f), RoundedCornerShape(8.dp)))
             TextButton({ expanded = !expanded }) { Text(if (expanded) "收起选色" else "更多颜色", color = tokens.accentPrimary) }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            listOf(0xFFF0F4F8, 0xFF15232D, 0xFFEAF1E8, 0xFF3674AE, 0xFF2C7762, 0xFF9B4729, 0xFF70529D).forEach { color ->
-                GlassPressable({ onChange(color) }, selected = value == color, modifier = Modifier.size(40.dp)
-                    .semantics { contentDescription = "$label #%06X".format(color and 0xFFFFFF) }, cornerRadius = 20.dp) {
-                    Box(Modifier.size(27.dp).background(Color(color), RoundedCornerShape(14.dp))
-                        .border(1.dp, tokens.textTertiary.copy(alpha = .3f), RoundedCornerShape(14.dp)))
-                }
-            }
-        }
         AnimatedVisibility(expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                ColorWheel(hue, saturation, brightness) { h, s -> publish(h = h, s = s) }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    listOf(0xFFF0F4F8, 0xFF15232D, 0xFFEAF1E8, 0xFF3674AE, 0xFF2C7762, 0xFF9B4729, 0xFF70529D).forEach { color ->
+                        GlassPressable({ onChange(color) }, selected = value == color, modifier = Modifier.size(40.dp)
+                            .semantics { contentDescription = "$label #%06X".format(color and 0xFFFFFF) }, cornerRadius = 20.dp) {
+                            Box(Modifier.size(27.dp).background(Color(color), RoundedCornerShape(14.dp))
+                                .border(1.dp, tokens.textTertiary.copy(alpha = .3f), RoundedCornerShape(14.dp)))
+                        }
+                    }
+                }
+                ColorWheel(hue, saturation, brightness) { h, sat -> publish(h = h, s = sat) }
                 ColorSlider("明度", brightness, 0f..1f,
                     listOf(Color.Black, Color.hsv(hue, saturation, 1f))) { publish(v = it) }
                 TextButton({ showHex = !showHex }) { Text(if (showHex) "收起色值" else "输入色值", color = tokens.accentPrimary) }

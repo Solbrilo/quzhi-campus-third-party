@@ -9,7 +9,6 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.core.graphics.drawable.IconCompat
 
 object NotificationHelper {
     private const val CHANNEL_ID = "hotwater_live"
@@ -93,13 +92,15 @@ object NotificationHelper {
             closeIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val closeAction = NotificationCompat.Action.Builder(
-            IconCompat.createWithResource(context, R.drawable.ic_hotwater_stop),
-            "关闭热水",
-            closePending,
-        ).build()
+        val expanded = android.widget.RemoteViews(context.packageName, R.layout.notification_hotwater_active).apply {
+            val elapsed = (System.currentTimeMillis() - usageStartedAtMillis).coerceAtLeast(0L)
+            setChronometer(R.id.notification_duration, android.os.SystemClock.elapsedRealtime() - elapsed, null, true)
+            setOnClickPendingIntent(R.id.notification_close, closePending)
+        }
 
-        return NotificationCompat.Builder(context, CHANNEL_ID)
+        val promoted = FeedbackPreferences.enabled(context, FeedbackOption.PROMOTED_NOTIFICATION) &&
+            canPostPromotedNotifications(context)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_tile)
             .setLargeIcon(Icon.createWithResource(context, R.mipmap.ic_launcher_round))
             .setContentTitle("热水已开启")
@@ -108,13 +109,19 @@ object NotificationHelper {
             .setUsesChronometer(true)
             .setChronometerCountDown(false)
             .setContentIntent(openPending)
-            .addAction(closeAction)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("热水已开启"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setRequestPromotedOngoing(FeedbackPreferences.enabled(context, FeedbackOption.PROMOTED_NOTIFICATION))
+            .setRequestPromotedOngoing(promoted)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .build()
+        // Android 16 rejects custom RemoteViews for native promoted live updates. Keep
+        // that system template when promotion is available; other hosts get the timer/stop row.
+        if (promoted) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText("热水已开启"))
+                .addAction(R.drawable.ic_notification_stop, "关闭热水", closePending)
+        } else {
+            builder.setCustomBigContentView(expanded).setStyle(NotificationCompat.DecoratedCustomViewStyle())
+        }
+        return builder.build()
     }
 }
