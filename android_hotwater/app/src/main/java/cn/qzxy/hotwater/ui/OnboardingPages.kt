@@ -1,9 +1,10 @@
 package cn.qzxy.hotwater.ui
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
@@ -13,7 +14,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -41,22 +41,29 @@ internal const val WelcomeQuote = "沐芳莫弹冠，浴兰莫振衣。——李
 internal const val WelcomeFirstPhrase = "沐芳莫弹冠，"
 internal const val WelcomeSecondPhrase = "浴兰莫振衣。"
 internal const val WelcomeAttribution = "——李白《沐浴子》"
-private const val WelcomeDurationMillis = 1_400
-private const val WelcomeSecondPhraseMillis = 180f
-private const val WelcomeAttributionStartMillis = 420f
+private const val WelcomeFirstPhraseMillis = 120
+private const val WelcomePhraseIntervalMillis = 600
+private const val WelcomeCharacterStaggerMillis = 30
+private const val WelcomeCharacterRevealMillis = 750
+private const val WelcomePhraseDurationMillis = 900
+private const val WelcomeSecondPhraseMillis = WelcomeFirstPhraseMillis + WelcomePhraseIntervalMillis
+private const val WelcomeAttributionStartMillis = WelcomeSecondPhraseMillis + WelcomePhraseDurationMillis + 600
+private const val WelcomeAttributionDurationMillis = 800
+private const val WelcomeDurationMillis = WelcomeAttributionStartMillis + WelcomeAttributionDurationMillis
+private val WelcomeRevealEasing = CubicBezierEasing(.22f, 0f, .2f, 1f)
 private val WelcomePoemFont = FontFamily(Font(R.font.mufang_poem_serif))
 
 internal fun welcomeCharacterProgress(lineIndex: Int, characterIndex: Int, elapsed: Float): Float {
-    val lineStart = if (lineIndex == 0) 0f else WelcomeSecondPhraseMillis
-    val characterStart = lineStart + characterIndex * 20f
-    return ((elapsed - characterStart) / 100f).coerceIn(0f, 1f)
+    val lineStart = if (lineIndex == 0) WelcomeFirstPhraseMillis else WelcomeSecondPhraseMillis
+    val characterStart = lineStart + characterIndex * WelcomeCharacterStaggerMillis
+    return ((elapsed - characterStart) / WelcomeCharacterRevealMillis).coerceIn(0f, 1f)
 }
 
 internal fun welcomeAttributionProgress(elapsed: Float): Float =
-    ((elapsed - WelcomeAttributionStartMillis) / 420f).coerceIn(0f, 1f)
+    ((elapsed - WelcomeAttributionStartMillis) / WelcomeAttributionDurationMillis).coerceIn(0f, 1f)
 
 internal fun welcomeHapticCueCount(elapsed: Float): Int = when {
-    elapsed < 16f -> 0
+    elapsed < WelcomeFirstPhraseMillis -> 0
     elapsed < WelcomeSecondPhraseMillis -> 1
     elapsed < WelcomeAttributionStartMillis -> 2
     else -> 3
@@ -120,7 +127,6 @@ fun OnboardingQuotePage(onNext: () -> Unit, isUpgrade: Boolean = false) {
 
 @Composable
 private fun WelcomePoem(elapsed: Float, static: Boolean = false) {
-    val tokens = LocalGlassTokens.current
     Box(modifier = Modifier.clearAndSetSemantics { contentDescription = WelcomeQuote }) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
@@ -135,20 +141,22 @@ private fun WelcomePoem(elapsed: Float, static: Boolean = false) {
 @Composable
 private fun WelcomePoemAttribution(elapsed: Float, static: Boolean) {
     val tokens = LocalGlassTokens.current
-    val progress = if (static) 1f else FastOutSlowInEasing.transform(welcomeAttributionProgress(elapsed))
+    val progress = if (static) 1f else WelcomeRevealEasing.transform(welcomeAttributionProgress(elapsed))
     Column(
         modifier = Modifier.padding(top = 46.dp, end = 10.dp).width(22.dp).graphicsLayer {
             alpha = progress
-            translationY = (8f * (1f - progress)).dp.toPx()
+            translationY = (6f * (1f - progress)).dp.toPx()
         },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        WelcomeAttribution.forEach { character ->
+        // Draw the two-character dash as one continuous stroke in vertical writing.
+        Box(Modifier.width(1.dp).height(36.dp).background(tokens.textSecondary))
+        Spacer(Modifier.height(4.dp))
+        WelcomeAttribution.removePrefix("——").forEach { character ->
             val verticalCharacter = when (character) { '《' -> '︽'; '》' -> '︾'; else -> character }
             Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                Text(verticalCharacter.toString(),
-                    modifier = if (character == '—') Modifier.rotate(90f) else Modifier,
-                    color = tokens.textSecondary, fontSize = 14.sp, fontFamily = WelcomePoemFont)
+                Text(verticalCharacter.toString(), color = tokens.textSecondary,
+                    fontSize = 14.sp, fontFamily = WelcomePoemFont)
             }
         }
     }
@@ -161,14 +169,15 @@ private fun WelcomePoemPhrase(phrase: String, lineIndex: Int, elapsed: Float, st
         phrase.forEachIndexed { characterIndex, character ->
             val punctuation = character == '，' || character == '。'
             val verticalCharacter = when (character) { '，' -> '︐'; '。' -> '︒'; else -> character }
-            val progress = if (static) 1f else FastOutSlowInEasing.transform(
+            val progress = if (static) 1f else WelcomeRevealEasing.transform(
                 welcomeCharacterProgress(lineIndex, characterIndex, elapsed),
             )
             Box(Modifier.width(42.dp).height(if (punctuation) 24.dp else 42.dp).graphicsLayer {
                 alpha = progress
-                translationY = (10f * (1f - progress)).dp.toPx()
+                translationY = (8f * (1f - progress)).dp.toPx()
             }, contentAlignment = Alignment.Center) {
-                Text(verticalCharacter.toString(), color = tokens.textPrimary,
+                Text(verticalCharacter.toString(),
+                    color = if (lineIndex == 0 && characterIndex < 2) tokens.accentPrimary else tokens.textPrimary,
                     fontSize = if (punctuation) 20.sp else 30.sp,
                     fontFamily = WelcomePoemFont, fontWeight = FontWeight.Normal)
             }
