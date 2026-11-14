@@ -31,6 +31,8 @@ private val referencedProjects = listOf(
         "Material 界面组件与 Android 主题基础。", "https://github.com/material-components/material-components-android"),
     OpenSourceProject("Material Design Icons", "Google", "Apache-2.0",
         "应用中使用的开源界面图标。", "https://github.com/google/material-design-icons"),
+    OpenSourceProject("Noto Serif CJK", "Adobe / Google / Noto contributors", "SIL OFL 1.1",
+        "欢迎诗句使用宋体字形子集，完整字体许可保存在应用 assets/licenses 中。", "https://github.com/notofonts/noto-cjk"),
     OpenSourceProject("Kotlin / kotlinx.coroutines", "JetBrains and contributors", "Apache-2.0",
         "应用语言、协程、异步任务与状态流。", "https://github.com/Kotlin/kotlinx.coroutines"),
     OpenSourceProject("OkHttp / Okio", "Square and contributors", "Apache-2.0",
@@ -48,7 +50,7 @@ private val referencedProjects = listOf(
 @Composable
 internal fun OpenSourcePage(onOpenExternal: (String) -> Unit) {
     val tokens = LocalGlassTokens.current
-    Text("这些开源项目为浴爱提供了灵感与技术支持。点击项目可查看源码与许可。",
+    Text("这些开源项目为沐芳提供了灵感与技术支持。点击项目可查看源码与许可。",
         color = tokens.textSecondary, fontSize = 14.sp, lineHeight = 23.sp)
     referencedProjects.forEach { project ->
         GlassPressable(onClick = { onOpenExternal(project.url) }, material = GlassMaterial.Panel,

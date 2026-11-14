@@ -36,6 +36,15 @@ provides background sampling, blur, refraction and highlights.
 Source: https://github.com/Kyant0/AndroidLiquidGlass
 License: app/src/main/assets/licenses/AndroidLiquidGlass-LICENSE.txt
 
+# Noto Serif CJK welcome poem subset
+
+The welcome poem uses a subset of Noto Serif CJK SC Regular from
+[notofonts/noto-cjk](https://github.com/notofonts/noto-cjk), Copyright 2017 Adobe
+Systems Incorporated, licensed under the SIL Open Font License, Version 1.1.
+The subset contains only the poem and attribution characters and has been
+renamed to `Mufang Poem Serif`. The complete copyright and license are distributed
+in `app/src/main/assets/licenses/NotoSerifCJK-OFL.txt`.
+
 # Muguang recharge reference
 
 Recharge package/payment-mode discovery, the four-field request signature, Alipay order

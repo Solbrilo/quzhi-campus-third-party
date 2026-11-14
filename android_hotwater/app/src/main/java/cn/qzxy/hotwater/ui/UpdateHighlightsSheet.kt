@@ -40,7 +40,7 @@ internal fun UpdateHighlightsSheet(onDismiss: () -> Unit) {
     val pager = rememberPagerState { 4 }
     val scope = rememberCoroutineScope()
     HalfPageSheet("这一版，更顺手", onDismiss) { close ->
-        Text("浴爱 · ${BuildConfig.VERSION_NAME}", color = tokens.textSecondary, fontSize = 13.sp)
+        Text("沐芳 · ${BuildConfig.VERSION_NAME}", color = tokens.textSecondary, fontSize = 13.sp)
         cn.qzxy.hotwater.ui.navigation.IntentAwarePager(pager,
             modifier = Modifier.weight(1f).fillMaxWidth(), pageSpacing = 18.dp) { page ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())

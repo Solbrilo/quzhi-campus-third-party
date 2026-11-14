@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="surface">#E9F3FF</color>
-    <color name="surface_alt">#FBFDFF</color>
-    <color name="card">#85FFFFFF</color>
     <color name="border">#A6FFFFFF</color>
     <color name="text_primary">#14243B</color>
     <color name="text_secondary">#4F6480</color>
     <color name="accent">#315F98</color>
-    <color name="accent_soft">#B8D3F8</color>
     <color name="chip_fill">#80FFFFFF</color>
 </resources>

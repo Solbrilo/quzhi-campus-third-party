@@ -7,16 +7,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OnboardingQuoteAnimationTest {
-    @Test fun phrasesRevealTogetherAndHapticAtEachEntrance() {
-        assertEquals(0, welcomeHapticCueCount(179f))
-        assertEquals(1, welcomeHapticCueCount(180f))
-        assertEquals(1, welcomeHapticCueCount(899f))
-        assertEquals(2, welcomeHapticCueCount(900f))
-        assertEquals(welcomeCharacterProgress(0, 500f), welcomeCharacterProgress(1, 500f), 0f)
-        assertEquals(0f, welcomeCharacterProgress(2, 500f), 0f)
-        assertEquals(welcomeCharacterProgress(2, 1200f), welcomeCharacterProgress(5, 1200f), 0f)
-        assertEquals(1f, welcomeCharacterProgress(5, 1900f), 0f)
-        assertEquals(2, welcomeHapticCueCount(10000f))
+    @Test fun phrasesRevealRightToLeftBeforeTheAttributionAndCueThreeHaptics() {
+        assertEquals(0, welcomeHapticCueCount(15f))
+        assertEquals(1, welcomeHapticCueCount(16f))
+        assertEquals(1, welcomeHapticCueCount(179f))
+        assertEquals(2, welcomeHapticCueCount(180f))
+        assertEquals(2, welcomeHapticCueCount(419f))
+        assertEquals(3, welcomeHapticCueCount(420f))
+        assertEquals(0f, welcomeCharacterProgress(0, 0, 0f), 0f)
+        assertEquals(1f, welcomeCharacterProgress(0, 5, 200f), 0f)
+        assertEquals(0f, welcomeCharacterProgress(1, 0, 179f), 0f)
+        assertEquals(1f, welcomeCharacterProgress(1, 5, 380f), 0f)
+        assertEquals(0f, welcomeAttributionProgress(419f), 0f)
+        assertEquals(1f, welcomeAttributionProgress(840f), 0f)
+        assertEquals("沐芳莫弹冠，浴兰莫振衣。——李白《沐浴子》", WelcomeQuote)
+        assertEquals(3, welcomeHapticCueCount(10000f))
     }
 
     @Test

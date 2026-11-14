@@ -1,0 +1,31 @@
+{
+    "id": "qzxy-hotwater",
+    "title": "沐芳 · 趣智校园第三方客户端",
+    "kicker": "Campus Tool / Mobile",
+    "summary": "沐芳是一款 Android 与 HarmonyOS NEXT 原生客户端。了解 Android 4.0.0 的用水控制、校园账单、半屏支付宝充值、七套主题、加高的 2×1 小组件及李白诗句欢迎页。",
+    "status": "Android v4.0.0 · 持续更新",
+    "tags": [
+        "Kotlin",
+        "ArkTS",
+        "Python"
+    ],
+    "buttons": [
+        {
+            "label": "下载 Android",
+            "url": "https://gitee.com/Solbrilo/quzhi-campus-third-party/releases"
+        },
+        {
+            "label": "打开仓库",
+            "url": "https://gitee.com/Solbrilo/quzhi-campus-third-party"
+        },
+        {
+            "label": "查看项目页",
+            "url": "/project-qzxy-hotwater.php"
+        }
+    ],
+    "detail_url": "https://gitee.com/Solbrilo/quzhi-campus-third-party/releases",
+    "detail_label": "下载 Android",
+    "demo_url": "https://gitee.com/Solbrilo/quzhi-campus-third-party",
+    "demo_label": "打开仓库",
+    "featured": true
+}

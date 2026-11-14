@@ -89,8 +89,12 @@ object HotWaterWidgetUi {
         return RemoteViews(context.packageName, if (dashboard) R.layout.widget_hotwater_dashboard else R.layout.widget_hotwater_slider).apply {
             val status = state.indicator
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val trackHeight = minOf((size.width - 16f) * .32f,
-                    if (dashboard) size.height * .36f else size.height - 12f).coerceIn(32f, 88f)
+                val trackHeight = if (dashboard) {
+                    minOf((size.width - 16f) * .32f, size.height * .36f).coerceIn(32f, 88f)
+                } else {
+                    // Add 8dp to the slim slider while keeping its 4dp rim inside the host.
+                    minOf((size.width - 16f) * .32f + 8f, size.height - 8f).coerceIn(32f, 88f)
+                }
                 setViewLayoutHeight(R.id.widget_switch_track, trackHeight, android.util.TypedValue.COMPLEX_UNIT_DIP)
                 if (!dashboard) setViewLayoutHeight(R.id.widget_slider_shell, trackHeight + 8f, android.util.TypedValue.COMPLEX_UNIT_DIP)
             }
