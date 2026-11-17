@@ -6,7 +6,7 @@
 
 [项目介绍](https://nebularive.top/project-qzxy-hotwater.php) · [下载 Android](https://gitee.com/Solbrilo/quzhi-campus-third-party/releases) · [Gitee 仓库](https://gitee.com/Solbrilo/quzhi-campus-third-party) · [GitHub 镜像](https://github.com/Solbrilo/quzhi-campus-third-party)
 
-> 最近核对的 Android 正式发行版为 **v3.1.2**。当前 Android 源码为 **4.0.0 (31)**；下文展示开发源码，新功能尚未全部包含在 v3.1.2 安装包中；下载时请以对应 Release 的说明为准。
+> 最近的 Android 正式发行版为 **v4.0.0**。当前 Android 源码为 **4.0.0 (31)**；下载时请以对应 Release 的说明为准。
 
 ## 应用截图
 
